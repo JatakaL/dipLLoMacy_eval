@@ -126,7 +126,8 @@ class DiplomacyMapGenerator:
             land_probability = np.exp(-min_distance * 5) * 2  # Tune these parameters as needed
             
             # Determine type with some randomness
-            if random.random() < land_probability or random.random() < self.land_ratio:
+            combined_probability = min(land_probability + self.land_ratio * 0.5, 0.9)  # Cap at 90%
+            if random.random() < combined_probability:
                 region["type"] = "land"
             else:
                 region["type"] = "sea"
