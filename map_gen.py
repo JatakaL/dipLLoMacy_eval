@@ -11,12 +11,15 @@ from sklearn.cluster import AgglomerativeClustering, KMeans
 import itertools
 
 class DiplomacyMapGenerator:
-    def __init__(self, num_regions=100, num_powers=7, land_ratio=0.7, supply_density=0.25, cell_multiplier=10):
+    def __init__(self, num_regions=100, num_powers=7, land_ratio=0.7, supply_density=0.25, 
+                 cell_multiplier=10, num_sea_starters=4, sea_growth_bias=0.7):
         self.num_regions = num_regions
         self.num_powers = num_powers
         self.land_ratio = land_ratio
         self.supply_density = supply_density
-        self.cell_multiplier = cell_multiplier  # How many more cells to generate than regions
+        self.cell_multiplier = cell_multiplier
+        self.num_sea_starters = num_sea_starters  # Number of initial sea points
+        self.sea_growth_bias = sea_growth_bias    # Probability bias for growing from existing sea
         
         # Initialize structures
         self.cells = {}  # Individual Voronoi cells
@@ -37,8 +40,8 @@ class DiplomacyMapGenerator:
     def generate_map(self):
         """Generate a complete Diplomacy-style map using cell merging"""
         self._generate_voronoi_cells()
-        self._determine_cell_types()
         self._build_cell_adjacency()
+        self._grow_seas_from_starters()
         self._merge_cells_into_regions()
         self._determine_region_adjacency()
         self._place_supply_centers()
@@ -100,42 +103,23 @@ class DiplomacyMapGenerator:
                 largest = max(clipped_poly.geoms, key=lambda p: p.area)
                 clipped_vertices = np.array(largest.exterior.coords)
             
-            # Store cell data
+            # Store cell data - START ALL AS LAND, we'll grow seas later
             self.cells[cell_id] = {
                 "id": cell_id,
                 "center": points[i],
                 "vertices": clipped_vertices,
-                "type": None,  # Will be "land" or "sea"
+                "type": "land",  # Start all as land
                 "area": clipped_poly.area,
                 "neighbors": [],
-                "merged_into": None  # Track which region this cell belongs to
+                "merged_into": None,  # Track which region this cell belongs to
+                "sea_starter": False,  # Track if this was a sea starter
+                "sea_generation": None  # Track which generation of sea growth
             }
             
             self.cell_polygons[cell_id] = clipped_poly
             
             # Add node to cell adjacency graph
             self.cell_adjacency.add_node(cell_id, pos=points[i])
-    
-    def _determine_cell_types(self):
-        """Determine which cells are land or sea"""
-        # Create several "continent" centers
-        num_continents = int(self.num_powers * 1.5)
-        continent_centers = np.random.rand(num_continents, 2)
-        
-        for cell_id, cell in self.cells.items():
-            center = cell["center"]
-            
-            # Calculate distance to nearest continent center
-            distances = np.linalg.norm(continent_centers - center, axis=1)
-            min_distance = np.min(distances)
-            
-            # Closer to continent = more likely to be land
-            land_probability = np.exp(-min_distance * 5) * 2
-            
-            if random.random() < land_probability or random.random() < self.land_ratio:
-                cell["type"] = "land"
-            else:
-                cell["type"] = "sea"
     
     def _build_cell_adjacency(self):
         """Build adjacency graph for cells"""
@@ -153,11 +137,148 @@ class DiplomacyMapGenerator:
                     self.cells[cell1]["neighbors"].append(cell2)
                     self.cells[cell2]["neighbors"].append(cell1)
     
+    def _grow_seas_from_starters(self):
+        """Grow seas from strategic starter points using organic growth"""
+        print(f"Growing seas from {self.num_sea_starters} starter points...")
+        
+        # Calculate target number of sea cells
+        total_cells = len(self.cells)
+        target_sea_cells = int(total_cells * (1 - self.land_ratio))
+        
+        print(f"Target: {target_sea_cells} sea cells out of {total_cells} total")
+        
+        # Choose strategic starter positions for seas
+        sea_starters = self._choose_sea_starters()
+        
+        # Convert starters to sea
+        current_sea_cells = set()
+        sea_frontier = []  # Cells that can grow sea to adjacent land
+        
+        for starter in sea_starters:
+            self.cells[starter]["type"] = "sea"
+            self.cells[starter]["sea_starter"] = True
+            self.cells[starter]["sea_generation"] = 0
+            current_sea_cells.add(starter)
+            sea_frontier.append(starter)
+        
+        print(f"Started with {len(sea_starters)} sea starter cells")
+        
+        # Grow seas until we reach target
+        generation = 1
+        while len(current_sea_cells) < target_sea_cells and sea_frontier:
+            new_sea_cells = []
+            
+            # For each cell in the current frontier
+            for sea_cell in sea_frontier:
+                # Find land neighbors that could become sea
+                land_neighbors = [
+                    neighbor for neighbor in self.cells[sea_cell]["neighbors"]
+                    if self.cells[neighbor]["type"] == "land"
+                ]
+                
+                # Grow to some of these neighbors
+                for neighbor in land_neighbors:
+                    if len(current_sea_cells) >= target_sea_cells:
+                        break
+                    
+                    # Probability of growth - higher if more sea neighbors
+                    sea_neighbor_count = sum(
+                        1 for n in self.cells[neighbor]["neighbors"]
+                        if self.cells[n]["type"] == "sea"
+                    )
+                    
+                    # Base probability plus bonus for having sea neighbors
+                    growth_probability = 0.3 + (sea_neighbor_count * 0.2)
+                    growth_probability *= self.sea_growth_bias
+                    
+                    if random.random() < growth_probability:
+                        self.cells[neighbor]["type"] = "sea"
+                        self.cells[neighbor]["sea_generation"] = generation
+                        current_sea_cells.add(neighbor)
+                        new_sea_cells.append(neighbor)
+            
+            # Update frontier - remove cells with no land neighbors, add new sea cells
+            sea_frontier = []
+            for sea_cell in list(current_sea_cells):
+                has_land_neighbors = any(
+                    self.cells[neighbor]["type"] == "land"
+                    for neighbor in self.cells[sea_cell]["neighbors"]
+                )
+                if has_land_neighbors:
+                    sea_frontier.append(sea_cell)
+            
+            generation += 1
+            print(f"Generation {generation}: {len(current_sea_cells)} total sea cells")
+            
+            # Safety check to prevent infinite loops
+            if generation > 50:
+                break
+        
+        print(f"Final: {len(current_sea_cells)} sea cells ({len(current_sea_cells)/total_cells:.1%})")
+        
+        # Ensure we have some land left
+        land_cells = [cell for cell in self.cells if self.cells[cell]["type"] == "land"]
+        print(f"Remaining land cells: {len(land_cells)} ({len(land_cells)/total_cells:.1%})")
+    
+    def _choose_sea_starters(self):
+        """Choose strategic starting positions for seas"""
+        cell_ids = list(self.cells.keys())
+        
+        # Strategy: Place starters near edges and corners, plus maybe one inland
+        starters = []
+        
+        # Get cells near each edge/corner
+        edge_cells = {
+            'left': [],
+            'right': [],
+            'top': [],
+            'bottom': [],
+            'center': []
+        }
+        
+        for cell_id in cell_ids:
+            center = self.cells[cell_id]["center"]
+            x, y = center[0], center[1]
+            
+            # Categorize by position
+            if x < 0.2:
+                edge_cells['left'].append(cell_id)
+            elif x > 0.8:
+                edge_cells['right'].append(cell_id)
+            elif y < 0.2:
+                edge_cells['bottom'].append(cell_id)
+            elif y > 0.8:
+                edge_cells['top'].append(cell_id)
+            elif 0.3 < x < 0.7 and 0.3 < y < 0.7:
+                edge_cells['center'].append(cell_id)
+        
+        # Choose one starter from each edge (if we have enough)
+        edge_order = ['left', 'bottom', 'right', 'top', 'center']
+        
+        for i, edge in enumerate(edge_order):
+            if i >= self.num_sea_starters:
+                break
+            if edge_cells[edge]:
+                starter = random.choice(edge_cells[edge])
+                starters.append(starter)
+        
+        # If we need more starters, choose randomly from remaining cells
+        while len(starters) < self.num_sea_starters:
+            remaining = [c for c in cell_ids if c not in starters]
+            if remaining:
+                starters.append(random.choice(remaining))
+            else:
+                break
+        
+        return starters
+    
     def _merge_cells_into_regions(self):
         """Merge cells into larger regions using various strategies"""
         # Separate land and sea cells
         land_cells = [c for c in self.cells if self.cells[c]["type"] == "land"]
         sea_cells = [c for c in self.cells if self.cells[c]["type"] == "sea"]
+        
+        print(f"Merging {len(land_cells)} land cells and {len(sea_cells)} sea cells into {self.num_regions} regions")
         
         # For seas, use much fewer regions to create large connected bodies of water
         target_sea_regions = max(3, int(self.num_regions * 0.25))  # Much fewer sea regions
@@ -171,6 +292,8 @@ class DiplomacyMapGenerator:
         
         # Combine all regions
         all_regions = land_regions + sea_regions
+        
+        print(f"Created {len(land_regions)} land regions and {len(sea_regions)} sea regions")
         
         # Create final region data structures
         for i, (region_cells, region_type) in enumerate(all_regions):
@@ -263,6 +386,8 @@ class DiplomacyMapGenerator:
         
         # Get all connected components of sea cells
         sea_components = list(nx.connected_components(sea_subgraph))
+        
+        print(f"Found {len(sea_components)} sea components, targeting {target_count} sea regions")
         
         # If we have fewer components than target regions, each component becomes a region
         if len(sea_components) <= target_count:
@@ -531,15 +656,28 @@ class DiplomacyMapGenerator:
             used_names.add(name)
             region["name"] = name
     
-    def visualize_map(self, show_names=True, show_borders=True, show_cells=False):
-        """Visualize the generated map with option to show underlying cells"""
+    def visualize_map(self, show_names=True, show_borders=True, show_cells=False, show_sea_growth=False):
+        """Visualize the generated map with various display options"""
         plt.figure(figsize=(15, 12))
         
         # Optionally show underlying cell structure
         if show_cells:
             for cell_id, cell in self.cells.items():
                 polygon = cell["vertices"]
-                plt.plot(polygon[:, 0], polygon[:, 1], color="lightgray", linewidth=0.3, alpha=0.5)
+                
+                if show_sea_growth and cell["type"] == "sea":
+                    # Color cells by sea generation
+                    if cell["sea_starter"]:
+                        cell_color = "darkblue"
+                    else:
+                        generation = cell.get("sea_generation", 0)
+                        # Create gradient from dark blue to light blue
+                        blue_intensity = max(0.3, 1.0 - generation * 0.1)
+                        cell_color = (0, 0, blue_intensity)
+                else:
+                    cell_color = "lightgray"
+                
+                plt.plot(polygon[:, 0], polygon[:, 1], color=cell_color, linewidth=0.3, alpha=0.7)
         
         # Draw region polygons
         for region_id, region in self.regions.items():
@@ -597,42 +735,62 @@ class DiplomacyMapGenerator:
                 plt.text(center[0], center[1], region["name"], 
                         ha='center', va='center', fontsize=8, weight='bold')
         
-        title = "Procedurally Generated Diplomacy Map (Cell Merging)"
+        # Show sea starter points if displaying sea growth
+        if show_sea_growth:
+            for cell_id, cell in self.cells.items():
+                if cell.get("sea_starter"):
+                    center = cell["center"]
+                    plt.plot(center[0], center[1], '*', markersize=12, color='red', 
+                            markeredgecolor='darkred', markeredgewidth=1)
+        
+        title = "Diplomacy Map with Organic Sea Growth"
         if show_cells:
-            title += " - Showing Underlying Cells"
+            title += " (Showing Cells)"
+        if show_sea_growth:
+            title += " (Sea Growth Visualization)"
+        
         plt.title(title)
         plt.axis('off')
         plt.tight_layout()
         return plt
 
-# Usage example
+# Usage example with sea growth
 if __name__ == "__main__":
-    # Create map generator with cell merging
+    # Create map generator with organic sea growth
     map_gen = DiplomacyMapGenerator(
-        num_regions=75,  # Final number of territories
+        num_regions=75,          # Final number of territories
         num_powers=7,
-        land_ratio=0.6,  # Slightly less land to create more sea
+        land_ratio=0.65,         # 65% land, 35% sea
         supply_density=0.3,
-        cell_multiplier=12  # Generate more cells for better merging
+        cell_multiplier=12,      # Generate more cells for better merging
+        num_sea_starters=4,      # Number of initial sea points
+        sea_growth_bias=0.8      # Higher bias = more aggressive sea growth
     )
     
     # Generate map
     regions, adjacency_graph, supply_centers, starting_positions = map_gen.generate_map()
     
-    # Visualize the map
+    # Visualize the final map
     plt = map_gen.visualize_map(show_names=True, show_cells=False)
     plt.show()
     
-    # Show with underlying cells visible
-    plt = map_gen.visualize_map(show_names=False, show_cells=True)
+    # Show the sea growth process
+    plt = map_gen.visualize_map(show_names=False, show_cells=True, show_sea_growth=True)
     plt.show()
     
     # Print statistics
-    print(f"Generated map with {len(regions)} regions from {len(map_gen.cells)} cells")
+    print(f"\nGenerated map with {len(regions)} regions from {len(map_gen.cells)} cells")
     print(f"Land regions: {sum(1 for r in regions.values() if r['type'] == 'land')}")
     print(f"Sea regions: {sum(1 for r in regions.values() if r['type'] == 'sea')}")
     print(f"Supply centers: {len(supply_centers)}")
     print(f"Powers: {len(starting_positions)}")
+    
+    # Print sea statistics
+    sea_cells = [c for c in map_gen.cells.values() if c['type'] == 'sea']
+    print(f"\nSea growth statistics:")
+    print(f"Sea starters: {sum(1 for c in sea_cells if c.get('sea_starter'))}")
+    max_gen = max((c.get('sea_generation', 0) for c in sea_cells), default=0)
+    print(f"Sea growth generations: {max_gen + 1}")
     
     # Print average cells per region
     cells_per_region = [len(region['constituent_cells']) for region in regions.values()]
