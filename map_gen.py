@@ -791,15 +791,15 @@ class DiplomacyMapGenerator:
 
 # Usage example with sea growth
 if __name__ == "__main__":
-    # Create map generator with organic sea growth
+    # Create map generator with strategic sea regions
     map_gen = DiplomacyMapGenerator(
         num_regions=75,          # Final number of territories
         num_powers=7,
-        land_ratio=0.65,         # 65% land, 35% sea
+        land_ratio=0.6,          # 60% land, 40% sea for more strategic seas
         supply_density=0.3,
         cell_multiplier=12,      # Generate more cells for better merging
-        num_sea_starters=4,      # Number of initial sea points
-        sea_growth_bias=0.8      # Higher bias = more aggressive sea growth
+        num_sea_starters=4,      # More sea starters for variety
+        sea_growth_bias=0.5      # Moderate growth to avoid huge seas
     )
     
     # Generate map
