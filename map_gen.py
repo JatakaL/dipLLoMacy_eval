@@ -280,8 +280,8 @@ class DiplomacyMapGenerator:
         
         print(f"Merging {len(land_cells)} land cells and {len(sea_cells)} sea cells into {self.num_regions} regions")
         
-        # For seas, use much fewer regions to create large connected bodies of water
-        target_sea_regions = max(3, int(self.num_regions * 0.25))  # Much fewer sea regions
+        # Create more strategic sea regions (like original Diplomacy)
+        target_sea_regions = max(5, int(self.num_regions * 0.35))  # More sea regions for strategy
         target_land_regions = self.num_regions - target_sea_regions
         
         # Merge land cells normally
@@ -377,7 +377,7 @@ class DiplomacyMapGenerator:
         return merged_regions
     
     def _merge_seas_for_connectivity(self, sea_cells, target_count):
-        """Merge sea cells prioritizing large connected bodies of water"""
+        """Merge sea cells into appropriately-sized strategic sea regions"""
         if not sea_cells or target_count <= 0:
             return []
         
@@ -389,45 +389,59 @@ class DiplomacyMapGenerator:
         
         print(f"Found {len(sea_components)} sea components, targeting {target_count} sea regions")
         
-        # If we have fewer components than target regions, each component becomes a region
-        if len(sea_components) <= target_count:
-            return [(list(component), "sea") for component in sea_components]
-        
-        # If we have more components than target regions, we need to merge some
-        # Sort components by size (larger components are more important)
-        sea_components = sorted(sea_components, key=len, reverse=True)
-        
-        # Strategy: Keep the largest components as single regions,
-        # and merge smaller components using geographical proximity
-        
-        large_components = sea_components[:target_count//2]  # Keep largest as-is
-        small_components = sea_components[target_count//2:]
-        
         merged_regions = []
         
-        # Add large components as individual regions
-        for component in large_components:
-            merged_regions.append((list(component), "sea"))
+        # Strategy: Break large components into medium-sized strategic regions
+        # Don't let any single sea component become too large
         
-        # Merge small components using clustering if we have remaining budget
-        remaining_target = target_count - len(large_components)
-        
-        if small_components and remaining_target > 0:
-            # Flatten small components into a single list
-            small_cells = []
-            for component in small_components:
-                small_cells.extend(component)
+        for component in sea_components:
+            component_cells = list(component)
             
-            # Use simple geographical clustering for remaining small sea areas
-            if len(small_cells) <= remaining_target:
-                # If few enough cells, each gets its own region
-                for cell in small_cells:
-                    merged_regions.append(([cell], "sea"))
+            # Calculate optimal number of regions for this component
+            # Aim for regions of 3-8 cells each (similar to land regions)
+            optimal_cells_per_region = 5
+            component_regions = max(1, len(component_cells) // optimal_cells_per_region)
+            
+            # But don't exceed our remaining target
+            remaining_target = target_count - len(merged_regions)
+            component_regions = min(component_regions, remaining_target)
+            component_regions = max(1, component_regions)  # At least 1 region
+            
+            if len(component_cells) <= optimal_cells_per_region or component_regions == 1:
+                # Small component, keep as single region
+                merged_regions.append((component_cells, "sea"))
             else:
-                # Cluster small cells geographically
-                small_clusters = self._cluster_cells_geographically(small_cells, remaining_target)
-                for cluster in small_clusters:
+                # Large component, break into multiple strategic sea regions
+                component_clusters = self._cluster_cells(component_cells, component_regions)
+                for cluster in component_clusters:
                     merged_regions.append((cluster, "sea"))
+                    if len(merged_regions) >= target_count:
+                        break
+            
+            # Stop if we've reached our target
+            if len(merged_regions) >= target_count:
+                break
+        
+        # If we still have unused target capacity and remaining cells, handle them
+        if len(merged_regions) < target_count:
+            # Check if there are any unprocessed components
+            processed_cells = set()
+            for region_cells, _ in merged_regions:
+                processed_cells.update(region_cells)
+            
+            unprocessed_cells = [cell for cell in sea_cells if cell not in processed_cells]
+            
+            if unprocessed_cells:
+                remaining_target = target_count - len(merged_regions)
+                if len(unprocessed_cells) <= remaining_target:
+                    # Each remaining cell gets its own region
+                    for cell in unprocessed_cells:
+                        merged_regions.append(([cell], "sea"))
+                else:
+                    # Cluster remaining cells
+                    remaining_clusters = self._cluster_cells_geographically(unprocessed_cells, remaining_target)
+                    for cluster in remaining_clusters:
+                        merged_regions.append((cluster, "sea"))
         
         return merged_regions
     
@@ -631,27 +645,48 @@ class DiplomacyMapGenerator:
     
     def _name_regions(self):
         """Generate names for regions"""
-        prefixes = ["Ar", "Bel", "Cor", "Dun", "El", "Fal", "Gal", "Hy", "Il", "Jor", 
-                    "Kyl", "Lun", "Mor", "Nor", "Os", "Pyr", "Qar", "Ryn", "Sul", "Tyr"]
+        land_prefixes = ["Ar", "Bel", "Cor", "Dun", "El", "Fal", "Gal", "Hy", "Il", "Jor", 
+                        "Kyl", "Lun", "Mor", "Nor", "Os", "Pyr", "Qar", "Ryn", "Sul", "Tyr"]
         
-        suffixes = ["ania", "borg", "crest", "dor", "ell", "ford", "gate", "heim", "isle", 
-                   "keep", "land", "moor", "nia", "oria", "peak", "quar", "ria", "shire", 
-                   "ton", "vale", "wood"]
+        land_suffixes = ["ania", "borg", "crest", "dor", "ell", "ford", "gate", "heim", "isle", 
+                        "keep", "land", "moor", "nia", "oria", "peak", "quar", "ria", "shire", 
+                        "ton", "vale", "wood"]
+        
+        # More realistic sea naming patterns
+        sea_names = [
+            "North Sea", "South Sea", "Eastern Sea", "Western Sea",
+            "Great Bay", "Golden Bay", "Storm Bay", "Crystal Bay",
+            "Narrow Strait", "Wide Strait", "Iron Strait", "Silver Strait",
+            "Inner Sea", "Outer Sea", "Deep Waters", "Shallow Waters",
+            "Merchant Sea", "Warrior Sea", "Royal Sea", "Ancient Sea",
+            "Misty Waters", "Clear Waters", "Dark Sea", "Bright Sea",
+            "Frozen Sea", "Warm Sea", "Peaceful Sea", "Wild Sea"
+        ]
         
         used_names = set()
+        sea_name_index = 0
+        
         for region_id, region in self.regions.items():
             region_type = region["type"]
             
             if region_type == "land":
                 while True:
-                    name = random.choice(prefixes) + random.choice(suffixes)
+                    name = random.choice(land_prefixes) + random.choice(land_suffixes)
                     if name not in used_names:
                         break
-            else:
-                while True:
-                    name = f"Sea of {random.choice(prefixes) + random.choice(prefixes)}ia"
-                    if name not in used_names:
-                        break
+            else:  # sea
+                # Use predefined sea names for more realistic feel
+                if sea_name_index < len(sea_names):
+                    name = sea_names[sea_name_index]
+                    sea_name_index += 1
+                else:
+                    # Fallback to generated names if we run out
+                    while True:
+                        direction = random.choice(["North", "South", "East", "West", "Central"])
+                        feature = random.choice(["Sea", "Bay", "Strait", "Waters", "Channel"])
+                        name = f"{direction} {feature}"
+                        if name not in used_names:
+                            break
             
             used_names.add(name)
             region["name"] = name
