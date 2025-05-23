@@ -296,54 +296,119 @@ class DiplomacyMapGenerator:
         
         print(f"Created {len(land_regions)} land regions and {len(sea_regions)} sea regions")
         
+        # Track which cells have been assigned to regions
+        assigned_cells = set()
+        
         # Create final region data structures
         for i, (region_cells, region_type) in enumerate(all_regions):
             region_id = f"R{i+1}"
             
-            # Merge all cell polygons into one region polygon
-            cell_polys = [self.cell_polygons[cell] for cell in region_cells]
-            merged_poly = unary_union(cell_polys)
+            # Validate region cells
+            if not region_cells:
+                print(f"WARNING: Empty region cells for {region_id}")
+                continue
+                
+            # Check for duplicate assignments
+            duplicate_cells = assigned_cells.intersection(set(region_cells))
+            if duplicate_cells:
+                print(f"WARNING: Duplicate cell assignments detected: {duplicate_cells}")
             
-            # Calculate region center (centroid of merged polygon)
-            if merged_poly.geom_type == 'Polygon':
-                region_center = np.array([merged_poly.centroid.x, merged_poly.centroid.y])
-                region_vertices = np.array(merged_poly.exterior.coords)
-            else:  # MultiPolygon - use the largest part
-                largest = max(merged_poly.geoms, key=lambda p: p.area)
-                region_center = np.array([largest.centroid.x, largest.centroid.y])
-                region_vertices = np.array(largest.exterior.coords)
+            assigned_cells.update(region_cells)
             
-            # Store region data
-            self.regions[region_id] = {
-                "id": region_id,
-                "center": region_center,
-                "vertices": region_vertices,
-                "type": region_type,
-                "is_supply": False,
-                "owner": None,
-                "name": None,
-                "neighbors": [],
-                "constituent_cells": region_cells,
-                "area": merged_poly.area
-            }
-            
-            self.region_polygons[region_id] = merged_poly
-            
-            # Mark cells as merged into this region
-            for cell in region_cells:
-                self.cells[cell]["merged_into"] = region_id
-            
-            # Add node to adjacency graph
-            self.adjacency_graph.add_node(region_id, pos=region_center)
+            try:
+                # Merge all cell polygons into one region polygon
+                cell_polys = [self.cell_polygons[cell] for cell in region_cells if cell in self.cell_polygons]
+                
+                if not cell_polys:
+                    print(f"WARNING: No valid cell polygons for region {region_id}")
+                    continue
+                    
+                merged_poly = unary_union(cell_polys)
+                
+                # Calculate region center (centroid of merged polygon)
+                if merged_poly.geom_type == 'Polygon':
+                    region_center = np.array([merged_poly.centroid.x, merged_poly.centroid.y])
+                    region_vertices = np.array(merged_poly.exterior.coords)
+                else:  # MultiPolygon - use the largest part
+                    largest = max(merged_poly.geoms, key=lambda p: p.area)
+                    region_center = np.array([largest.centroid.x, largest.centroid.y])
+                    region_vertices = np.array(largest.exterior.coords)
+                
+                # Store region data
+                self.regions[region_id] = {
+                    "id": region_id,
+                    "center": region_center,
+                    "vertices": region_vertices,
+                    "type": region_type,
+                    "is_supply": False,
+                    "owner": None,
+                    "name": None,
+                    "neighbors": [],
+                    "constituent_cells": region_cells,
+                    "area": merged_poly.area
+                }
+                
+                self.region_polygons[region_id] = merged_poly
+                
+                # Mark cells as merged into this region
+                for cell in region_cells:
+                    if cell in self.cells:
+                        self.cells[cell]["merged_into"] = region_id
+                    else:
+                        print(f"WARNING: Cell {cell} not found in self.cells")
+                
+                # Add node to adjacency graph
+                self.adjacency_graph.add_node(region_id, pos=region_center)
+                
+            except Exception as e:
+                print(f"ERROR creating region {region_id}: {e}")
+                print(f"  Region cells: {region_cells[:5]}...")
+                # Create individual regions for each cell in the failed region
+                for cell in region_cells:
+                    if cell in self.cells and self.cells[cell]["merged_into"] is None:
+                        single_region_id = f"R{len(self.regions) + 1}"
+                        cell_data = self.cells[cell]
+                        
+                        self.regions[single_region_id] = {
+                            "id": single_region_id,
+                            "center": cell_data["center"],
+                            "vertices": cell_data["vertices"],
+                            "type": cell_data["type"],
+                            "is_supply": False,
+                            "owner": None,
+                            "name": None,
+                            "neighbors": [],
+                            "constituent_cells": [cell],
+                            "area": cell_data["area"]
+                        }
+                        
+                        self.region_polygons[single_region_id] = self.cell_polygons[cell]
+                        self.cells[cell]["merged_into"] = single_region_id
+                        self.adjacency_graph.add_node(single_region_id, pos=cell_data["center"])
+        
+        # Report on assignment success
+        all_cells = set(self.cells.keys())
+        unassigned_cells = all_cells - assigned_cells
+        if unassigned_cells:
+            print(f"WARNING: {len(unassigned_cells)} cells were not assigned to any region during clustering")
+            print(f"Sample unassigned: {list(unassigned_cells)[:5]}")
+        
+        print(f"Successfully assigned {len(assigned_cells)} out of {len(all_cells)} cells to regions")
     
     def _validate_all_cells_merged(self):
-        """NEW: Validate that all cells have been merged into regions"""
+        """Validate that all cells have been merged into regions"""
         unmerged_cells = [cell_id for cell_id, cell in self.cells.items() 
                          if cell["merged_into"] is None]
         
         if unmerged_cells:
             print(f"WARNING: Found {len(unmerged_cells)} unmerged cells!")
-            print(f"Unmerged cells: {unmerged_cells[:10]}...")  # Show first 10
+            # Only show first few for brevity
+            sample_cells = unmerged_cells[:5]
+            print(f"Sample unmerged cells: {sample_cells}")
+            if len(unmerged_cells) > 5:
+                print(f"... and {len(unmerged_cells) - 5} more")
+                
+            print("This indicates the clustering algorithm failed - creating single-cell regions as backup")
             
             # Create individual regions for unmerged cells
             for cell_id in unmerged_cells:
@@ -367,22 +432,27 @@ class DiplomacyMapGenerator:
                 self.region_polygons[region_id] = self.cell_polygons[cell_id]
                 cell["merged_into"] = region_id
                 self.adjacency_graph.add_node(region_id, pos=cell["center"])
-                
-                print(f"Created single-cell region {region_id} for cell {cell_id}")
         
-        # Verify all cells are now merged
+        # Final verification
         still_unmerged = [cell_id for cell_id, cell in self.cells.items() 
                          if cell["merged_into"] is None]
         
         if still_unmerged:
             print(f"ERROR: Still have {len(still_unmerged)} unmerged cells after validation!")
         else:
-            print(f"SUCCESS: All {len(self.cells)} cells have been merged into {len(self.regions)} regions")
+            print(f"SUCCESS: All {len(self.cells)} cells merged into {len(self.regions)} regions")
+            
+            # Show region type breakdown
+            land_regions = sum(1 for r in self.regions.values() if r["type"] == "land")
+            sea_regions = sum(1 for r in self.regions.values() if r["type"] == "sea")
+            print(f"Final regions: {land_regions} land, {sea_regions} sea")
     
     def _merge_cells_by_type(self, cells, target_count, region_type):
         """Merge cells of the same type into regions"""
         if not cells or target_count <= 0:
             return []
+        
+        print(f"Processing {len(cells)} {region_type} cells for merging")
         
         if len(cells) <= target_count:
             # If we have fewer cells than target regions, each cell becomes its own region
@@ -393,14 +463,32 @@ class DiplomacyMapGenerator:
         
         # Handle disconnected components
         components = list(nx.connected_components(subgraph))
+        print(f"Found {len(components)} components for {region_type} cells")
+        
+        # Check for isolated cells (not in any component)
+        cells_in_components = set()
+        for component in components:
+            cells_in_components.update(component)
+        
+        isolated_cells = set(cells) - cells_in_components
+        if isolated_cells:
+            print(f"WARNING: Found {len(isolated_cells)} isolated {region_type} cells not in any component!")
+            print(f"Sample isolated cells: {list(isolated_cells)[:5]}")
+            # Add isolated cells as single-cell components
+            for cell in isolated_cells:
+                components.append({cell})
         
         merged_regions = []
+        all_assigned_cells = set()
         
-        for component in components:
+        print(f"Processing {len(components)} components (including isolated cells)")
+        
+        for i, component in enumerate(components):
             component_cells = list(component)
             
             if len(component_cells) == 1:
                 merged_regions.append((component_cells, region_type))
+                all_assigned_cells.update(component_cells)
                 continue
             
             # Calculate how many regions this component should have
@@ -411,91 +499,228 @@ class DiplomacyMapGenerator:
                 # Small component, make each cell its own region
                 for cell in component_cells:
                     merged_regions.append(([cell], region_type))
+                    all_assigned_cells.add(cell)
             else:
-                # Large component, use clustering
-                component_regions = self._cluster_cells_safely(component_cells, component_target)
+                # Large component, use robust clustering
+                component_regions = self._robust_cluster_cells(component_cells, component_target)
                 for region_cells in component_regions:
                     merged_regions.append((region_cells, region_type))
+                    all_assigned_cells.update(region_cells)
         
+        # Verify all cells were assigned
+        unassigned = set(cells) - all_assigned_cells
+        if unassigned:
+            print(f"ERROR: {len(unassigned)} {region_type} cells still not assigned after processing!")
+            print(f"Sample unassigned: {list(unassigned)[:5]}")
+            for cell in unassigned:
+                merged_regions.append(([cell], region_type))
+        
+        print(f"Final: Created {len(merged_regions)} {region_type} regions from {len(cells)} cells")
         return merged_regions
     
-    def _cluster_cells_safely(self, cells, target_count):
-        """Safely cluster cells with fallback for edge cases"""
+    def _robust_cluster_cells(self, cells, target_count):
+        """Robust clustering that ensures all cells are assigned"""
         if len(cells) <= target_count:
             return [[cell] for cell in cells]
         
+        print(f"Clustering {len(cells)} cells into {target_count} regions")
+        
+        # Try multiple clustering approaches in order of preference
+        
+        # Approach 1: NetworkX-based spatial clustering
         try:
-            # Create position matrix for clustering
-            positions = np.array([self.cells[cell]["center"] for cell in cells])
-            
-            # Create subgraph for connectivity
-            cell_subgraph = self.cell_adjacency.subgraph(cells)
-            
-            # Check if the subgraph is connected
-            if not nx.is_connected(cell_subgraph):
-                # Handle each connected component separately
-                components = list(nx.connected_components(cell_subgraph))
-                all_clusters = []
-                
-                for component in components:
-                    component_cells = list(component)
-                    if len(component_cells) == 1:
-                        all_clusters.append(component_cells)
-                    else:
-                        # Recursive clustering for each component
-                        comp_target = max(1, len(component_cells) * target_count // len(cells))
-                        comp_clusters = self._cluster_cells_safely(component_cells, comp_target)
-                        all_clusters.extend(comp_clusters)
-                
-                return all_clusters
-            
-            # Convert to adjacency matrix for sklearn
-            cell_to_idx = {cell: i for i, cell in enumerate(cells)}
-            n = len(cells)
-            connectivity = np.zeros((n, n))
-            
-            for cell1, cell2 in cell_subgraph.edges():
-                i, j = cell_to_idx[cell1], cell_to_idx[cell2]
-                connectivity[i, j] = 1
-                connectivity[j, i] = 1
-            
-            # Perform clustering
-            clustering = AgglomerativeClustering(
-                n_clusters=target_count,
-                connectivity=connectivity,
-                linkage='ward'
-            )
-            
-            labels = clustering.fit_predict(positions)
-            
-            # Group cells by cluster
-            clusters = {}
-            for i, cell in enumerate(cells):
-                label = labels[i]
-                if label not in clusters:
-                    clusters[label] = []
-                clusters[label].append(cell)
-            
-            return list(clusters.values())
-            
+            clusters = self._networkx_spatial_clustering(cells, target_count)
+            if self._validate_clustering(clusters, cells):
+                print("  Success with NetworkX spatial clustering")
+                return clusters
         except Exception as e:
-            print(f"Clustering failed: {e}, falling back to simple partitioning")
+            print(f"  NetworkX clustering failed: {e}")
+        
+        # Approach 2: Simple geographic clustering
+        try:
+            clusters = self._geographic_clustering(cells, target_count)
+            if self._validate_clustering(clusters, cells):
+                print("  Success with geographic clustering")
+                return clusters
+        except Exception as e:
+            print(f"  Geographic clustering failed: {e}")
+        
+        # Approach 3: Connected component partitioning
+        try:
+            clusters = self._connected_partitioning(cells, target_count)
+            if self._validate_clustering(clusters, cells):
+                print("  Success with connected partitioning")
+                return clusters
+        except Exception as e:
+            print(f"  Connected partitioning failed: {e}")
+        
+        # Fallback: Simple sequential partitioning (guaranteed to work)
+        print("  Using fallback sequential partitioning")
+        return self._sequential_partitioning(cells, target_count)
+    
+    def _networkx_spatial_clustering(self, cells, target_count):
+        """Use NetworkX and spatial proximity for clustering"""
+        # Create subgraph
+        subgraph = self.cell_adjacency.subgraph(cells)
+        
+        if not nx.is_connected(subgraph):
+            # Handle each component separately
+            components = list(nx.connected_components(subgraph))
+            all_clusters = []
+            
+            for component in components:
+                comp_cells = list(component)
+                comp_target = max(1, len(comp_cells) * target_count // len(cells))
+                comp_clusters = self._networkx_spatial_clustering(comp_cells, comp_target)
+                all_clusters.extend(comp_clusters)
+            
+            return all_clusters
+        
+        # Try sklearn clustering with connectivity
+        positions = np.array([self.cells[cell]["center"] for cell in cells])
+        
+        # Build connectivity matrix
+        cell_to_idx = {cell: i for i, cell in enumerate(cells)}
+        n = len(cells)
+        connectivity = np.zeros((n, n))
+        
+        for cell1, cell2 in subgraph.edges():
+            i, j = cell_to_idx[cell1], cell_to_idx[cell2]
+            connectivity[i, j] = 1
+            connectivity[j, i] = 1
+        
+        from sklearn.cluster import AgglomerativeClustering
+        clustering = AgglomerativeClustering(
+            n_clusters=target_count,
+            connectivity=connectivity,
+            linkage='ward'
+        )
+        
+        labels = clustering.fit_predict(positions)
+        
+        # Group cells by cluster
+        clusters = {}
+        for i, cell in enumerate(cells):
+            label = labels[i]
+            if label not in clusters:
+                clusters[label] = []
+            clusters[label].append(cell)
+        
+        return list(clusters.values())
+    
+    def _geographic_clustering(self, cells, target_count):
+        """Simple geographic clustering using KMeans"""
+        positions = np.array([self.cells[cell]["center"] for cell in cells])
+        
+        from sklearn.cluster import KMeans
+        kmeans = KMeans(n_clusters=target_count, random_state=42)
+        labels = kmeans.fit_predict(positions)
+        
+        # Group cells by cluster
+        clusters = {}
+        for i, cell in enumerate(cells):
+            label = labels[i]
+            if label not in clusters:
+                clusters[label] = []
+            clusters[label].append(cell)
+        
+        return list(clusters.values())
+    
+    def _connected_partitioning(self, cells, target_count):
+        """Partition based on graph connectivity"""
+        subgraph = self.cell_adjacency.subgraph(cells)
+        
+        # Use NetworkX community detection
+        import networkx.algorithms.community as nx_comm
+        
+        # Try different community detection methods
+        try:
+            communities = list(nx_comm.greedy_modularity_communities(subgraph))
+        except:
             # Fallback to simple partitioning
-            cluster_size = len(cells) // target_count
-            clusters = []
-            for i in range(0, len(cells), cluster_size):
-                cluster = cells[i:i + cluster_size]
-                if cluster:  # Only add non-empty clusters
-                    clusters.append(cluster)
+            return self._sequential_partitioning(cells, target_count)
+        
+        # If we have too many communities, merge the smallest ones
+        while len(communities) > target_count:
+            # Find two smallest communities to merge
+            sizes = [(len(comm), i) for i, comm in enumerate(communities)]
+            sizes.sort()
             
-            # Handle any remaining cells
-            if len(clusters) > target_count:
-                # Merge last clusters if we have too many
-                while len(clusters) > target_count:
-                    last_cluster = clusters.pop()
-                    clusters[-1].extend(last_cluster)
+            # Merge the two smallest
+            _, idx1 = sizes[0]
+            _, idx2 = sizes[1]
             
-            return clusters
+            merged = communities[idx1] | communities[idx2]
+            communities = [comm for i, comm in enumerate(communities) if i not in [idx1, idx2]]
+            communities.append(merged)
+        
+        # If we have too few communities, split the largest ones
+        while len(communities) < target_count:
+            # Find largest community to split
+            largest_idx = max(range(len(communities)), key=lambda i: len(communities[i]))
+            largest = list(communities[largest_idx])
+            
+            if len(largest) <= 1:
+                break  # Can't split further
+            
+            # Split roughly in half
+            mid = len(largest) // 2
+            part1 = largest[:mid]
+            part2 = largest[mid:]
+            
+            communities[largest_idx] = set(part1)
+            communities.append(set(part2))
+        
+        return [list(comm) for comm in communities]
+    
+    def _sequential_partitioning(self, cells, target_count):
+        """Simple sequential partitioning - guaranteed to work"""
+        cells_per_cluster = len(cells) // target_count
+        remainder = len(cells) % target_count
+        
+        clusters = []
+        start_idx = 0
+        
+        for i in range(target_count):
+            # Some clusters get one extra cell to handle remainder
+            cluster_size = cells_per_cluster + (1 if i < remainder else 0)
+            cluster = cells[start_idx:start_idx + cluster_size]
+            
+            if cluster:  # Only add non-empty clusters
+                clusters.append(cluster)
+            
+            start_idx += cluster_size
+        
+        return clusters
+    
+    def _validate_clustering(self, clusters, original_cells):
+        """Validate that clustering assigned all cells exactly once"""
+        assigned_cells = set()
+        
+        for i, cluster in enumerate(clusters):
+            if not cluster:  # Empty cluster
+                print(f"    Empty cluster {i} found!")
+                return False
+            for cell in cluster:
+                if cell in assigned_cells:  # Duplicate assignment
+                    print(f"    Duplicate assignment: cell {cell} in multiple clusters")
+                    return False
+                assigned_cells.add(cell)
+        
+        missing_cells = set(original_cells) - assigned_cells
+        extra_cells = assigned_cells - set(original_cells)
+        
+        if missing_cells:
+            print(f"    Missing cells: {len(missing_cells)} cells not assigned to any cluster")
+            print(f"    Sample missing: {list(missing_cells)[:5]}")
+            return False
+            
+        if extra_cells:
+            print(f"    Extra cells: {len(extra_cells)} unknown cells assigned")
+            return False
+        
+        print(f"    Validation passed: {len(assigned_cells)} cells properly assigned to {len(clusters)} clusters")
+        return True
     
     def _merge_seas_for_connectivity(self, sea_cells, target_count):
         """Merge sea cells into appropriately-sized strategic sea regions"""
@@ -529,7 +754,7 @@ class DiplomacyMapGenerator:
                 merged_regions.append((component_cells, "sea"))
             else:
                 # Large component, break into multiple strategic sea regions
-                component_clusters = self._cluster_cells_safely(component_cells, component_regions)
+                component_clusters = self._robust_cluster_cells(component_cells, component_regions)
                 for cluster in component_clusters:
                     merged_regions.append((cluster, "sea"))
                     if len(merged_regions) >= target_count:
@@ -707,9 +932,14 @@ class DiplomacyMapGenerator:
             region_type = region["type"]
             
             if region_type == "land":
+                num_attempts = 0
                 while True:
                     name = random.choice(land_prefixes) + random.choice(land_suffixes)
                     if name not in used_names:
+                        break
+                    num_attempts += 1
+                    if num_attempts > 100:  # Prevent infinite loop
+                        name = f"{random.choice(land_prefixes)}{random.choice(land_suffixes)}{num_attempts}"
                         break
             else:  # sea
                 if sea_name_index < len(sea_names):
@@ -728,6 +958,9 @@ class DiplomacyMapGenerator:
                         if name not in used_names:
                             break
                         num_attempts += 1
+                        if num_attempts > 100:  # Prevent infinite loop
+                            name = f"{feature} {num_attempts}"
+                            break
             
             used_names.add(name)
             region["name"] = name
