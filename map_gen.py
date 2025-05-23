@@ -737,31 +737,49 @@ class DiplomacyMapGenerator:
         
         merged_regions = []
         
-        for component in sea_components:
+        # Process ALL components - don't break early
+        for i, component in enumerate(sea_components):
             component_cells = list(component)
+            print(f"  Processing sea component {i+1} with {len(component_cells)} cells")
             
             # Calculate optimal number of regions for this component
-            optimal_cells_per_region = 5
-            component_regions = max(1, len(component_cells) // optimal_cells_per_region)
+            optimal_cells_per_region = self.cell_multiplier
             
-            # But don't exceed our remaining target
-            remaining_target = target_count - len(merged_regions)
-            component_regions = min(component_regions, remaining_target)
-            component_regions = max(1, component_regions)
-            
-            if len(component_cells) <= optimal_cells_per_region or component_regions == 1:
-                # Small component, keep as single region
-                merged_regions.append((component_cells, "sea"))
-            else:
-                # Large component, break into multiple strategic sea regions
-                component_clusters = self._robust_cluster_cells(component_cells, component_regions)
-                for cluster in component_clusters:
-                    merged_regions.append((cluster, "sea"))
-                    if len(merged_regions) >= target_count:
-                        break
-            
+            # If we've already reached our target, just make this one region
             if len(merged_regions) >= target_count:
-                break
+                merged_regions.append((component_cells, "sea"))
+                print(f"    Merged as single region (over target)")
+            else:
+                # Calculate how many regions this component should have
+                remaining_target = target_count - len(merged_regions)
+                component_regions = max(1, len(component_cells) // optimal_cells_per_region)
+                component_regions = min(component_regions, remaining_target)
+                
+                if len(component_cells) <= optimal_cells_per_region or component_regions == 1:
+                    # Small component, keep as single region
+                    merged_regions.append((component_cells, "sea"))
+                    print(f"    Merged as single region")
+                else:
+                    # Large component, break into multiple strategic sea regions
+                    component_clusters = self._robust_cluster_cells(component_cells, component_regions)
+                    for cluster in component_clusters:
+                        merged_regions.append((cluster, "sea"))
+                    print(f"    Split into {len(component_clusters)} regions")
+        
+        print(f"Final: Created {len(merged_regions)} sea regions from {len(sea_cells)} cells")
+        
+        # Verify all cells were assigned
+        assigned_cells = set()
+        for region_cells, _ in merged_regions:
+            assigned_cells.update(region_cells)
+        
+        unassigned = set(sea_cells) - assigned_cells
+        if unassigned:
+            print(f"ERROR: {len(unassigned)} sea cells not assigned!")
+            # Create single-cell regions for any unassigned cells
+            for cell in unassigned:
+                merged_regions.append(([cell], "sea"))
+                print(f"  Created single-cell region for unassigned cell {cell}")
         
         return merged_regions
     
@@ -1070,8 +1088,8 @@ if __name__ == "__main__":
         land_ratio=0.6,
         supply_density=0.3,
         cell_multiplier=12,
-        num_sea_starters=4,
-        sea_growth_bias=0.5
+        num_sea_starters=6,
+        sea_growth_bias=0.2
     )
     
     # Generate map
