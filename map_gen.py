@@ -18,23 +18,23 @@ class DiplomacyMapGenerator:
         self.land_ratio = land_ratio
         self.supply_density = supply_density
         self.cell_multiplier = cell_multiplier
-        self.num_sea_starters = num_sea_starters  # Number of initial sea points
-        self.sea_growth_bias = sea_growth_bias    # Probability bias for growing from existing sea
+        self.num_sea_starters = num_sea_starters
+        self.sea_growth_bias = sea_growth_bias
         
         # Initialize structures
-        self.cells = {}  # Individual Voronoi cells
+        self.cells = {}
         self.cell_polygons = {}
         self.cell_adjacency = nx.Graph()
         
-        self.regions = {}  # Final merged territories
+        self.regions = {}
         self.region_polygons = {}
         self.borders = []
         self.adjacency_graph = nx.Graph()
         self.supply_centers = set()
         self.starting_positions = {}
         self.terrain_colors = {
-            "land": "#C5E0B4",  # Light green
-            "sea": "#BDD7EE"    # Light blue
+            "land": "#C5E0B4",
+            "sea": "#BDD7EE"
         }
         
     def generate_map(self):
@@ -43,6 +43,7 @@ class DiplomacyMapGenerator:
         self._build_cell_adjacency()
         self._grow_seas_from_starters()
         self._merge_cells_into_regions()
+        self._validate_all_cells_merged()  # NEW: Validation step
         self._determine_region_adjacency()
         self._place_supply_centers()
         self._assign_starting_positions()
@@ -108,12 +109,12 @@ class DiplomacyMapGenerator:
                 "id": cell_id,
                 "center": points[i],
                 "vertices": clipped_vertices,
-                "type": "land",  # Start all as land
+                "type": "land",
                 "area": clipped_poly.area,
                 "neighbors": [],
-                "merged_into": None,  # Track which region this cell belongs to
-                "sea_starter": False,  # Track if this was a sea starter
-                "sea_generation": None  # Track which generation of sea growth
+                "merged_into": None,
+                "sea_starter": False,
+                "sea_generation": None
             }
             
             self.cell_polygons[cell_id] = clipped_poly
@@ -152,7 +153,7 @@ class DiplomacyMapGenerator:
         
         # Convert starters to sea
         current_sea_cells = set()
-        sea_frontier = []  # Cells that can grow sea to adjacent land
+        sea_frontier = []
         
         for starter in sea_starters:
             self.cells[starter]["type"] = "sea"
@@ -281,7 +282,7 @@ class DiplomacyMapGenerator:
         print(f"Merging {len(land_cells)} land cells and {len(sea_cells)} sea cells into {self.num_regions} regions")
         
         # Create more strategic sea regions (like original Diplomacy)
-        target_sea_regions = max(5, int(self.num_regions * 0.35))  # More sea regions for strategy
+        target_sea_regions = max(5, int(self.num_regions * 0.35))
         target_land_regions = self.num_regions - target_sea_regions
         
         # Merge land cells normally
@@ -306,7 +307,6 @@ class DiplomacyMapGenerator:
             # Calculate region center (centroid of merged polygon)
             if merged_poly.geom_type == 'Polygon':
                 region_center = np.array([merged_poly.centroid.x, merged_poly.centroid.y])
-                # Get exterior coordinates
                 region_vertices = np.array(merged_poly.exterior.coords)
             else:  # MultiPolygon - use the largest part
                 largest = max(merged_poly.geoms, key=lambda p: p.area)
@@ -336,6 +336,49 @@ class DiplomacyMapGenerator:
             # Add node to adjacency graph
             self.adjacency_graph.add_node(region_id, pos=region_center)
     
+    def _validate_all_cells_merged(self):
+        """NEW: Validate that all cells have been merged into regions"""
+        unmerged_cells = [cell_id for cell_id, cell in self.cells.items() 
+                         if cell["merged_into"] is None]
+        
+        if unmerged_cells:
+            print(f"WARNING: Found {len(unmerged_cells)} unmerged cells!")
+            print(f"Unmerged cells: {unmerged_cells[:10]}...")  # Show first 10
+            
+            # Create individual regions for unmerged cells
+            for cell_id in unmerged_cells:
+                region_id = f"R{len(self.regions) + 1}"
+                cell = self.cells[cell_id]
+                
+                # Create region from single cell
+                self.regions[region_id] = {
+                    "id": region_id,
+                    "center": cell["center"],
+                    "vertices": cell["vertices"],
+                    "type": cell["type"],
+                    "is_supply": False,
+                    "owner": None,
+                    "name": None,
+                    "neighbors": [],
+                    "constituent_cells": [cell_id],
+                    "area": cell["area"]
+                }
+                
+                self.region_polygons[region_id] = self.cell_polygons[cell_id]
+                cell["merged_into"] = region_id
+                self.adjacency_graph.add_node(region_id, pos=cell["center"])
+                
+                print(f"Created single-cell region {region_id} for cell {cell_id}")
+        
+        # Verify all cells are now merged
+        still_unmerged = [cell_id for cell_id, cell in self.cells.items() 
+                         if cell["merged_into"] is None]
+        
+        if still_unmerged:
+            print(f"ERROR: Still have {len(still_unmerged)} unmerged cells after validation!")
+        else:
+            print(f"SUCCESS: All {len(self.cells)} cells have been merged into {len(self.regions)} regions")
+    
     def _merge_cells_by_type(self, cells, target_count, region_type):
         """Merge cells of the same type into regions"""
         if not cells or target_count <= 0:
@@ -343,7 +386,7 @@ class DiplomacyMapGenerator:
         
         if len(cells) <= target_count:
             # If we have fewer cells than target regions, each cell becomes its own region
-            return [(cell,) for cell in cells]
+            return [([cell], region_type) for cell in cells]
         
         # Create subgraph of only these cell types
         subgraph = self.cell_adjacency.subgraph(cells)
@@ -370,11 +413,89 @@ class DiplomacyMapGenerator:
                     merged_regions.append(([cell], region_type))
             else:
                 # Large component, use clustering
-                component_regions = self._cluster_cells(component_cells, component_target)
+                component_regions = self._cluster_cells_safely(component_cells, component_target)
                 for region_cells in component_regions:
                     merged_regions.append((region_cells, region_type))
         
         return merged_regions
+    
+    def _cluster_cells_safely(self, cells, target_count):
+        """Safely cluster cells with fallback for edge cases"""
+        if len(cells) <= target_count:
+            return [[cell] for cell in cells]
+        
+        try:
+            # Create position matrix for clustering
+            positions = np.array([self.cells[cell]["center"] for cell in cells])
+            
+            # Create subgraph for connectivity
+            cell_subgraph = self.cell_adjacency.subgraph(cells)
+            
+            # Check if the subgraph is connected
+            if not nx.is_connected(cell_subgraph):
+                # Handle each connected component separately
+                components = list(nx.connected_components(cell_subgraph))
+                all_clusters = []
+                
+                for component in components:
+                    component_cells = list(component)
+                    if len(component_cells) == 1:
+                        all_clusters.append(component_cells)
+                    else:
+                        # Recursive clustering for each component
+                        comp_target = max(1, len(component_cells) * target_count // len(cells))
+                        comp_clusters = self._cluster_cells_safely(component_cells, comp_target)
+                        all_clusters.extend(comp_clusters)
+                
+                return all_clusters
+            
+            # Convert to adjacency matrix for sklearn
+            cell_to_idx = {cell: i for i, cell in enumerate(cells)}
+            n = len(cells)
+            connectivity = np.zeros((n, n))
+            
+            for cell1, cell2 in cell_subgraph.edges():
+                i, j = cell_to_idx[cell1], cell_to_idx[cell2]
+                connectivity[i, j] = 1
+                connectivity[j, i] = 1
+            
+            # Perform clustering
+            clustering = AgglomerativeClustering(
+                n_clusters=target_count,
+                connectivity=connectivity,
+                linkage='ward'
+            )
+            
+            labels = clustering.fit_predict(positions)
+            
+            # Group cells by cluster
+            clusters = {}
+            for i, cell in enumerate(cells):
+                label = labels[i]
+                if label not in clusters:
+                    clusters[label] = []
+                clusters[label].append(cell)
+            
+            return list(clusters.values())
+            
+        except Exception as e:
+            print(f"Clustering failed: {e}, falling back to simple partitioning")
+            # Fallback to simple partitioning
+            cluster_size = len(cells) // target_count
+            clusters = []
+            for i in range(0, len(cells), cluster_size):
+                cluster = cells[i:i + cluster_size]
+                if cluster:  # Only add non-empty clusters
+                    clusters.append(cluster)
+            
+            # Handle any remaining cells
+            if len(clusters) > target_count:
+                # Merge last clusters if we have too many
+                while len(clusters) > target_count:
+                    last_cluster = clusters.pop()
+                    clusters[-1].extend(last_cluster)
+            
+            return clusters
     
     def _merge_seas_for_connectivity(self, sea_cells, target_count):
         """Merge sea cells into appropriately-sized strategic sea regions"""
@@ -391,129 +512,33 @@ class DiplomacyMapGenerator:
         
         merged_regions = []
         
-        # Strategy: Break large components into medium-sized strategic regions
-        # Don't let any single sea component become too large
-        
         for component in sea_components:
             component_cells = list(component)
             
             # Calculate optimal number of regions for this component
-            # Aim for regions of 3-8 cells each (similar to land regions)
             optimal_cells_per_region = 5
             component_regions = max(1, len(component_cells) // optimal_cells_per_region)
             
             # But don't exceed our remaining target
             remaining_target = target_count - len(merged_regions)
             component_regions = min(component_regions, remaining_target)
-            component_regions = max(1, component_regions)  # At least 1 region
+            component_regions = max(1, component_regions)
             
             if len(component_cells) <= optimal_cells_per_region or component_regions == 1:
                 # Small component, keep as single region
                 merged_regions.append((component_cells, "sea"))
             else:
                 # Large component, break into multiple strategic sea regions
-                component_clusters = self._cluster_cells(component_cells, component_regions)
+                component_clusters = self._cluster_cells_safely(component_cells, component_regions)
                 for cluster in component_clusters:
                     merged_regions.append((cluster, "sea"))
                     if len(merged_regions) >= target_count:
                         break
             
-            # Stop if we've reached our target
             if len(merged_regions) >= target_count:
                 break
         
-        # If we still have unused target capacity and remaining cells, handle them
-        if len(merged_regions) < target_count:
-            # Check if there are any unprocessed components
-            processed_cells = set()
-            for region_cells, _ in merged_regions:
-                processed_cells.update(region_cells)
-            
-            unprocessed_cells = [cell for cell in sea_cells if cell not in processed_cells]
-            
-            if unprocessed_cells:
-                remaining_target = target_count - len(merged_regions)
-                if len(unprocessed_cells) <= remaining_target:
-                    # Each remaining cell gets its own region
-                    for cell in unprocessed_cells:
-                        merged_regions.append(([cell], "sea"))
-                else:
-                    # Cluster remaining cells
-                    remaining_clusters = self._cluster_cells_geographically(unprocessed_cells, remaining_target)
-                    for cluster in remaining_clusters:
-                        merged_regions.append((cluster, "sea"))
-        
         return merged_regions
-    
-    def _cluster_cells(self, cells, target_count):
-        """Cluster cells using graph-based approach"""
-        if len(cells) <= target_count:
-            return [[cell] for cell in cells]
-        
-        # Create position matrix for clustering
-        positions = np.array([self.cells[cell]["center"] for cell in cells])
-        
-        # Use agglomerative clustering with connectivity constraint
-        cell_subgraph = self.cell_adjacency.subgraph(cells)
-        
-        # Convert to adjacency matrix for sklearn
-        cell_to_idx = {cell: i for i, cell in enumerate(cells)}
-        n = len(cells)
-        connectivity = np.zeros((n, n))
-        
-        for cell1, cell2 in cell_subgraph.edges():
-            i, j = cell_to_idx[cell1], cell_to_idx[cell2]
-            connectivity[i, j] = 1
-            connectivity[j, i] = 1
-        
-        # Perform clustering
-        clustering = AgglomerativeClustering(
-            n_clusters=target_count,
-            connectivity=connectivity,
-            linkage='ward'
-        )
-        
-        try:
-            labels = clustering.fit_predict(positions)
-        except:
-            # Fallback to simple partitioning if clustering fails
-            labels = np.arange(len(cells)) % target_count
-        
-        # Group cells by cluster
-        clusters = {}
-        for i, cell in enumerate(cells):
-            label = labels[i]
-            if label not in clusters:
-                clusters[label] = []
-            clusters[label].append(cell)
-        
-        return list(clusters.values())
-    
-    def _cluster_cells_geographically(self, cells, target_count):
-        """Cluster cells based purely on geographical proximity"""
-        if len(cells) <= target_count:
-            return [[cell] for cell in cells]
-        
-        # Get positions
-        positions = np.array([self.cells[cell]["center"] for cell in cells])
-        
-        # Use simple k-means style clustering based on distance
-        try:
-            kmeans = KMeans(n_clusters=target_count, random_state=42, n_init=10)
-            labels = kmeans.fit_predict(positions)
-        except:
-            # Fallback to simple partitioning
-            labels = np.arange(len(cells)) % target_count
-        
-        # Group cells by cluster
-        clusters = {}
-        for i, cell in enumerate(cells):
-            label = labels[i]
-            if label not in clusters:
-                clusters[label] = []
-            clusters[label].append(cell)
-        
-        return list(clusters.values())
     
     def _determine_region_adjacency(self):
         """Determine which regions are adjacent to each other"""
@@ -608,13 +633,26 @@ class DiplomacyMapGenerator:
     def _assign_starting_positions(self):
         """Assign starting territories to each power"""
         # Use community detection to find potential starting clusters
-        communities = list(nx.community.greedy_modularity_communities(self.adjacency_graph))
+        try:
+            communities = list(nx.community.greedy_modularity_communities(self.adjacency_graph))
+        except:
+            # Fallback if community detection fails
+            # Just divide regions roughly equally
+            all_regions = list(self.regions.keys())
+            regions_per_power = len(all_regions) // self.num_powers
+            communities = []
+            for i in range(self.num_powers):
+                start_idx = i * regions_per_power
+                end_idx = start_idx + regions_per_power
+                if i == self.num_powers - 1:  # Last power gets remaining regions
+                    end_idx = len(all_regions)
+                communities.append(set(all_regions[start_idx:end_idx]))
         
         # Filter to communities with enough supply centers
         valid_communities = []
         for community in communities:
             supply_count = sum(1 for r in community if r in self.supply_centers)
-            if supply_count >= 3:
+            if supply_count >= 1:  # Lowered requirement
                 valid_communities.append((community, supply_count))
         
         # Sort by supply center count
@@ -652,7 +690,6 @@ class DiplomacyMapGenerator:
                         "keep", "land", "moor", "nia", "oria", "peak", "quar", "ria", "shire", 
                         "ton", "vale", "wood"]
         
-        # More realistic sea naming patterns
         sea_names = [
             "North Sea", "South Sea", "Eastern Sea", "Western Sea",
             "Great Bay", "Golden Bay", "Storm Bay", "Crystal Bay",
@@ -675,18 +712,22 @@ class DiplomacyMapGenerator:
                     if name not in used_names:
                         break
             else:  # sea
-                # Use predefined sea names for more realistic feel
                 if sea_name_index < len(sea_names):
                     name = sea_names[sea_name_index]
                     sea_name_index += 1
                 else:
-                    # Fallback to generated names if we run out
+                    num_attempts = 0
                     while True:
-                        direction = random.choice(["North", "South", "East", "West", "Central"])
-                        feature = random.choice(["Sea", "Bay", "Strait", "Waters", "Channel"])
-                        name = f"{direction} {feature}"
+                        feature = random.choice(["Sea", "Bay", "Strait", "Waters", "Channel", "Currents"])
+                        if num_attempts < 20:
+                            direction = random.choice(["North", "South", "East", "West", "Central", "Narrow", "Deep", "Great"])
+                            name = f"{direction} {feature}"
+                        else:
+                            main_name = random.choice(land_prefixes) + random.choice(land_prefixes).lower()
+                            name = f"{main_name} {feature}"
                         if name not in used_names:
                             break
+                        num_attempts += 1
             
             used_names.add(name)
             region["name"] = name
@@ -701,12 +742,10 @@ class DiplomacyMapGenerator:
                 polygon = cell["vertices"]
                 
                 if show_sea_growth and cell["type"] == "sea":
-                    # Color cells by sea generation
                     if cell["sea_starter"]:
                         cell_color = "darkblue"
                     else:
                         generation = cell.get("sea_generation", 0)
-                        # Create gradient from dark blue to light blue
                         blue_intensity = max(0.3, 1.0 - generation * 0.1)
                         cell_color = (0, 0, blue_intensity)
                 else:
@@ -723,9 +762,9 @@ class DiplomacyMapGenerator:
             # If region is a supply center, make it more saturated
             if region["is_supply"]:
                 if region_type == "land":
-                    color = "#A9D18E"  # Darker green
+                    color = "#A9D18E"
                 else:
-                    color = "#9BC2E6"  # Darker blue
+                    color = "#9BC2E6"
             
             # If region is owned by a power, use power color
             if region["owner"]:
@@ -778,7 +817,7 @@ class DiplomacyMapGenerator:
                     plt.plot(center[0], center[1], '*', markersize=12, color='red', 
                             markeredgecolor='darkred', markeredgewidth=1)
         
-        title = "Diplomacy Map with Organic Sea Growth"
+        title = "Fixed Diplomacy Map"
         if show_cells:
             title += " (Showing Cells)"
         if show_sea_growth:
@@ -789,17 +828,17 @@ class DiplomacyMapGenerator:
         plt.tight_layout()
         return plt
 
-# Usage example with sea growth
+# Usage example
 if __name__ == "__main__":
-    # Create map generator with strategic sea regions
+    # Create map generator
     map_gen = DiplomacyMapGenerator(
-        num_regions=75,          # Final number of territories
+        num_regions=75,
         num_powers=7,
-        land_ratio=0.6,          # 60% land, 40% sea for more strategic seas
+        land_ratio=0.6,
         supply_density=0.3,
-        cell_multiplier=12,      # Generate more cells for better merging
-        num_sea_starters=4,      # More sea starters for variety
-        sea_growth_bias=0.5      # Moderate growth to avoid huge seas
+        cell_multiplier=12,
+        num_sea_starters=4,
+        sea_growth_bias=0.5
     )
     
     # Generate map
@@ -809,25 +848,9 @@ if __name__ == "__main__":
     plt = map_gen.visualize_map(show_names=True, show_cells=False)
     plt.show()
     
-    # Show the sea growth process
-    plt = map_gen.visualize_map(show_names=False, show_cells=True, show_sea_growth=True)
-    plt.show()
-    
     # Print statistics
     print(f"\nGenerated map with {len(regions)} regions from {len(map_gen.cells)} cells")
     print(f"Land regions: {sum(1 for r in regions.values() if r['type'] == 'land')}")
     print(f"Sea regions: {sum(1 for r in regions.values() if r['type'] == 'sea')}")
     print(f"Supply centers: {len(supply_centers)}")
     print(f"Powers: {len(starting_positions)}")
-    
-    # Print sea statistics
-    sea_cells = [c for c in map_gen.cells.values() if c['type'] == 'sea']
-    print(f"\nSea growth statistics:")
-    print(f"Sea starters: {sum(1 for c in sea_cells if c.get('sea_starter'))}")
-    max_gen = max((c.get('sea_generation', 0) for c in sea_cells), default=0)
-    print(f"Sea growth generations: {max_gen + 1}")
-    
-    # Print average cells per region
-    cells_per_region = [len(region['constituent_cells']) for region in regions.values()]
-    print(f"Average cells per region: {np.mean(cells_per_region):.1f}")
-    print(f"Region size range: {min(cells_per_region)} to {max(cells_per_region)} cells")
