@@ -159,15 +159,51 @@ class CellGenerator:
                     if len(current_sea_cells) >= target_sea_cells:
                         break
                     
-                    # Probability of growth - higher if more sea neighbors
-                    sea_neighbor_count = sum(
-                        1 for n in self.cells[neighbor]["neighbors"]
+                    # Count sea neighbors - higher is better
+                    sea_neighbors = [
+                        n for n in self.cells[neighbor]["neighbors"] 
                         if self.cells[n]["type"] == "sea"
-                    )
+                    ]
+                    sea_neighbor_count = len(sea_neighbors)
                     
-                    # Base probability plus bonus for having sea neighbors
-                    growth_probability = 0.3 + (sea_neighbor_count * 0.2)
-                    growth_probability *= self.sea_growth_bias
+                    # Calculate distance to nearest sea starter with falloff
+                    if current_sea_cells:
+                        min_distance = min(
+                            np.linalg.norm(
+                                np.array(self.cells[neighbor]["center"]) - 
+                                np.array(self.cells[starter]["center"])
+                            )
+                            for starter in current_sea_cells
+                        )
+                        # More gradual falloff for larger maps
+                        distance_factor = max(0.3, 1.0 - (min_distance * 0.1))
+                    else:
+                        distance_factor = 0.5
+                    
+                    # Base probability with distance falloff
+                    growth_probability = 0.4 * distance_factor
+                    
+                    # Strong neighbor influence with diminishing returns
+                    if sea_neighbor_count > 0:
+                        growth_probability += min(0.5, sea_neighbor_count * 0.2)
+                    
+                    # Apply global growth bias with some randomness
+                    growth_probability *= self.sea_growth_bias * random.uniform(0.9, 1.1)
+                    
+                    # Significant bonus for being adjacent to existing sea
+                    if sea_neighbor_count >= 3:
+                        growth_probability *= 2.5
+                    elif sea_neighbor_count == 2:
+                        growth_probability *= 2.0
+                    elif sea_neighbor_count == 1:
+                        growth_probability *= 1.5
+                        
+                    # Bonus for being near map edges
+                    x, y = self.cells[neighbor]["center"]
+                    edge_factor = 1.0
+                    if x < 0.1 or x > 0.9 or y < 0.1 or y > 0.9:
+                        edge_factor = 1.3
+                    growth_probability *= edge_factor
                     
                     if random.random() < growth_probability:
                         self.cells[neighbor]["type"] = "sea"
@@ -202,16 +238,21 @@ class CellGenerator:
         """Choose strategic starting positions for seas."""
         cell_ids = list(self.cells.keys())
         
-        # Strategy: Place starters near edges and corners, plus maybe one inland
+        # Strategy: Place starters near edges and corners
         starters = []
         
-        # Get cells near each edge/corner
+        # Get cells near each corner and edge center
+        corner_cells = {
+            'topleft': [],
+            'topright': [],
+            'bottomleft': [],
+            'bottomright': []
+        }
         edge_cells = {
             'left': [],
             'right': [],
             'top': [],
-            'bottom': [],
-            'center': []
+            'bottom': []
         }
         
         for cell_id in cell_ids:
@@ -219,7 +260,15 @@ class CellGenerator:
             x, y = center[0], center[1]
             
             # Categorize by position
-            if x < 0.2:
+            if x < 0.3 and y > 0.7:
+                corner_cells['topleft'].append(cell_id)
+            elif x > 0.7 and y > 0.7:
+                corner_cells['topright'].append(cell_id)
+            elif x < 0.3 and y < 0.3:
+                corner_cells['bottomleft'].append(cell_id)
+            elif x > 0.7 and y < 0.3:
+                corner_cells['bottomright'].append(cell_id)
+            elif x < 0.2:
                 edge_cells['left'].append(cell_id)
             elif x > 0.8:
                 edge_cells['right'].append(cell_id)
@@ -227,25 +276,70 @@ class CellGenerator:
                 edge_cells['bottom'].append(cell_id)
             elif y > 0.8:
                 edge_cells['top'].append(cell_id)
-            elif 0.3 < x < 0.7 and 0.3 < y < 0.7:
-                edge_cells['center'].append(cell_id)
         
-        # Choose one starter from each edge (if we have enough)
-        edge_order = ['left', 'bottom', 'right', 'top', 'center']
+        # First, try to place starters in corners
+        corner_order = ['topleft', 'topright', 'bottomleft', 'bottomright']
+        for corner in corner_order:
+            if len(starters) >= self.num_sea_starters:
+                break
+            if corner_cells[corner]:
+                # Choose the cell closest to the corner
+                if corner == 'topleft':
+                    target = np.array([0, 1])
+                elif corner == 'topright':
+                    target = np.array([1, 1])
+                elif corner == 'bottomleft':
+                    target = np.array([0, 0])
+                else:  # bottomright
+                    target = np.array([1, 0])
+                
+                distances = [
+                    (cell_id, np.linalg.norm(np.array(self.cells[cell_id]["center"]) - target))
+                    for cell_id in corner_cells[corner]
+                ]
+                if distances:
+                    distances.sort(key=lambda x: x[1])
+                    starter = distances[0][0]  # Closest to corner
+                    starters.append(starter)
         
-        for i, edge in enumerate(edge_order):
-            if i >= self.num_sea_starters:
+        # If we need more starters, place them at the middle of edges
+        edge_order = ['left', 'right', 'top', 'bottom']
+        for edge in edge_order:
+            if len(starters) >= self.num_sea_starters:
                 break
             if edge_cells[edge]:
-                starter = random.choice(edge_cells[edge])
-                starters.append(starter)
+                # Find the middle of the edge
+                if edge in ['left', 'right']:
+                    target_y = 0.5
+                    target_x = 0 if edge == 'left' else 1
+                else:  # top or bottom
+                    target_x = 0.5
+                    target_y = 1 if edge == 'top' else 0
+                
+                target = np.array([target_x, target_y])
+                
+                # Find the cell closest to the middle of the edge
+                distances = [
+                    (cell_id, np.linalg.norm(np.array(self.cells[cell_id]["center"]) - target))
+                    for cell_id in edge_cells[edge]
+                ]
+                if distances:
+                    distances.sort(key=lambda x: x[1])
+                    starter = distances[0][0]  # Closest to edge middle
+                    if starter not in starters:
+                        starters.append(starter)
         
-        # If we need more starters, choose randomly from remaining cells
-        while len(starters) < self.num_sea_starters:
-            remaining = [c for c in cell_ids if c not in starters]
-            if remaining:
-                starters.append(random.choice(remaining))
-            else:
-                break
+        # If we still need more starters, choose from remaining edge cells
+        edge_cell_list = [cell for cells in edge_cells.values() for cell in cells]
+        while len(starters) < self.num_sea_starters and edge_cell_list:
+            cell = random.choice(edge_cell_list)
+            if cell not in starters:
+                starters.append(cell)
+            edge_cell_list.remove(cell)
+        
+        # As a last resort, choose any remaining cells
+        remaining = [c for c in cell_ids if c not in starters]
+        while len(starters) < self.num_sea_starters and remaining:
+            starters.append(remaining.pop(0))
         
         return starters
