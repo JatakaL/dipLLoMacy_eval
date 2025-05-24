@@ -25,6 +25,12 @@ class MapVisualizer:
         """Visualize the generated map with various display options."""
         plt.figure(figsize=(15, 12))
         
+        # Print color mapping for powers
+        print("\nPower Colors:")
+        colors = list(mcolors.TABLEAU_COLORS.values())
+        for i in range(7):  # Assuming max 7 powers
+            print(f"  Power{i+1}: {colors[i % len(colors)]}")
+        
         # Optionally show underlying cell structure
         if show_cells:
             for cell_id, cell in self.cells.items():
@@ -48,18 +54,43 @@ class MapVisualizer:
             region_type = region["type"]
             color = self.terrain_colors[region_type]
             
-            # If region is a supply center, make it more saturated
-            if region["is_supply"]:
-                if region_type == "land":
-                    color = "#A9D18E"
-                else:
-                    color = "#9BC2E6"
+            # Log region info
+            region_info = f"Region {region_id} ({region['name']}): type={region_type}"
             
             # If region is owned by a power, use power color
-            if region["owner"]:
-                power_idx = int(region["owner"].replace("Power", "")) - 1
-                colors = list(mcolors.TABLEAU_COLORS.values())
-                color = colors[power_idx % len(colors)]
+            if "owner" in region and region["owner"]:
+                try:
+                    power_idx = int(region["owner"].replace("Power", "")) - 1
+                    colors = list(mcolors.TABLEAU_COLORS.values())
+                    color = colors[power_idx % len(colors)]
+                    region_info += f", owner={region['owner']}, color={color}"
+                    
+                    # Make supply centers more saturated
+                    if region.get("is_supply", False):
+                        if region_type == "land":
+                            # Slightly lighten the power color for land supply centers
+                            r, g, b = mcolors.to_rgb(color)
+                            color = (min(1.0, r + 0.2), min(1.0, g + 0.2), min(1.0, b + 0.2))
+                            region_info += " (land supply center -> lighter color)"
+                        else:
+                            # Slightly darken the power color for sea supply centers
+                            r, g, b = mcolors.to_rgb(color)
+                            color = (max(0.0, r - 0.2), max(0.0, g - 0.2), max(0.0, b - 0.2))
+                            region_info += " (sea supply center -> darker color)"
+                except (ValueError, IndexError) as e:
+                    region_info += f", Error getting power color: {e}"
+                    # Fallback to default color if there's an issue with power index
+                    pass
+            # If not owned but is a supply center, use a neutral color
+            elif region.get("is_supply", False):
+                if region_type == "land":
+                    color = "#A9D18E"  # Light green for neutral land supply centers
+                    region_info += ", neutral land supply center -> #A9D18E"
+                else:
+                    color = "#9BC2E6"  # Light blue for neutral sea supply centers
+                    region_info += ", neutral sea supply center -> #9BC2E6"
+            
+            print(region_info)
             
             # Draw the polygon
             plt.fill(polygon[:, 0], polygon[:, 1], color=color, alpha=0.8)
