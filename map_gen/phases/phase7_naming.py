@@ -67,7 +67,7 @@ class RegionNamer:
                 return name
         
         # Fallback with number
-        name = f"{random.choice(self.land_prefixes)}{random.choice(self.land_suffixes)}{len(self.used_names)}"
+        name = f"{random.choice(self.land_prefixes)}{random.choice(self.land_suffixes)} {len(self.used_names)}"
         self.used_names.add(name)
         return name
     
@@ -85,7 +85,7 @@ class RegionNamer:
                 return name
         
         # Fallback with number
-        name = f"{random.choice(self.sea_features)} {len(self.used_names)}"
+        name = f"Unnamed {random.choice(self.sea_features)} {len(self.used_names)}"
         self.used_names.add(name)
         return name
     

@@ -16,6 +16,12 @@ import numpy as np
 import random
 import argparse
 
+# Configuration constants for SC placement
+PREFERRED_NEUTRAL_SC_DISTANCE = 0.2  # Preferred average distance of neutral SCs from powers
+BALANCE_WEIGHT = 0.4                 # Weight for balance score in SC selection
+COASTAL_WEIGHT = 0.3                 # Weight for coastal preference in SC selection
+DISTANCE_WEIGHT = 0.3                # Weight for distance score in SC selection
+
 
 def mark_home_centers(cells, territories):
     """
@@ -164,10 +170,10 @@ def select_neutral_scs(candidates, cells, territories, num_neutral, seed=None):
         
         # 3. Average distance to powers (prefer contested areas, not too far)
         avg_dist = np.mean(distances)
-        distance_score = 1.0 / (1.0 + abs(avg_dist - 0.2))  # Prefer moderate distances
+        distance_score = 1.0 / (1.0 + abs(avg_dist - PREFERRED_NEUTRAL_SC_DISTANCE))  # Prefer moderate distances
         
         # Combined score
-        total_score = balance_score * 0.4 + coastal_score * 0.3 + distance_score * 0.3
+        total_score = balance_score * BALANCE_WEIGHT + coastal_score * COASTAL_WEIGHT + distance_score * DISTANCE_WEIGHT
         
         candidate_scores.append((cell_id, total_score, power_distances))
     

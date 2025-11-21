@@ -16,6 +16,11 @@ import json
 import argparse
 from collections import deque
 
+# Configuration constants for graph quality thresholds
+HIGH_CONNECTIVITY_THRESHOLD = 7  # Nodes with more than this many neighbors are considered highly connected
+LOW_CONNECTIVITY_THRESHOLD = 3   # Nodes with fewer than this many neighbors are considered dead ends
+MIN_TRIANGLE_DENSITY = 0.3       # Minimum triangle density for good Diplomacy gameplay (30%)
+
 
 def analyze_node_degrees(cells):
     """
@@ -52,8 +57,8 @@ def analyze_node_degrees(cells):
     avg_degree = sum(degree_values) / len(degree_values)
     
     # Find problematic nodes
-    highly_connected = [cell_id for cell_id, deg in degrees.items() if deg > 7]
-    dead_ends = [cell_id for cell_id, deg in degrees.items() if deg < 3 and deg > 0]
+    highly_connected = [cell_id for cell_id, deg in degrees.items() if deg > HIGH_CONNECTIVITY_THRESHOLD]
+    dead_ends = [cell_id for cell_id, deg in degrees.items() if deg < LOW_CONNECTIVITY_THRESHOLD and deg > 0]
     
     return {
         "degrees": degrees,
@@ -323,8 +328,8 @@ def run_phase6(phase5_output, config):
     if not sea_connectivity['connected']:
         recommendations.append("WARNING: Seas are not fully connected - some are landlocked")
     
-    if triangle_analysis['triangle_density'] < 0.3:
-        recommendations.append("Low triangle density - map may not support complex diplomacy")
+    if triangle_analysis['triangle_density'] < MIN_TRIANGLE_DENSITY:
+        recommendations.append(f"Low triangle density - map may not support complex diplomacy (target: {MIN_TRIANGLE_DENSITY:.0%})")
     
     if len(corner_powers) < 2:
         recommendations.append("Too few corner powers - consider rebalancing")
