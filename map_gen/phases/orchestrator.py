@@ -66,7 +66,7 @@ def run_full_pipeline(config, output_dir="output", save_intermediate=True):
     
     # Phase 2: Terrain Assignment
     phase2_config = {
-        "threshold": config.get("threshold", 0.4),
+        "threshold": config.get("threshold", 0.25),
         "land_ratio": config.get("land_ratio", 0.6),
         "octaves": config.get("octaves", 4),
         "radial_falloff": config.get("radial_falloff", 0.8),
@@ -189,7 +189,7 @@ Examples:
     parser.add_argument("--lloyd-iterations", type=int, default=0, help="Lloyd relaxation iterations (Phase 1)")
     
     # Phase 2 parameters
-    parser.add_argument("--threshold", type=float, default=0.4, help="Land/sea threshold (Phase 2)")
+    parser.add_argument("--threshold", type=float, default=0.25, help="Land/sea threshold (Phase 2)")
     parser.add_argument("--land-ratio", type=float, default=0.6, help="Target land ratio (Phase 2)")
     parser.add_argument("--octaves", type=int, default=4, help="Noise octaves (Phase 2)")
     parser.add_argument("--radial-falloff", type=float, default=0.8, help="Radial mask falloff (Phase 2)")

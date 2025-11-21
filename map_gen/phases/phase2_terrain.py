@@ -267,7 +267,7 @@ def run_phase2(phase1_output, config):
     # Extract configuration
     width = phase1_output["config"].get("width", 1.0)
     height = phase1_output["config"].get("height", 1.0)
-    threshold = config.get("threshold", 0.4)
+    threshold = config.get("threshold", 0.25)
     land_ratio_target = config.get("land_ratio", 0.6)
     octaves = config.get("octaves", 4)
     radial_falloff = config.get("radial_falloff", 0.8)
@@ -335,7 +335,7 @@ def main():
     """Main entry point for Phase 2."""
     parser = argparse.ArgumentParser(description="Phase 2: Terrain Assignment")
     parser.add_argument("--input", type=str, default="mesh_output.json", help="Input JSON from Phase 1")
-    parser.add_argument("--threshold", type=float, default=0.4, help="Terrain threshold")
+    parser.add_argument("--threshold", type=float, default=0.25, help="Terrain threshold")
     parser.add_argument("--land-ratio", type=float, default=0.6, help="Target land ratio")
     parser.add_argument("--octaves", type=int, default=4, help="Noise octaves")
     parser.add_argument("--radial-falloff", type=float, default=0.8, help="Radial mask falloff")
