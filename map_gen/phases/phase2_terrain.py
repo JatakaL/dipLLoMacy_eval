@@ -19,11 +19,11 @@ import argparse
 
 def generate_perlin_noise_2d(shape, res, seed=None):
     """
-    Generate 2D Perlin noise.
+    Generate 2D Perlin noise using a simpler approach.
     
     Args:
         shape: Shape of the output array (height, width)
-        res: Resolution/frequency of the noise
+        res: Resolution/frequency of the noise tuple (res_y, res_x)
         seed: Random seed
         
     Returns:
@@ -32,35 +32,59 @@ def generate_perlin_noise_2d(shape, res, seed=None):
     if seed is not None:
         np.random.seed(seed)
     
-    def f(t):
-        return 6*t**5 - 15*t**4 + 10*t**3
+    def smoothstep(t):
+        return t * t * (3.0 - 2.0 * t)
     
-    delta = (res[0] / shape[0], res[1] / shape[1])
-    d = (shape[0] // res[0], shape[1] // res[1])
-    grid = np.mgrid[0:res[0]:delta[0], 0:res[1]:delta[1]].transpose(1, 2, 0) % 1
+    # Create coordinate grids
+    height, width = shape
+    y = np.linspace(0, res[0], height, endpoint=False)
+    x = np.linspace(0, res[1], width, endpoint=False)
+    x_grid, y_grid = np.meshgrid(x, y)
     
-    # Gradients
-    angles = 2 * np.pi * np.random.rand(res[0]+1, res[1]+1)
-    gradients = np.dstack((np.cos(angles), np.sin(angles)))
+    # Integer parts
+    x0 = np.floor(x_grid).astype(int)
+    y0 = np.floor(y_grid).astype(int)
     
-    def tile(x):
-        return np.tile(x, (d[0], d[1], 1))[:shape[0], :shape[1]]
+    # Fractional parts
+    fx = x_grid - x0
+    fy = y_grid - y0
     
-    g00 = tile(gradients[0:-1, 0:-1])
-    g10 = tile(gradients[1:, 0:-1])
-    g01 = tile(gradients[0:-1, 1:])
-    g11 = tile(gradients[1:, 1:])
+    # Wrap around
+    x0 = x0 % res[1]
+    y0 = y0 % res[0]
+    x1 = (x0 + 1) % res[1]
+    y1 = (y0 + 1) % res[0]
     
-    n00 = np.sum(np.dstack((grid[:,:,0], grid[:,:,1])) * g00, 2)
-    n10 = np.sum(np.dstack((grid[:,:,0]-1, grid[:,:,1])) * g10, 2)
-    n01 = np.sum(np.dstack((grid[:,:,0], grid[:,:,1]-1)) * g01, 2)
-    n11 = np.sum(np.dstack((grid[:,:,0]-1, grid[:,:,1]-1)) * g11, 2)
+    # Generate random gradients for grid points
+    grad_size = (res[0] + 1, res[1] + 1)
+    angles = 2 * np.pi * np.random.rand(*grad_size)
+    grad_x = np.cos(angles)
+    grad_y = np.sin(angles)
     
-    t = f(grid)
-    n0 = n00*(1-t[:,:,0]) + t[:,:,0]*n10
-    n1 = n01*(1-t[:,:,0]) + t[:,:,0]*n11
+    # Get gradients at corners
+    g00_x = grad_x[y0, x0]
+    g00_y = grad_y[y0, x0]
+    g10_x = grad_x[y0, x1]
+    g10_y = grad_y[y0, x1]
+    g01_x = grad_x[y1, x0]
+    g01_y = grad_y[y1, x0]
+    g11_x = grad_x[y1, x1]
+    g11_y = grad_y[y1, x1]
     
-    return np.sqrt(2) * ((1-t[:,:,1])*n0 + t[:,:,1]*n1)
+    # Dot products with distance vectors
+    n00 = g00_x * fx + g00_y * fy
+    n10 = g10_x * (fx - 1) + g10_y * fy
+    n01 = g01_x * fx + g01_y * (fy - 1)
+    n11 = g11_x * (fx - 1) + g11_y * (fy - 1)
+    
+    # Interpolate
+    sx = smoothstep(fx)
+    sy = smoothstep(fy)
+    
+    n0 = n00 * (1 - sx) + n10 * sx
+    n1 = n01 * (1 - sx) + n11 * sx
+    
+    return n0 * (1 - sy) + n1 * sy
 
 
 def generate_noise_map(width, height, octaves=4, seed=None):
