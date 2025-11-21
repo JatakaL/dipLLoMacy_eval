@@ -175,4 +175,6 @@ cython_debug/
 
 # Generated map outputs
 output/
+test_output/
+test_env/
 *.json
