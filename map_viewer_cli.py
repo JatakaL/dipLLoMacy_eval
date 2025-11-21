@@ -232,9 +232,11 @@ def visualize_map(map_data, output_path=None, dpi=150):
     # Finishing touches
     ax.set_aspect('equal')
     ax.axis('off')
+    
+    # Build title - keep it concise to avoid overflow
     title = f"{map_data.filename}\n{map_data.get_phase_name()}"
     
-    # Add statistics to title for later phases
+    # Add statistics to title for later phases (condensed format)
     if phase >= 4:
         stats = []
         if map_data.cells:
@@ -247,8 +249,11 @@ def visualize_map(map_data, output_path=None, dpi=150):
             total_scs = len(map_data.supply_centers.get('home', [])) + len(map_data.supply_centers.get('neutral', []))
             stats.append(f"SCs: {total_scs}")
         
+        # Only add stats if they fit reasonably (limit to ~60 chars)
         if stats:
-            title += "\n" + " | ".join(stats)
+            stats_line = " | ".join(stats)
+            if len(stats_line) < 60:
+                title += "\n" + stats_line
     
     ax.set_title(title, fontsize=13, weight='bold', pad=20)
     

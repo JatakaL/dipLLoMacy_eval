@@ -444,11 +444,12 @@ class MapViewerApp:
             # Embed in tkinter
             canvas = FigureCanvasTkAgg(fig, master=tab_frame)
             canvas.draw()
-            canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
             
             # Add toolbar
             toolbar = NavigationToolbar2Tk(canvas, tab_frame)
             toolbar.update()
+            
+            # Pack canvas widget
             canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
             
             # Store references
@@ -472,12 +473,17 @@ class MapViewerApp:
         """Close the currently selected tab."""
         current_tab = self.notebook.select()
         if current_tab:
-            tab_index = self.notebook.index(current_tab)
-            self.notebook.forget(current_tab)
+            tab_widget = self.notebook.nametowidget(current_tab)
             
-            # Remove from maps list
-            if 0 <= tab_index < len(self.maps):
-                self.maps.pop(tab_index)
+            # Only close if it's not the welcome tab
+            if hasattr(tab_widget, 'map_data'):
+                # Find and remove the map data from our list
+                map_data = tab_widget.map_data
+                if map_data in self.maps:
+                    self.maps.remove(map_data)
+            
+            # Remove the tab
+            self.notebook.forget(current_tab)
             
             # Show welcome tab if no tabs left
             if self.notebook.index('end') == 0:
