@@ -177,4 +177,8 @@ cython_debug/
 output/
 test_output/
 test_env/
+demo_map/
 *.json
+
+# Generated visualizations (keep examples if explicitly added)
+# *.png
