@@ -172,6 +172,18 @@ def visualize_map(map_data, output_path=None, dpi=150):
     
     else:
         # Phase 4+: Kingdoms and supply centers
+        # Get list of powers - either from powers dict or by extracting from cell owners
+        if map_data.powers:
+            power_list = sorted(map_data.powers.keys())
+        else:
+            # Extract unique power names from cells
+            power_set = set()
+            for cell in map_data.cells.values():
+                owner = cell.get('owner')
+                if owner:
+                    power_set.add(owner)
+            power_list = sorted(power_set)
+        
         for cell_id, cell in map_data.cells.items():
             vertices = np.array(cell.get('vertices', []))
             if len(vertices) < 3:
@@ -185,8 +197,7 @@ def visualize_map(map_data, output_path=None, dpi=150):
             color = terrain_colors.get(cell_type, 'gray')
             
             # Color by owner
-            if owner and map_data.powers:
-                power_list = sorted(map_data.powers.keys())
+            if owner and power_list:
                 if owner in power_list:
                     power_idx = power_list.index(owner)
                     color = power_colors[power_idx % len(power_colors)]
@@ -217,11 +228,9 @@ def visualize_map(map_data, output_path=None, dpi=150):
                                    alpha=0.8, edgecolor='none'), zorder=5)
         
         # Add legend for powers
-        if map_data.powers:
+        if power_list:
             legend_elements = []
-            for power_id in sorted(map_data.powers.keys()):
-                power_list = sorted(map_data.powers.keys())
-                power_idx = power_list.index(power_id)
+            for power_idx, power_id in enumerate(power_list):
                 color = power_colors[power_idx % len(power_colors)]
                 legend_elements.append(plt.Rectangle((0, 0), 1, 1, fc=color, label=power_id))
             

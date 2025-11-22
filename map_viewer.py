@@ -219,6 +219,18 @@ class MapVisualizer:
     
     def _visualize_kingdoms(self):
         """Visualize Phase 4+: Kingdoms, supply centers, final map."""
+        # Get list of powers - either from powers dict or by extracting from cell owners
+        if self.map_data.powers:
+            power_list = sorted(self.map_data.powers.keys())
+        else:
+            # Extract unique power names from cells
+            power_set = set()
+            for cell in self.map_data.cells.values():
+                owner = cell.get('owner')
+                if owner:
+                    power_set.add(owner)
+            power_list = sorted(power_set)
+        
         # Draw cells with power colors
         for cell_id, cell in self.map_data.cells.items():
             vertices = np.array(cell.get('vertices', []))
@@ -233,10 +245,10 @@ class MapVisualizer:
             color = self.terrain_colors.get(cell_type, 'gray')
             
             # Color by owner
-            if owner and owner in self.map_data.powers:
-                power_list = sorted(self.map_data.powers.keys())
-                power_idx = power_list.index(owner)
-                color = self.power_colors[power_idx % len(self.power_colors)]
+            if owner and power_list:
+                if owner in power_list:
+                    power_idx = power_list.index(owner)
+                    color = self.power_colors[power_idx % len(self.power_colors)]
             elif is_sc and not owner:
                 # Neutral supply center
                 color = '#FFE699' if cell_type == 'land' else '#9BC2E6'
@@ -272,11 +284,9 @@ class MapVisualizer:
                            ha='center', va='center', fontsize=5, alpha=0.8)
         
         # Add legend for powers
-        if self.map_data.powers:
+        if power_list:
             legend_elements = []
-            for power_id in sorted(self.map_data.powers.keys()):
-                power_list = sorted(self.map_data.powers.keys())
-                power_idx = power_list.index(power_id)
+            for power_idx, power_id in enumerate(power_list):
                 color = self.power_colors[power_idx % len(self.power_colors)]
                 legend_elements.append(plt.Rectangle((0, 0), 1, 1, fc=color, label=power_id))
             
