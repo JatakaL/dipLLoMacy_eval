@@ -313,7 +313,18 @@ class MapVisualizer:
             power_list = sorted(power_set)
         
         # Get analysis-specific data
-        degree_analysis = analysis.get('degree_analysis', {})
+        # Handle new Phase 6 structure with before/after optimization
+        # Use after_optimization if available, otherwise use direct keys (backward compatibility)
+        if 'after_optimization' in analysis:
+            degree_analysis = analysis['after_optimization'].get('degree_analysis', {})
+            triangle_analysis = analysis['after_optimization'].get('triangle_analysis', {})
+            sea_connectivity = analysis['after_optimization'].get('sea_connectivity', {})
+        else:
+            # Backward compatibility with old structure
+            degree_analysis = analysis.get('degree_analysis', {})
+            triangle_analysis = analysis.get('triangle_analysis', {})
+            sea_connectivity = analysis.get('sea_connectivity', {})
+        
         highly_connected = set(degree_analysis.get('highly_connected_nodes', []))
         dead_ends = set(degree_analysis.get('dead_end_nodes', []))
         contested_scs = analysis.get('contested_scs', [])
@@ -419,9 +430,7 @@ class MapVisualizer:
         # Add statistics text
         if analysis:
             avg_degree = degree_analysis.get('average_degree', 0)
-            triangle_analysis = analysis.get('triangle_analysis', {})
             triangle_density = triangle_analysis.get('triangle_density', 0)
-            sea_connectivity = analysis.get('sea_connectivity', {})
             
             stats_text = f"Avg Degree: {avg_degree:.1f}\n"
             stats_text += f"Triangle Density: {triangle_density:.1%}\n"
