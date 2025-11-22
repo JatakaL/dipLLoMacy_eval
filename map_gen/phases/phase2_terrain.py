@@ -197,7 +197,12 @@ def assign_terrain(cells, noise_map, threshold, width, height, land_ratio_target
     Returns:
         Updated cells with terrain type and the actual threshold used
     """
-    # First, sample all noise values for the cells
+    # Validate land_ratio_target if provided
+    if land_ratio_target is not None:
+        if not 0 <= land_ratio_target <= 1:
+            raise ValueError(f"land_ratio_target must be between 0 and 1, got {land_ratio_target}")
+    
+    # Sample all noise values for the cells
     noise_values = []
     for cell_id, cell in cells.items():
         noise_value = sample_noise_for_cell(noise_map, cell["center"], width, height)
