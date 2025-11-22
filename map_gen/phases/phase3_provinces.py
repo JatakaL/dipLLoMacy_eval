@@ -14,8 +14,14 @@ Output: provinces_output.json with province classifications
 import json
 import random
 import argparse
+import sys
+import os
+
+# Add parent directory to path for topology import
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase
+from topology import convert_cells_to_topology
 
 
 def identify_coastlines(cells):
@@ -201,9 +207,15 @@ def run_phase3(phase2_output, config):
     sea_cells = sum(1 for c in cells.values() if c["type"] == "sea")
     impassable = sum(1 for c in cells.values() if c["type"] == "impassable")
     
+    # Step 4: Update topology with province designations
+    print("\nStep 4: Updating topology with province designations...")
+    topology = convert_cells_to_topology(cells)
+    print(f"  Topology updated with {len(topology['vertices'])} vertices, {len(topology['edges'])} edges")
+    
     output = {
         "config": {**phase2_output["config"], **config},
         "cells": cells,
+        "topology": topology,
         "oceans": [
             {
                 "ocean_id": i,
@@ -219,7 +231,9 @@ def run_phase3(phase2_output, config):
             "impassable_cells": impassable,
             "coastal_cells": coastal_count,
             "inland_cells": inland_count,
-            "num_oceans": len(oceans)
+            "num_oceans": len(oceans),
+            "topology_vertices": len(topology['vertices']),
+            "topology_edges": len(topology['edges'])
         }
     }
     
