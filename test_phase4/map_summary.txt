@@ -1,0 +1,34 @@
+============================================================
+DIPLOMACY MAP SUMMARY
+============================================================
+
+Total Cells: 50
+  - Land: 15
+  - Sea: 34
+  - Impassable: 1
+
+Supply Centers: 15
+  - Home: 15
+  - Neutral: 0
+
+Powers: 7
+  - Corner Powers: 3
+  - Central Powers: 1
+
+Geography:
+  - Coastal Cells: 10
+  - Inland Cells: 6
+  - Ocean Regions: 1
+
+Graph Quality:
+  - Average Degree: 5.12
+  - Triangle Density: 41.6%
+  - Seas Connected: True
+  - Contested Neutral SCs: 0
+
+Recommendations:
+  • Consider splitting 1 highly connected nodes
+  • Consider merging 1 dead-end nodes
+  • No contested neutral SCs - early game may be too peaceful
+
+============================================================
