@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 """
-Phase 6: Graph Optimization
+Phase 6: Graph Analysis and Validation
 
-This phase optimizes the map graph for gameplay:
+This phase analyzes the map graph quality for gameplay and provides recommendations.
+It performs analysis only and does NOT modify the map (to prevent breaking SCs and powers).
+
+Analysis includes:
 1. Check bottlenecks (degree of each node)
-2. Split highly connected nodes (degree > 7)
-3. Merge dead-end nodes (degree < 3)
-4. Ensure connectivity between all sea zones
+2. Analyze triangle density (support mechanic viability)
+3. Verify connectivity between all sea zones
+4. Classify power positions (corner vs central)
+5. Identify contested neutral SCs (Belgium factor)
+
+Note: Ocean connectivity is now fixed in Phase 2 (before SCs and powers are assigned).
+Phase 6 only validates that the ocean is connected and warns if it's not.
 
 Input: supply_centers_output.json from Phase 5
-Output: optimized_graph_output.json with optimized structure
+Output: analysis_output.json with quality metrics and recommendations
 """
 
 import json
@@ -544,18 +551,20 @@ def connect_sea_components(cells, sea_connectivity):
 
 def run_phase6(phase5_output, config):
     """
-    Run Phase 6: Graph Optimization.
+    Run Phase 6: Graph Analysis and Validation (analysis only, no modifications).
     
     Args:
         phase5_output: Output from Phase 5
         config: Configuration parameters
         
     Returns:
-        Dictionary with optimization data
+        Dictionary with analysis data and recommendations
     """
     print("=" * 60)
-    print("PHASE 6: GRAPH OPTIMIZATION")
+    print("PHASE 6: GRAPH ANALYSIS AND VALIDATION")
     print("=" * 60)
+    print("\nNOTE: This phase performs analysis only and does NOT modify the map.")
+    print("Ocean connectivity is now fixed in Phase 2 (before SCs/powers are assigned).")
     
     cells = phase5_output["cells"]
     territories = phase5_output["territories"]
@@ -571,13 +580,14 @@ def run_phase6(phase5_output, config):
     print(f"  Highly connected nodes (>7): {len(degree_analysis['highly_connected'])}")
     print(f"  Dead ends (<3): {len(degree_analysis['dead_ends'])}")
     
-    # Step 2: Check sea connectivity
-    print("\nStep 2: Checking sea connectivity...")
+    # Step 2: Check sea connectivity (validation only)
+    print("\nStep 2: Validating sea connectivity...")
     sea_connectivity = check_sea_connectivity(cells)
     print(f"  All seas connected: {sea_connectivity['connected']}")
     print(f"  Number of sea components: {sea_connectivity['components']}")
     if sea_connectivity['components'] > 1:
         print(f"  Component sizes: {sea_connectivity['component_sizes']}")
+        print(f"  WARNING: Seas are not connected. This should have been fixed in Phase 2.")
     
     # Step 3: Calculate triangle density
     print("\nStep 3: Calculating triangle density...")
@@ -603,145 +613,67 @@ def run_phase6(phase5_output, config):
     for sc_data in contested_scs:
         print(f"    {sc_data['cell_id']}: accessible by {sc_data['num_powers']} powers")
     
-    # NEW: Step 6: Apply optimizations
+    # Step 6: Verify map integrity
+    print("\nStep 6: Verifying map integrity...")
+    integrity_issues = []
+    
+    # Check that all powers have exactly 3 SCs
+    for power_id, territory_data in territories.items():
+        power_sc_count = sum(1 for cell_id in territory_data["cells"] 
+                            if cells[cell_id].get("is_supply_center", False))
+        if power_sc_count != 3:
+            integrity_issues.append(f"Power {power_id} has {power_sc_count} SCs (expected 3)")
+    
+    # Count total SCs
+    total_scs = sum(1 for cell in cells.values() if cell.get("is_supply_center", False))
+    expected_scs = len(territories) * 3 + len(supply_centers.get("neutral", []))
+    if total_scs != expected_scs:
+        integrity_issues.append(f"Total SC count mismatch: {total_scs} (expected {expected_scs})")
+    
+    if integrity_issues:
+        print("  INTEGRITY ISSUES FOUND:")
+        for issue in integrity_issues:
+            print(f"    ✗ {issue}")
+    else:
+        print("  ✓ All integrity checks passed")
+    
+    # Generate recommendations
     print("\n" + "=" * 60)
-    print("APPLYING OPTIMIZATIONS")
+    print("RECOMMENDATIONS")
     print("=" * 60)
     
-    optimizations_applied = []
-    
-    # Optimization 1: Merge dead-end nodes (iterative, as merging can create new dead-ends)
-    if degree_analysis['dead_ends']:
-        print(f"\nOptimization 1: Merging dead-end nodes...")
-        total_merged = 0
-        max_iterations = 10
-        iteration = 0
-        
-        while iteration < max_iterations:
-            # Re-analyze to find current dead-ends
-            current_analysis = analyze_node_degrees(cells)
-            if not current_analysis['dead_ends']:
-                break
-            
-            print(f"  Iteration {iteration + 1}: Found {len(current_analysis['dead_ends'])} dead-end nodes")
-            merged_this_iteration = 0
-            
-            for dead_end_id in current_analysis['dead_ends']:
-                if merge_dead_end_node(dead_end_id, cells):
-                    print(f"    Merged {dead_end_id}")
-                    merged_this_iteration += 1
-                    total_merged += 1
-            
-            if merged_this_iteration == 0:
-                # No progress made, stop
-                break
-            
-            iteration += 1
-        
-        if total_merged > 0:
-            optimizations_applied.append(f"Merged {total_merged} dead-end nodes")
-    
-    # Optimization 2: Split highly connected nodes (iterative, as splitting can affect other nodes)
-    if degree_analysis['highly_connected']:
-        print(f"\nOptimization 2: Splitting highly connected nodes...")
-        total_edges_removed = 0
-        max_iterations = 10
-        iteration = 0
-        
-        while iteration < max_iterations:
-            # Re-analyze to find current highly connected nodes
-            current_analysis = analyze_node_degrees(cells)
-            if not current_analysis['highly_connected']:
-                break
-            
-            print(f"  Iteration {iteration + 1}: Found {len(current_analysis['highly_connected'])} highly connected nodes")
-            edges_removed_this_iteration = 0
-            
-            for high_conn_id in current_analysis['highly_connected']:
-                edges_removed = split_highly_connected_node(high_conn_id, cells)
-                if edges_removed > 0:
-                    print(f"    Split {high_conn_id}: removed {edges_removed} edges")
-                    edges_removed_this_iteration += edges_removed
-                    total_edges_removed += edges_removed
-            
-            if edges_removed_this_iteration == 0:
-                # No progress made, stop
-                break
-            
-            iteration += 1
-        
-        if total_edges_removed > 0:
-            optimizations_applied.append(f"Split highly connected nodes: removed {total_edges_removed} edges")
-    
-    # Optimization 3: Connect sea components
-    if not sea_connectivity['connected']:
-        print(f"\nOptimization 3: Connecting {sea_connectivity['components']} sea components...")
-        total_converted = 0
-        max_attempts = 10  # Prevent infinite loops
-        attempts = 0
-        
-        while attempts < max_attempts:
-            # Re-check connectivity after each conversion
-            current_connectivity = check_sea_connectivity(cells)
-            if current_connectivity['connected']:
-                break
-            
-            converted = connect_sea_components(cells, current_connectivity)
-            if converted == 0:
-                # Can't make more progress
-                break
-            
-            total_converted += converted
-            attempts += 1
-        
-        if total_converted > 0:
-            print(f"  Converted {total_converted} land cells to sea to connect components")
-            optimizations_applied.append(f"Connected sea components: converted {total_converted} land cells")
-        else:
-            print(f"  Could not find suitable bridges to connect sea components")
-    
-    # Re-analyze after optimizations
-    print("\n" + "=" * 60)
-    print("POST-OPTIMIZATION ANALYSIS")
-    print("=" * 60)
-    
-    post_degree_analysis = analyze_node_degrees(cells)
-    print(f"\nNode degrees after optimization:")
-    print(f"  Average degree: {post_degree_analysis['average']:.2f} (was {degree_analysis['average']:.2f})")
-    print(f"  Range: {post_degree_analysis['min']} - {post_degree_analysis['max']} (was {degree_analysis['min']} - {degree_analysis['max']})")
-    print(f"  Highly connected nodes (>7): {len(post_degree_analysis['highly_connected'])} (was {len(degree_analysis['highly_connected'])})")
-    print(f"  Dead ends (<3): {len(post_degree_analysis['dead_ends'])} (was {len(degree_analysis['dead_ends'])})")
-    
-    post_sea_connectivity = check_sea_connectivity(cells)
-    print(f"\nSea connectivity after optimization:")
-    print(f"  All seas connected: {post_sea_connectivity['connected']} (was {sea_connectivity['connected']})")
-    print(f"  Number of sea components: {post_sea_connectivity['components']} (was {sea_connectivity['components']})")
-    
-    post_triangle_analysis = calculate_triangle_density(cells)
-    print(f"\nTriangle density after optimization:")
-    print(f"  Triangle density: {post_triangle_analysis['triangle_density']:.1%} (was {triangle_analysis['triangle_density']:.1%})")
-    
-    # Generate remaining recommendations (for issues not automatically fixed)
     recommendations = []
     
-    # Only recommend if still an issue after optimization
-    if post_degree_analysis['highly_connected']:
-        recommendations.append(f"Still have {len(post_degree_analysis['highly_connected'])} highly connected nodes (>7) - may need manual review")
+    if degree_analysis['highly_connected']:
+        recommendations.append(f"Found {len(degree_analysis['highly_connected'])} highly connected nodes (>7 neighbors) - consider regenerating with different parameters")
     
-    if post_degree_analysis['dead_ends']:
-        recommendations.append(f"Still have {len(post_degree_analysis['dead_ends'])} dead-end nodes (<3) - may need manual review")
+    if degree_analysis['dead_ends']:
+        recommendations.append(f"Found {len(degree_analysis['dead_ends'])} dead-end nodes (<3 neighbors) - consider regenerating with different parameters")
     
-    if not post_sea_connectivity['connected']:
-        recommendations.append("WARNING: Seas still not fully connected - manual intervention needed")
+    if not sea_connectivity['connected']:
+        recommendations.append("CRITICAL: Seas not fully connected - Phase 2 ocean connectivity fix may have failed")
     
-    if post_triangle_analysis['triangle_density'] < MIN_TRIANGLE_DENSITY:
-        recommendations.append(f"Low triangle density - map may not support complex diplomacy (target: {MIN_TRIANGLE_DENSITY:.0%})")
+    if triangle_analysis['triangle_density'] < MIN_TRIANGLE_DENSITY:
+        recommendations.append(f"Low triangle density ({triangle_analysis['triangle_density']:.1%}) - map may not support complex diplomacy (target: {MIN_TRIANGLE_DENSITY:.0%})")
     
     if len(corner_powers) < 2:
-        recommendations.append("Too few corner powers - consider rebalancing")
+        recommendations.append("Too few corner powers - map may be unbalanced")
+    
+    if len(central_powers) == 0:
+        recommendations.append("No central powers - map may lack strategic tension")
     
     if len(contested_scs) == 0:
         recommendations.append("No contested neutral SCs - early game may be too peaceful")
+    
+    if integrity_issues:
+        recommendations.append("CRITICAL: Map integrity issues found - regeneration recommended")
+    
+    if not recommendations:
+        print("\n  ✓ No issues found - map quality is acceptable!")
+    else:
+        print("\nIssues found:")
+        for rec in recommendations:
+            print(f"  • {rec}")
     
     output = {
         "config": phase5_output["config"],
@@ -749,36 +681,21 @@ def run_phase6(phase5_output, config):
         "territories": territories,
         "supply_centers": supply_centers,
         "analysis": {
-            "before_optimization": {
-                "degree_analysis": {
-                    "average_degree": degree_analysis['average'],
-                    "min_degree": degree_analysis['min'],
-                    "max_degree": degree_analysis['max'],
-                    "highly_connected_count": len(degree_analysis['highly_connected']),
-                    "dead_end_count": len(degree_analysis['dead_ends']),
-                    "highly_connected_nodes": degree_analysis['highly_connected'],
-                    "dead_end_nodes": degree_analysis['dead_ends']
-                },
-                "sea_connectivity": sea_connectivity,
-                "triangle_analysis": triangle_analysis
+            "degree_analysis": {
+                "average_degree": degree_analysis['average'],
+                "min_degree": degree_analysis['min'],
+                "max_degree": degree_analysis['max'],
+                "highly_connected_count": len(degree_analysis['highly_connected']),
+                "dead_end_count": len(degree_analysis['dead_ends']),
+                "highly_connected_nodes": degree_analysis['highly_connected'],
+                "dead_end_nodes": degree_analysis['dead_ends']
             },
-            "after_optimization": {
-                "degree_analysis": {
-                    "average_degree": post_degree_analysis['average'],
-                    "min_degree": post_degree_analysis['min'],
-                    "max_degree": post_degree_analysis['max'],
-                    "highly_connected_count": len(post_degree_analysis['highly_connected']),
-                    "dead_end_count": len(post_degree_analysis['dead_ends']),
-                    "highly_connected_nodes": post_degree_analysis['highly_connected'],
-                    "dead_end_nodes": post_degree_analysis['dead_ends']
-                },
-                "sea_connectivity": post_sea_connectivity,
-                "triangle_analysis": post_triangle_analysis
-            },
+            "sea_connectivity": sea_connectivity,
+            "triangle_analysis": triangle_analysis,
             "power_classifications": power_classifications,
-            "contested_scs": contested_scs
+            "contested_scs": contested_scs,
+            "integrity_issues": integrity_issues
         },
-        "optimizations_applied": optimizations_applied,
         "recommendations": recommendations,
         "statistics": {
             **phase5_output["statistics"],
@@ -789,15 +706,7 @@ def run_phase6(phase5_output, config):
     }
     
     print("\n" + "=" * 60)
-    print("PHASE 6 COMPLETE: Graph analysis and optimization")
-    if optimizations_applied:
-        print("\nOptimizations Applied:")
-        for opt in optimizations_applied:
-            print(f"  ✓ {opt}")
-    if recommendations:
-        print("\nRemaining Recommendations:")
-        for rec in recommendations:
-            print(f"  • {rec}")
+    print("PHASE 6 COMPLETE: Graph analysis and validation")
     print("=" * 60)
     
     return output
@@ -805,7 +714,7 @@ def run_phase6(phase5_output, config):
 
 def main():
     """Main entry point for Phase 6."""
-    parser = argparse.ArgumentParser(description="Phase 6: Graph Optimization")
+    parser = argparse.ArgumentParser(description="Phase 6: Graph Analysis and Validation")
     parser.add_argument("--input", type=str, required=True, help="Input JSON from Phase 5")
     parser.add_argument("--output", type=str, default=None, help="Output JSON file path (default: auto-generated in same directory as input)")
     
@@ -825,7 +734,7 @@ def main():
         output_path = args.output
     else:
         _, _, output_path = get_output_path_for_phase(
-            "phase6_optimization_output",
+            "phase6_analysis_output",
             input_file=args.input,
             is_orchestrator=False
         )

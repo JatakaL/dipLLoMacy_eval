@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-Test Phase 6 Optimization Functions
+Test Phase 6 Analysis Functions
 
-This script tests the optimization functions in Phase 6 to ensure they work correctly.
+This script tests the analysis functions used in Phase 6 and Phase 2 to ensure they work correctly.
+Note: Phase 6 is now analysis-only and does not modify the map. Ocean connectivity fixes
+are now done in Phase 2.
 """
 
 import sys
@@ -176,8 +178,9 @@ def test_analyze_node_degrees():
 def run_all_tests():
     """Run all tests."""
     print("=" * 60)
-    print("PHASE 6 OPTIMIZATION TESTS")
+    print("PHASE 6 ANALYSIS FUNCTIONS TESTS")
     print("=" * 60)
+    print("Note: These functions are used for analysis and in Phase 2 for ocean connectivity fixes.")
     
     try:
         test_merge_dead_end_with_2_neighbors()
