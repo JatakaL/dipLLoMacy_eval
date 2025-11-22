@@ -202,12 +202,22 @@ def lloyds_relaxation(cells, iterations=1, width=1.0, height=1.0):
         cells = generate_voronoi_cells(points, width, height)
         
         # Calculate the true geometric centroid of each Voronoi cell
+        # Note: The order of cells.values() matches the order of points used to generate them
         new_points = []
         for cell in cells.values():
-            # Use Shapely to calculate the proper area-weighted centroid
-            poly = ShapelyPolygon(cell["vertices"])
-            centroid = poly.centroid
-            new_points.append([centroid.x, centroid.y])
+            try:
+                # Use Shapely to calculate the proper area-weighted centroid
+                poly = ShapelyPolygon(cell["vertices"])
+                if poly.is_valid:
+                    centroid = poly.centroid
+                    new_points.append([centroid.x, centroid.y])
+                else:
+                    # If polygon is invalid, keep the original center
+                    new_points.append(cell["center"])
+            except Exception as e:
+                # If centroid calculation fails, keep the original center
+                print(f"    Warning: Failed to calculate centroid for cell {cell['id']}, using original center")
+                new_points.append(cell["center"])
         
         points = np.array(new_points)
         print(f"  Iteration {iteration + 1}/{iterations} complete")
