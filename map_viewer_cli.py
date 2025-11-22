@@ -39,6 +39,7 @@ class MapData:
         self.supply_centers = self.data.get('supply_centers', {})
         self.adjacency = self.data.get('adjacency', {})
         self.analysis = self.data.get('analysis', {})
+        self.topology = self.data.get('topology', None)
         
         # Detect phase
         self.phase = self._detect_phase()
@@ -99,6 +100,96 @@ class MapData:
         return phase_names.get(self.phase, "Unknown Phase")
 
 
+def visualize_with_topology(ax, map_data, show_labels=False):
+    """Visualize using topology data structure.
+    
+    Args:
+        ax: Matplotlib axis
+        map_data: MapData object
+        show_labels: Whether to show cell ID labels
+    """
+    topology = map_data.topology
+    vertices_list = topology.get('vertices', [])
+    edges = topology.get('edges', {})
+    faces = topology.get('faces', {})
+    cells = map_data.cells
+    
+    terrain_colors = {
+        "land": "#C5E0B4",
+        "sea": "#BDD7EE",
+        "impassable": "#A6A6A6"
+    }
+    
+    # Create vertex lookup
+    vertex_coords = {v['id']: v['coords'] for v in vertices_list}
+    
+    # Define edge colors by type
+    edge_colors = {
+        'land': '#4A7C59',
+        'sea': '#5B9BD5',
+        'coast': '#C55A11',
+        'map-edge': '#2F2F2F'
+    }
+    
+    edge_widths = {
+        'land': 1.0,
+        'sea': 0.8,
+        'coast': 1.8,
+        'map-edge': 2.0
+    }
+    
+    # First pass: Draw filled faces
+    for face_id, face_data in faces.items():
+        face_type = face_data.get('type', 'land')
+        color = terrain_colors.get(face_type, 'gray')
+        
+        # Get polygon from legacy cell data
+        if face_id in cells and 'vertices' in cells[face_id]:
+            polygon = np.array(cells[face_id]['vertices'])
+            if len(polygon) >= 3:
+                ax.fill(polygon[:, 0], polygon[:, 1], color=color, alpha=0.7)
+    
+    # Second pass: Draw edges
+    for edge_id, edge_data in edges.items():
+        v1_id = edge_data.get('v1')
+        v2_id = edge_data.get('v2')
+        edge_type = edge_data.get('type', 'land')
+        
+        if v1_id not in vertex_coords or v2_id not in vertex_coords:
+            continue
+        
+        v1_coords = vertex_coords[v1_id]
+        v2_coords = vertex_coords[v2_id]
+        
+        color = edge_colors.get(edge_type, '#000000')
+        linewidth = edge_widths.get(edge_type, 1.0)
+        
+        ax.plot([v1_coords[0], v2_coords[0]], 
+                [v1_coords[1], v2_coords[1]], 
+                color=color, linewidth=linewidth, alpha=0.9, solid_capstyle='round')
+    
+    # Optional labels
+    if show_labels:
+        for face_id, face_data in faces.items():
+            center = face_data.get('center')
+            if center:
+                ax.text(center[0], center[1], face_id, 
+                        ha='center', va='center', fontsize=6, alpha=0.8)
+    
+    # Legend for edge types
+    legend_elements = [
+        plt.Line2D([0], [0], color=edge_colors['land'], linewidth=edge_widths['land'], 
+                   label='Land border'),
+        plt.Line2D([0], [0], color=edge_colors['coast'], linewidth=edge_widths['coast'], 
+                   label='Coastline'),
+        plt.Line2D([0], [0], color=edge_colors['sea'], linewidth=edge_widths['sea'], 
+                   label='Sea border'),
+        plt.Line2D([0], [0], color=edge_colors['map-edge'], linewidth=edge_widths['map-edge'], 
+                   label='Map boundary')
+    ]
+    ax.legend(handles=legend_elements, loc='upper right', fontsize=8, framealpha=0.9)
+
+
 def visualize_map(map_data, output_path=None, dpi=150):
     """Visualize the map and save to file or display."""
     
@@ -118,36 +209,44 @@ def visualize_map(map_data, output_path=None, dpi=150):
     # Visualize based on phase
     if phase == 1:
         # Phase 1: Basic mesh
-        for cell_id, cell in map_data.cells.items():
-            vertices = np.array(cell.get('vertices', []))
-            if len(vertices) < 3:
-                continue
-            
-            # Draw cell polygon
-            ax.fill(vertices[:, 0], vertices[:, 1], 
-                   color='lightgray', alpha=0.5, edgecolor='black', linewidth=0.8)
-            
-            # Draw center point
-            center = cell.get('center', [0, 0])
-            ax.plot(center[0], center[1], 'o', color='red', markersize=2)
-            
-            # Label with cell ID (only for small maps)
-            if len(map_data.cells) < 50:
-                ax.text(center[0], center[1], cell_id, 
-                       ha='center', va='center', fontsize=5, alpha=0.7)
+        if map_data.topology:
+            visualize_with_topology(ax, map_data, show_labels=(len(map_data.cells) < 50))
+        else:
+            # Legacy visualization
+            for cell_id, cell in map_data.cells.items():
+                vertices = np.array(cell.get('vertices', []))
+                if len(vertices) < 3:
+                    continue
+                
+                # Draw cell polygon
+                ax.fill(vertices[:, 0], vertices[:, 1], 
+                       color='lightgray', alpha=0.5, edgecolor='black', linewidth=0.8)
+                
+                # Draw center point
+                center = cell.get('center', [0, 0])
+                ax.plot(center[0], center[1], 'o', color='red', markersize=2)
+                
+                # Label with cell ID (only for small maps)
+                if len(map_data.cells) < 50:
+                    ax.text(center[0], center[1], cell_id, 
+                           ha='center', va='center', fontsize=5, alpha=0.7)
     
     elif phase == 2:
         # Phase 2: Terrain
-        for cell_id, cell in map_data.cells.items():
-            vertices = np.array(cell.get('vertices', []))
-            if len(vertices) < 3:
-                continue
-            
-            cell_type = cell.get('type', 'land')
-            color = terrain_colors.get(cell_type, 'gray')
-            
-            ax.fill(vertices[:, 0], vertices[:, 1], 
-                   color=color, alpha=0.8, edgecolor='black', linewidth=0.5)
+        if map_data.topology:
+            visualize_with_topology(ax, map_data, show_labels=False)
+        else:
+            # Legacy visualization
+            for cell_id, cell in map_data.cells.items():
+                vertices = np.array(cell.get('vertices', []))
+                if len(vertices) < 3:
+                    continue
+                
+                cell_type = cell.get('type', 'land')
+                color = terrain_colors.get(cell_type, 'gray')
+                
+                ax.fill(vertices[:, 0], vertices[:, 1], 
+                       color=color, alpha=0.8, edgecolor='black', linewidth=0.5)
     
     elif phase == 3:
         # Phase 3: Provinces
