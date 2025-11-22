@@ -275,12 +275,26 @@ def generate_map_summary(output):
     
     if "analysis" in output:
         analysis = output["analysis"]
-        summary.append(f"Graph Quality:")
-        summary.append(f"  - Average Degree: {analysis['degree_analysis']['average_degree']:.2f}")
-        summary.append(f"  - Triangle Density: {analysis['triangle_analysis']['triangle_density']:.1%}")
-        summary.append(f"  - Seas Connected: {analysis['sea_connectivity']['connected']}")
-        summary.append(f"  - Contested Neutral SCs: {stats.get('contested_neutral_scs', 0)}")
-        summary.append("")
+        
+        # Handle new Phase 6 structure with before/after optimization
+        # Use after_optimization if available, otherwise use direct keys (backward compatibility)
+        if "after_optimization" in analysis:
+            degree_data = analysis["after_optimization"]["degree_analysis"]
+            triangle_data = analysis["after_optimization"]["triangle_analysis"]
+            sea_data = analysis["after_optimization"]["sea_connectivity"]
+        else:
+            # Backward compatibility with old structure
+            degree_data = analysis.get("degree_analysis", {})
+            triangle_data = analysis.get("triangle_analysis", {})
+            sea_data = analysis.get("sea_connectivity", {})
+        
+        if degree_data and triangle_data and sea_data:
+            summary.append(f"Graph Quality:")
+            summary.append(f"  - Average Degree: {degree_data['average_degree']:.2f}")
+            summary.append(f"  - Triangle Density: {triangle_data['triangle_density']:.1%}")
+            summary.append(f"  - Seas Connected: {sea_data['connected']}")
+            summary.append(f"  - Contested Neutral SCs: {stats.get('contested_neutral_scs', 0)}")
+            summary.append("")
     
     if output.get("recommendations"):
         summary.append("Recommendations:")
