@@ -173,21 +173,59 @@ def build_adjacency(cells):
     return cells
 
 
-def lloyds_relaxation(cells, iterations=1):
+def lloyds_relaxation(cells, iterations=1, width=1.0, height=1.0):
     """
     Apply Lloyd's relaxation to make cells more uniform.
+    
+    Lloyd's algorithm iteratively improves cell uniformity by:
+    1. Computing the centroid of each Voronoi cell
+    2. Moving each point to its cell's centroid
+    3. Regenerating the Voronoi diagram
+    4. Repeating for the specified number of iterations
     
     Args:
         cells: Dictionary of cell data
         iterations: Number of relaxation iterations
+        width: Width of the bounding box
+        height: Height of the bounding box
         
     Returns:
         Relaxed cells dictionary
     """
-    # Lloyd's relaxation moves each point to the centroid of its Voronoi cell
-    # For now, we'll skip this as it requires regenerating the Voronoi diagram
-    # This is a placeholder that can be implemented if needed
-    print(f"Lloyd's relaxation ({iterations} iterations) - skipped for now")
+    print(f"Applying Lloyd's relaxation ({iterations} iterations)...")
+    
+    # Extract initial points from cells
+    points = np.array([cell["center"] for cell in cells.values()])
+    
+    for iteration in range(iterations):
+        # Generate Voronoi diagram for current points
+        cells = generate_voronoi_cells(points, width, height)
+        
+        # Calculate the true geometric centroid of each Voronoi cell
+        # Note: The order of cells.values() matches the order of points used to generate them
+        new_points = []
+        for cell in cells.values():
+            try:
+                # Use Shapely to calculate the proper area-weighted centroid
+                poly = ShapelyPolygon(cell["vertices"])
+                if poly.is_valid:
+                    centroid = poly.centroid
+                    new_points.append([centroid.x, centroid.y])
+                else:
+                    # If polygon is invalid, keep the original center
+                    new_points.append(cell["center"])
+            except Exception as e:
+                # If centroid calculation fails, keep the original center
+                print(f"    Warning: Failed to calculate centroid for cell {cell['id']}, using original center")
+                new_points.append(cell["center"])
+        
+        points = np.array(new_points)
+        print(f"  Iteration {iteration + 1}/{iterations} complete")
+    
+    # Generate final cells with relaxed points
+    cells = generate_voronoi_cells(points, width, height)
+    cells = build_adjacency(cells)
+    
     return cells
 
 
@@ -240,7 +278,7 @@ def run_phase1(config):
     # Step 4: Lloyd's relaxation (optional)
     if lloyd_iterations > 0:
         print(f"\nStep 4: Applying Lloyd's relaxation...")
-        cells = lloyds_relaxation(cells, lloyd_iterations)
+        cells = lloyds_relaxation(cells, lloyd_iterations, width, height)
     
     output = {
         "config": config,
