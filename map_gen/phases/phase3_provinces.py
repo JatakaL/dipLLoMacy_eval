@@ -15,6 +15,8 @@ import json
 import random
 import argparse
 
+from output_utils import get_output_path_for_phase
+
 
 def identify_coastlines(cells):
     """
@@ -231,10 +233,10 @@ def run_phase3(phase2_output, config):
 def main():
     """Main entry point for Phase 3."""
     parser = argparse.ArgumentParser(description="Phase 3: Province Definition")
-    parser.add_argument("--input", type=str, default="terrain_output.json", help="Input JSON from Phase 2")
+    parser.add_argument("--input", type=str, required=True, help="Input JSON from Phase 2")
     parser.add_argument("--num-impassable-zones", type=int, default=1, help="Number of impassable zones")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--output", type=str, default="provinces_output.json", help="Output JSON file")
+    parser.add_argument("--output", type=str, default=None, help="Output JSON file path (default: auto-generated in same directory as input)")
     
     args = parser.parse_args()
     
@@ -250,11 +252,21 @@ def main():
     # Run phase 3
     output = run_phase3(phase2_output, config)
     
+    # Determine output path
+    if args.output:
+        output_path = args.output
+    else:
+        _, _, output_path = get_output_path_for_phase(
+            "phase3_provinces_output",
+            input_file=args.input,
+            is_orchestrator=False
+        )
+    
     # Save output
-    with open(args.output, 'w') as f:
+    with open(output_path, 'w') as f:
         json.dump(output, f, indent=2)
     
-    print(f"\nOutput saved to: {args.output}")
+    print(f"\nOutput saved to: {output_path}")
 
 
 if __name__ == "__main__":

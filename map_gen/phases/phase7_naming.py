@@ -14,6 +14,9 @@ Output: final_map.json and visual output
 import json
 import random
 import argparse
+import os
+
+from output_utils import get_output_path_for_phase, get_input_directory, get_datetime_filename
 
 
 class RegionNamer:
@@ -366,10 +369,10 @@ def run_phase7(phase6_output, config):
 def main():
     """Main entry point for Phase 7."""
     parser = argparse.ArgumentParser(description="Phase 7: Naming and Visualization")
-    parser.add_argument("--input", type=str, default="optimized_graph_output.json", help="Input JSON from Phase 6")
+    parser.add_argument("--input", type=str, required=True, help="Input JSON from Phase 6")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--output", type=str, default="final_map.json", help="Output JSON file")
-    parser.add_argument("--summary", type=str, default="map_summary.txt", help="Summary text file")
+    parser.add_argument("--output", type=str, default=None, help="Output JSON file path (default: auto-generated in same directory as input)")
+    parser.add_argument("--summary", type=str, default=None, help="Summary text file path (default: auto-generated in same directory as input)")
     
     args = parser.parse_args()
     
@@ -384,18 +387,36 @@ def main():
     # Run phase 7
     output = run_phase7(phase6_output, config)
     
+    # Determine output path
+    if args.output:
+        output_path = args.output
+    else:
+        _, _, output_path = get_output_path_for_phase(
+            "phase7_final_map",
+            input_file=args.input,
+            is_orchestrator=False
+        )
+    
     # Save output
-    with open(args.output, 'w') as f:
+    with open(output_path, 'w') as f:
         json.dump(output, f, indent=2)
     
-    print(f"\nFinal map saved to: {args.output}")
+    print(f"\nFinal map saved to: {output_path}")
+    
+    # Determine summary path
+    if args.summary:
+        summary_path = args.summary
+    else:
+        output_dir = get_input_directory(args.input)
+        summary_filename, _ = get_datetime_filename("map_summary", extension=".txt")
+        summary_path = os.path.join(output_dir, summary_filename)
     
     # Save summary
     summary = generate_map_summary(output)
-    with open(args.summary, 'w') as f:
+    with open(summary_path, 'w') as f:
         f.write(summary)
     
-    print(f"Summary saved to: {args.summary}")
+    print(f"Summary saved to: {summary_path}")
 
 
 if __name__ == "__main__":

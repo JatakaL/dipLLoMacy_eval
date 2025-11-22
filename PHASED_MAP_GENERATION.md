@@ -28,7 +28,9 @@ This creates a map with:
 - 21 home supply centers (3 per power)
 - 13 neutral supply centers
 
-Output location: `output/` directory
+**Output location:** `../map_output/<datetime>/` (one level above the repository)
+- All output files are saved in a datetime-stamped subdirectory
+- Filenames include the datetime stamp (e.g., `final_map_20231122_153045.json`)
 
 ### Run with Custom Parameters
 
@@ -39,8 +41,10 @@ python orchestrator.py \
   --num-neutral-scs 15 \
   --land-ratio 0.65 \
   --seed 12345 \
-  --output-dir my_custom_map
+  --output-dir /custom/path
 ```
+
+The `--output-dir` specifies the base directory. A datetime subdirectory will be created inside it.
 
 ### Run from Python
 
@@ -54,7 +58,11 @@ config = {
     "seed": 42
 }
 
-output = run_full_pipeline(config, output_dir="my_map")
+# Uses default output directory (../map_output)
+output = run_full_pipeline(config)
+
+# Or specify a custom base directory
+output = run_full_pipeline(config, output_dir="/custom/path")
 ```
 
 ## The 7 Phases
@@ -218,31 +226,41 @@ Each phase produces a JSON file that includes:
 
 ## Running Individual Phases
 
-Each phase can be run independently for debugging or experimentation:
+Each phase can be run independently for debugging or experimentation.
+
+### Automatic Output Path Management
+
+By default, phases use datetime-stamped paths:
 
 ```bash
 cd map_gen/phases
 
+# Phase 1: Generate mesh (creates new datetime subdirectory)
+python phase1_mesh.py --num-cells 100
+# Output: ../map_output/20231122_153045/phase1_mesh_output_20231122_153045.json
+
+# Phase 2-7: Use same directory as input, with new datetime in filename
+python phase2_terrain.py --input ../map_output/20231122_153045/phase1_mesh_output_20231122_153045.json
+# Output: ../map_output/20231122_153045/phase2_terrain_output_20231122_153512.json
+```
+
+**Key behaviors:**
+- **Phase 1 standalone:** Creates a new datetime subdirectory in `../map_output/`
+- **Phase 2+ standalone:** Saves output in the same directory as the input file, with a new datetime in the filename
+- **Orchestrator:** All files use the same datetime and are saved together
+
+### Custom Output Paths
+
+You can also specify custom paths:
+
+```bash
 # Phase 1: Generate mesh
-python phase1_mesh.py --num-cells 100 --output mesh.json
+python phase1_mesh.py --num-cells 100 --output /custom/path/mesh.json
 
 # Phase 2: Assign terrain
-python phase2_terrain.py --input mesh.json --threshold 0.3 --output terrain.json
+python phase2_terrain.py --input /custom/path/mesh.json --threshold 0.3 --output /custom/path/terrain.json
 
-# Phase 3: Define provinces
-python phase3_provinces.py --input terrain.json --output provinces.json
-
-# Phase 4: Generate kingdoms
-python phase4_kingdoms.py --input provinces.json --num-powers 7 --output kingdoms.json
-
-# Phase 5: Place supply centers
-python phase5_supply_centers.py --input kingdoms.json --output scs.json
-
-# Phase 6: Optimize and analyze
-python phase6_optimization.py --input scs.json --output optimized.json
-
-# Phase 7: Name and finalize
-python phase7_naming.py --input optimized.json --output final_map.json
+# And so on for remaining phases...
 ```
 
 ## Configuration Parameters

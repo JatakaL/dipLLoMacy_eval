@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # Import all phases
@@ -21,30 +22,47 @@ from phase5_supply_centers import run_phase5
 from phase6_optimization import run_phase6
 from phase7_naming import run_phase7
 
+# Import output utilities
+from output_utils import (
+    get_default_output_base,
+    create_datetime_subdir,
+    get_datetime_filename
+)
+
 
 def create_output_directory(output_dir):
     """Create output directory if it doesn't exist."""
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
 
-def run_full_pipeline(config, output_dir="output", save_intermediate=True):
+def run_full_pipeline(config, output_dir=None, save_intermediate=True):
     """
     Run the complete 7-phase map generation pipeline.
     
     Args:
         config: Configuration dictionary with all parameters
-        output_dir: Directory to save outputs
+        output_dir: Base directory to save outputs (default: ../map_output)
         save_intermediate: Whether to save intermediate phase outputs
         
     Returns:
         Final map data
     """
-    create_output_directory(output_dir)
+    # Determine base output directory
+    if output_dir is None:
+        base_dir = get_default_output_base()
+    else:
+        base_dir = output_dir
+    
+    # Create datetime-stamped subdirectory
+    datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir, _ = create_datetime_subdir(base_dir, datetime_str)
     
     print("\n" + "=" * 70)
     print(" DIPLOMACY MAP GENERATOR - FULL PIPELINE")
     print("=" * 70)
-    print(f"\nOutput directory: {output_dir}")
+    print(f"\nOutput base directory: {base_dir}")
+    print(f"Output subdirectory: {datetime_str}")
+    print(f"Full output path: {output_dir}")
     print(f"Save intermediate files: {save_intermediate}")
     print("\n")
     
@@ -61,7 +79,8 @@ def run_full_pipeline(config, output_dir="output", save_intermediate=True):
     phase1_output = run_phase1(phase1_config)
     
     if save_intermediate:
-        with open(os.path.join(output_dir, "phase1_mesh_output.json"), 'w') as f:
+        filename, _ = get_datetime_filename("phase1_mesh_output", datetime_str)
+        with open(os.path.join(output_dir, filename), 'w') as f:
             json.dump(phase1_output, f, indent=2)
     
     # Phase 2: Terrain Assignment
@@ -77,7 +96,8 @@ def run_full_pipeline(config, output_dir="output", save_intermediate=True):
     phase2_output = run_phase2(phase1_output, phase2_config)
     
     if save_intermediate:
-        with open(os.path.join(output_dir, "phase2_terrain_output.json"), 'w') as f:
+        filename, _ = get_datetime_filename("phase2_terrain_output", datetime_str)
+        with open(os.path.join(output_dir, filename), 'w') as f:
             json.dump(phase2_output, f, indent=2)
     
     # Phase 3: Province Definition
@@ -89,7 +109,8 @@ def run_full_pipeline(config, output_dir="output", save_intermediate=True):
     phase3_output = run_phase3(phase2_output, phase3_config)
     
     if save_intermediate:
-        with open(os.path.join(output_dir, "phase3_provinces_output.json"), 'w') as f:
+        filename, _ = get_datetime_filename("phase3_provinces_output", datetime_str)
+        with open(os.path.join(output_dir, filename), 'w') as f:
             json.dump(phase3_output, f, indent=2)
     
     # Phase 4: Kingdom Generation
@@ -103,7 +124,8 @@ def run_full_pipeline(config, output_dir="output", save_intermediate=True):
     phase4_output = run_phase4(phase3_output, phase4_config)
     
     if save_intermediate:
-        with open(os.path.join(output_dir, "phase4_kingdoms_output.json"), 'w') as f:
+        filename, _ = get_datetime_filename("phase4_kingdoms_output", datetime_str)
+        with open(os.path.join(output_dir, filename), 'w') as f:
             json.dump(phase4_output, f, indent=2)
     
     # Phase 5: Supply Center Distribution
@@ -115,7 +137,8 @@ def run_full_pipeline(config, output_dir="output", save_intermediate=True):
     phase5_output = run_phase5(phase4_output, phase5_config)
     
     if save_intermediate:
-        with open(os.path.join(output_dir, "phase5_supply_centers_output.json"), 'w') as f:
+        filename, _ = get_datetime_filename("phase5_supply_centers_output", datetime_str)
+        with open(os.path.join(output_dir, filename), 'w') as f:
             json.dump(phase5_output, f, indent=2)
     
     # Phase 6: Graph Optimization
@@ -124,7 +147,8 @@ def run_full_pipeline(config, output_dir="output", save_intermediate=True):
     phase6_output = run_phase6(phase5_output, phase6_config)
     
     if save_intermediate:
-        with open(os.path.join(output_dir, "phase6_optimization_output.json"), 'w') as f:
+        filename, _ = get_datetime_filename("phase6_optimization_output", datetime_str)
+        with open(os.path.join(output_dir, filename), 'w') as f:
             json.dump(phase6_output, f, indent=2)
     
     # Phase 7: Naming and Visualization
@@ -134,15 +158,17 @@ def run_full_pipeline(config, output_dir="output", save_intermediate=True):
     
     final_output = run_phase7(phase6_output, phase7_config)
     
-    # Always save final output
-    final_path = os.path.join(output_dir, "final_map.json")
+    # Always save final output with datetime
+    filename, _ = get_datetime_filename("final_map", datetime_str)
+    final_path = os.path.join(output_dir, filename)
     with open(final_path, 'w') as f:
         json.dump(final_output, f, indent=2)
     
-    # Save summary
+    # Save summary with datetime
     from phase7_naming import generate_map_summary
     summary = generate_map_summary(final_output)
-    summary_path = os.path.join(output_dir, "map_summary.txt")
+    summary_filename, _ = get_datetime_filename("map_summary", datetime_str, extension=".txt")
+    summary_path = os.path.join(output_dir, summary_filename)
     with open(summary_path, 'w') as f:
         f.write(summary)
     
@@ -208,7 +234,7 @@ Examples:
     
     # General parameters
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    parser.add_argument("--output-dir", type=str, default="output", help="Output directory")
+    parser.add_argument("--output-dir", type=str, default=None, help="Base output directory (default: ../map_output, one level above git repo)")
     parser.add_argument("--no-intermediate", action="store_true", help="Don't save intermediate phase outputs")
     
     args = parser.parse_args()

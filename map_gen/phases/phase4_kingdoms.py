@@ -17,6 +17,8 @@ import random
 import argparse
 from collections import deque
 
+from output_utils import get_output_path_for_phase
+
 
 def select_distant_seeds(coastal_cells, cells, num_powers=7, seed=None):
     """
@@ -297,12 +299,12 @@ def run_phase4(phase3_output, config):
 def main():
     """Main entry point for Phase 4."""
     parser = argparse.ArgumentParser(description="Phase 4: Kingdom Generation")
-    parser.add_argument("--input", type=str, default="provinces_output.json", help="Input JSON from Phase 3")
+    parser.add_argument("--input", type=str, required=True, help="Input JSON from Phase 3")
     parser.add_argument("--num-powers", type=int, default=7, help="Number of powers")
     parser.add_argument("--territory-size", type=int, default=3, help="Home territory size")
     parser.add_argument("--max-retries", type=int, default=10, help="Maximum retries for seed placement")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--output", type=str, default="kingdoms_output.json", help="Output JSON file")
+    parser.add_argument("--output", type=str, default=None, help="Output JSON file path (default: auto-generated in same directory as input)")
     
     args = parser.parse_args()
     
@@ -320,11 +322,21 @@ def main():
     # Run phase 4
     output = run_phase4(phase3_output, config)
     
+    # Determine output path
+    if args.output:
+        output_path = args.output
+    else:
+        _, _, output_path = get_output_path_for_phase(
+            "phase4_kingdoms_output",
+            input_file=args.input,
+            is_orchestrator=False
+        )
+    
     # Save output
-    with open(args.output, 'w') as f:
+    with open(output_path, 'w') as f:
         json.dump(output, f, indent=2)
     
-    print(f"\nOutput saved to: {args.output}")
+    print(f"\nOutput saved to: {output_path}")
 
 
 if __name__ == "__main__":

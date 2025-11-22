@@ -17,6 +17,8 @@ from scipy.spatial import Voronoi
 from shapely.geometry import Polygon as ShapelyPolygon
 import argparse
 
+from output_utils import get_output_path_for_phase
+
 
 def poisson_disk_sampling(width, height, min_distance, num_points, seed=None):
     """
@@ -265,7 +267,8 @@ def main():
     parser.add_argument("--min-distance", type=float, default=0.05, help="Minimum distance between points")
     parser.add_argument("--lloyd-iterations", type=int, default=0, help="Number of Lloyd relaxation iterations")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--output", type=str, default="mesh_output.json", help="Output JSON file")
+    parser.add_argument("--output", type=str, default=None, help="Output JSON file path (default: auto-generated in datetime subdirectory)")
+    parser.add_argument("--output-dir", type=str, default=None, help="Base output directory (default: ../map_output)")
     
     args = parser.parse_args()
     
@@ -281,11 +284,24 @@ def main():
     # Run phase 1
     output = run_phase1(config)
     
+    # Determine output path
+    if args.output:
+        # User specified a custom output path
+        output_path = args.output
+    else:
+        # Use automatic path generation
+        _, _, output_path = get_output_path_for_phase(
+            "phase1_mesh_output",
+            input_file=None,
+            base_dir=args.output_dir,
+            is_orchestrator=False
+        )
+    
     # Save output
-    with open(args.output, 'w') as f:
+    with open(output_path, 'w') as f:
         json.dump(output, f, indent=2)
     
-    print(f"\nOutput saved to: {args.output}")
+    print(f"\nOutput saved to: {output_path}")
 
 
 if __name__ == "__main__":

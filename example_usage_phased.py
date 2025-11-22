@@ -31,7 +31,7 @@ def example_full_pipeline():
     
     output = run_full_pipeline(
         config,
-        output_dir="output/default_map",
+        output_dir=None,  # Uses default: ../map_output
         save_intermediate=True
     )
     
@@ -61,7 +61,7 @@ def example_custom_pipeline():
     
     output = run_full_pipeline(
         config,
-        output_dir="output/large_map",
+        output_dir=None,  # Uses default: ../map_output
         save_intermediate=True
     )
     
@@ -87,7 +87,7 @@ def example_small_game():
     
     output = run_full_pipeline(
         config,
-        output_dir="output/small_map_4p",
+        output_dir=None,  # Uses default: ../map_output
         save_intermediate=False  # Don't save intermediate files for quick generation
     )
     
@@ -109,15 +109,16 @@ def example_run_individual_phases():
     # python map_gen/phases/phase2_terrain.py --input my_mesh.json --output my_terrain.json
     # ... and so on
     
-    print("\nTo run individual phases:")
+    print("\nTo run individual phases (auto-generates datetime paths):")
     print("  cd map_gen/phases")
-    print("  python phase1_mesh.py --num-cells 100 --output mesh.json")
-    print("  python phase2_terrain.py --input mesh.json --output terrain.json")
-    print("  python phase3_provinces.py --input terrain.json --output provinces.json")
-    print("  python phase4_kingdoms.py --input provinces.json --output kingdoms.json")
-    print("  python phase5_supply_centers.py --input kingdoms.json --output scs.json")
-    print("  python phase6_optimization.py --input scs.json --output optimized.json")
-    print("  python phase7_naming.py --input optimized.json --output final_map.json")
+    print("  python phase1_mesh.py --num-cells 100")
+    print("    # Creates ../map_output/<datetime>/phase1_mesh_output_<datetime>.json")
+    print("  python phase2_terrain.py --input ../map_output/<datetime>/phase1_mesh_output_<datetime>.json")
+    print("    # Saves in same directory as input with new datetime in filename")
+    print("  ... and so on")
+    print("\nOr specify custom output paths:")
+    print("  python phase1_mesh.py --num-cells 100 --output /path/to/mesh.json")
+    print("  python phase2_terrain.py --input /path/to/mesh.json --output /path/to/terrain.json")
 
 
 def main():
@@ -146,11 +147,11 @@ def main():
         print("\n" + "=" * 70)
         print(" ALL EXAMPLES COMPLETED")
         print("=" * 70)
-        print("\nCheck the 'output/' directory for generated maps!")
-        print("Each map includes:")
-        print("  - final_map.json: Complete map data")
-        print("  - map_summary.txt: Human-readable summary")
-        print("  - phase*_output.json: Intermediate outputs (if enabled)")
+        print("\nCheck '../map_output/' directory for generated maps!")
+        print("Each map is in a datetime-stamped subdirectory and includes:")
+        print("  - final_map_<datetime>.json: Complete map data")
+        print("  - map_summary_<datetime>.txt: Human-readable summary")
+        print("  - phase*_output_<datetime>.json: Intermediate outputs (if enabled)")
         
     except Exception as e:
         print(f"\nError running examples: {e}")
