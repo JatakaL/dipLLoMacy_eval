@@ -22,11 +22,14 @@ def test_topology_visualization():
     print("=" * 60)
     
     # Load a phase2 output with topology
+    import tempfile
+    test_file = os.path.join(tempfile.gettempdir(), 'test_phase2_topo.json')
+    
     try:
-        with open('/tmp/test_phase2_topo.json', 'r') as f:
+        with open(test_file, 'r') as f:
             data = json.load(f)
     except FileNotFoundError:
-        print("Error: Test data not found. Please run phase1 and phase2 first.")
+        print(f"Error: Test data not found at {test_file}. Please run phase1 and phase2 first.")
         return False
     
     cells = data.get('cells', {})
@@ -60,14 +63,14 @@ def test_topology_visualization():
     plt = visualizer.visualize_topology(show_edge_types=True, show_vertices=False)
     
     # Save the visualization
-    output_path = '/tmp/topology_visualization.png'
+    output_path = os.path.join(tempfile.gettempdir(), 'topology_visualization.png')
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     print(f"Saved topology visualization to: {output_path}")
     
     # Also generate traditional visualization for comparison
     print("\nGenerating traditional polygon visualization for comparison...")
     plt2 = visualizer.visualize_map(show_names=False, show_borders=True, show_cells=False)
-    comparison_path = '/tmp/polygon_visualization.png'
+    comparison_path = os.path.join(tempfile.gettempdir(), 'polygon_visualization.png')
     plt2.savefig(comparison_path, dpi=150, bbox_inches='tight')
     print(f"Saved polygon visualization to: {comparison_path}")
     

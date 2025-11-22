@@ -105,9 +105,11 @@ class TopologyConverter:
         Initialize the topology converter.
         
         Args:
-            tolerance: Distance threshold for considering vertices identical
+            tolerance: Distance threshold for considering vertices identical.
+                      Note: Currently uses fixed precision (9 decimals) for deduplication.
+                      The tolerance parameter is reserved for future enhancements.
         """
-        self.tolerance = tolerance
+        self.tolerance = tolerance  # Reserved for future use
         self.vertices: Dict[int, Vertex] = {}
         self.edges: Dict[str, Edge] = {}
         self.faces: Dict[str, Face] = {}
@@ -201,7 +203,10 @@ class TopologyConverter:
                 edge.right_face = face_id
             else:
                 # Edge already has both faces - this shouldn't happen in a proper Voronoi diagram
+                # This indicates a topology error that should be investigated
                 print(f"WARNING: Edge {edge_id} already has both faces: {edge.left_face}, {edge.right_face}")
+                print(f"  Attempted to add face {face_id}, but edge already complete.")
+                print(f"  This may indicate duplicate edges or a malformed Voronoi diagram.")
         else:
             # Create new edge
             edge = Edge(edge_id, min(v1, v2), max(v1, v2))
@@ -245,8 +250,9 @@ class TopologyConverter:
                 current_vertex = vertices[i]
                 next_vertex = vertices[(i + 1) % num_vertices]
                 
-                # Skip if vertices are the same (shouldn't happen but be safe)
-                if current_vertex == next_vertex:
+                # Skip if vertices are the same (within tolerance)
+                # Use rounded comparison to match vertex deduplication logic
+                if self._round_coords(tuple(current_vertex)) == self._round_coords(tuple(next_vertex)):
                     continue
                 
                 # Convert to tuples if they're lists

@@ -134,7 +134,13 @@ def test_topology_integration():
         print("✓ All adjacencies match between topology and legacy format")
     else:
         print(f"⚠ Found {discrepancies} adjacency discrepancies")
-        print("  (This is expected if the legacy format has stale adjacency data)")
+        print("  Note: Minor discrepancies may occur if the legacy neighbor list")
+        print("  was not updated after terrain changes. The topology is authoritative.")
+        
+        # If there are many discrepancies, that's a concern
+        if discrepancies > len(cells) * 0.1:  # More than 10% mismatch
+            print(f"  WARNING: {discrepancies}/{len(cells)} cells have mismatches - this may indicate a bug")
+            return False
     
     # Verify topology integrity
     print("\n" + "=" * 60)

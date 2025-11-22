@@ -6,6 +6,7 @@ This module handles the visualization of the generated map.
 
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import numpy as np
 
 class MapVisualizer:
     """Handles the visualization of the generated map."""
@@ -61,7 +62,6 @@ class MapVisualizer:
         for region_id, region in self.regions.items():
             polygon = region["vertices"]
             # Convert to numpy array if needed
-            import numpy as np
             if not isinstance(polygon, np.ndarray):
                 polygon = np.array(polygon)
             
@@ -222,7 +222,6 @@ class MapVisualizer:
                         continue
                     
                     if polygon is not None:
-                        import numpy as np
                         if not isinstance(polygon, np.ndarray):
                             polygon = np.array(polygon)
                         
