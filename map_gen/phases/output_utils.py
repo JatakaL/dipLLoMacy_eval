@@ -166,7 +166,7 @@ def get_output_path_for_phase(phase_name, input_file=None, base_dir=None,
         
         return output_dir, dt_str, full_path
     
-    elif phase_name == "phase1_mesh" or input_file is None:
+    elif phase_name.startswith("phase1_") or input_file is None:
         # Phase 1 standalone: create new datetime subdirectory
         if base_dir is None:
             base_dir = get_default_output_base()
