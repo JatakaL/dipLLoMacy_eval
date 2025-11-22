@@ -84,18 +84,21 @@ Creates the base mesh structure using Voronoi diagrams.
 
 ### Phase 2: Terrain Assignment (Land vs. Sea)
 
-Assigns land or sea to each cell using procedural noise.
+Assigns land or sea to each cell using procedural noise and ensures ocean connectivity.
 
 **Algorithm:**
 1. Generate Perlin noise map for organic terrain
 2. Apply radial gradient mask (forces land to center, sea to edges)
 3. Threshold to assign land/sea
 4. Cull single-cell islands and lakes
+5. **Check and fix ocean connectivity** (converts land bridges to sea if needed)
 
 **Key Parameters:**
 - `--threshold`: Land/sea cutoff (default: 0.25)
 - `--land-ratio`: Target land percentage (default: 0.6)
 - `--radial-falloff`: How tightly land clusters (default: 0.8)
+
+**Important:** Ocean connectivity is now fixed in Phase 2 (before any supply centers or powers are assigned), preventing Phase 6 from breaking the map by removing important cells.
 
 **Output:** `phase2_terrain_output.json`
 
@@ -144,18 +147,21 @@ Places supply centers strategically across the map.
 
 **Output:** `phase5_supply_centers_output.json`
 
-### Phase 6: Graph Optimization
+### Phase 6: Graph Analysis and Validation
 
-Analyzes map quality for Diplomacy gameplay.
+Analyzes map quality for Diplomacy gameplay and validates map integrity. **This phase is analysis-only and does NOT modify the map.**
 
 **Metrics:**
 - **Node Degree**: Average connectivity (target: 4-6)
 - **Triangle Density**: Support for complex diplomacy (target: >30%)
-- **Sea Connectivity**: All seas should be connected
+- **Sea Connectivity**: Validates that all seas are connected (fixed in Phase 2)
 - **Power Balance**: Mix of corner and central powers
 - **Belgium Factor**: Contested neutral SCs (should have 1-2)
+- **Map Integrity**: Validates that all powers have correct number of SCs
 
-**Output:** `phase6_optimization_output.json` with analysis and recommendations
+**Important:** Phase 6 no longer modifies the map to prevent breaking supply centers and power territories. Ocean connectivity is now fixed in Phase 2 before any important assignments are made.
+
+**Output:** `phase6_analysis_output.json` with analysis and recommendations
 
 ### Phase 7: Naming and Visualization
 
