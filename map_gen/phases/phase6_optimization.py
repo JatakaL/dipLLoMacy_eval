@@ -274,42 +274,63 @@ def merge_dead_end_node(cell_id, cells):
     cell = cells[cell_id]
     neighbors = cell["neighbors"]
     
-    # Can only merge nodes with 2 neighbors (connect them directly)
-    if len(neighbors) != 2:
-        return False
+    # Handle nodes with 1 neighbor (isolated dead-end)
+    if len(neighbors) == 1:
+        neighbor_id = neighbors[0]
+        if neighbor_id in cells:
+            # Remove this node from its neighbor's list
+            if cell_id in cells[neighbor_id]["neighbors"]:
+                cells[neighbor_id]["neighbors"].remove(cell_id)
+        
+        # Mark the cell as merged
+        cells[cell_id]["type"] = "impassable"
+        cells[cell_id]["impassable"] = True
+        cells[cell_id]["neighbors"] = []
+        
+        # Remove SC status if it had one
+        if cells[cell_id].get("is_supply_center"):
+            cells[cell_id]["is_supply_center"] = False
+            cells[cell_id]["sc_type"] = None
+        
+        return True
     
-    neighbor1_id, neighbor2_id = neighbors[0], neighbors[1]
+    # Handle nodes with 2 neighbors (connect them directly)
+    if len(neighbors) == 2:
+        neighbor1_id, neighbor2_id = neighbors[0], neighbors[1]
+        
+        # Check both neighbors exist
+        if neighbor1_id not in cells or neighbor2_id not in cells:
+            return False
+        
+        # Connect the two neighbors directly (if not already connected)
+        neighbor1 = cells[neighbor1_id]
+        neighbor2 = cells[neighbor2_id]
+        
+        if neighbor2_id not in neighbor1["neighbors"]:
+            neighbor1["neighbors"].append(neighbor2_id)
+        if neighbor1_id not in neighbor2["neighbors"]:
+            neighbor2["neighbors"].append(neighbor1_id)
+        
+        # Remove the dead-end node from its neighbors' neighbor lists
+        if cell_id in neighbor1["neighbors"]:
+            neighbor1["neighbors"].remove(cell_id)
+        if cell_id in neighbor2["neighbors"]:
+            neighbor2["neighbors"].remove(cell_id)
+        
+        # Mark the cell as merged (keep it in data but mark as impassable)
+        cells[cell_id]["type"] = "impassable"
+        cells[cell_id]["impassable"] = True
+        cells[cell_id]["neighbors"] = []
+        
+        # Remove SC status if it had one
+        if cells[cell_id].get("is_supply_center"):
+            cells[cell_id]["is_supply_center"] = False
+            cells[cell_id]["sc_type"] = None
+        
+        return True
     
-    # Check both neighbors exist
-    if neighbor1_id not in cells or neighbor2_id not in cells:
-        return False
-    
-    # Connect the two neighbors directly (if not already connected)
-    neighbor1 = cells[neighbor1_id]
-    neighbor2 = cells[neighbor2_id]
-    
-    if neighbor2_id not in neighbor1["neighbors"]:
-        neighbor1["neighbors"].append(neighbor2_id)
-    if neighbor1_id not in neighbor2["neighbors"]:
-        neighbor2["neighbors"].append(neighbor1_id)
-    
-    # Remove the dead-end node from its neighbors' neighbor lists
-    if cell_id in neighbor1["neighbors"]:
-        neighbor1["neighbors"].remove(cell_id)
-    if cell_id in neighbor2["neighbors"]:
-        neighbor2["neighbors"].remove(cell_id)
-    
-    # Mark the cell as merged (keep it in data but mark as impassable)
-    cells[cell_id]["type"] = "impassable"
-    cells[cell_id]["impassable"] = True
-    cells[cell_id]["neighbors"] = []
-    
-    # Remove SC status if it had one
-    if cells[cell_id].get("is_supply_center"):
-        cells[cell_id]["is_supply_center"] = False
-        cells[cell_id]["sc_type"] = None
-    
-    return True
+    # Can't merge nodes with 0 or 3+ neighbors
+    return False
 
 
 def split_highly_connected_node(cell_id, cells):
