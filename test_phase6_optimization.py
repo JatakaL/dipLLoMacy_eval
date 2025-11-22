@@ -168,7 +168,7 @@ def test_analyze_node_degrees():
     assert analysis["max"] == 8, "Max degree should be 8 (node B)"
     assert len(analysis["highly_connected"]) == 1, "Should have 1 highly connected node"
     assert "B" in analysis["highly_connected"], "B should be highly connected"
-    assert len(analysis["dead_ends"]) == 8, "Should have 8 dead-end nodes (A, C, D, E, F, G, H, I with degree < 3)"
+    assert len(analysis["dead_ends"]) == 8, "Should have 8 dead-end nodes: A and C (degree 2), D-I (degree 1)"
     
     print("  ✓ Node degree analysis correct")
 
