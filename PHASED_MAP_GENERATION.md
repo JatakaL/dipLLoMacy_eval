@@ -84,7 +84,7 @@ Creates the base mesh structure using Voronoi diagrams.
 
 ### Phase 2: Terrain Assignment (Land vs. Sea)
 
-Assigns land or sea to each cell using procedural noise and ensures ocean connectivity.
+Assigns land or sea to each cell using procedural noise, ensures ocean connectivity, and optimizes graph structure.
 
 **Algorithm:**
 1. Generate Perlin noise map for organic terrain
@@ -92,13 +92,16 @@ Assigns land or sea to each cell using procedural noise and ensures ocean connec
 3. Threshold to assign land/sea
 4. Cull single-cell islands and lakes
 5. **Check and fix ocean connectivity** (converts land bridges to sea if needed)
+6. **Optimize graph structure:**
+   - Merge dead-end nodes (< 3 neighbors) - safely connects only same-type cells
+   - Split highly-connected nodes (> 7 neighbors) - removes edges to balance connectivity
 
 **Key Parameters:**
 - `--threshold`: Land/sea cutoff (default: 0.25)
 - `--land-ratio`: Target land percentage (default: 0.6)
 - `--radial-falloff`: How tightly land clusters (default: 0.8)
 
-**Important:** Ocean connectivity is now fixed in Phase 2 (before any supply centers or powers are assigned), preventing Phase 6 from breaking the map by removing important cells.
+**Important:** Ocean connectivity and graph optimizations are now done in Phase 2 (before any supply centers or powers are assigned), preventing Phase 6 from breaking the map by removing important cells. Merge operations include safety checks to prevent connecting land and sea cells.
 
 **Output:** `phase2_terrain_output.json`
 

@@ -2,18 +2,23 @@
 """
 Phase 2: Terrain Assignment (Land vs. Sea)
 
-This phase assigns terrain types to cells:
+This phase assigns terrain types to cells and optimizes the graph structure:
 1. Generate noise map (Perlin/Simplex noise)
 2. Apply radial gradient mask
 3. Calculate threshold based on target land ratio
 4. Assign land/sea based on calculated threshold
 5. Cull single-cell islands and lakes
+6. Check and fix ocean connectivity (connects disconnected seas)
+7. Optimize graph structure (merge dead-ends, split highly-connected nodes)
 
 The threshold is dynamically calculated from the noise value distribution
 to achieve the target land ratio specified in the configuration.
 
+Ocean connectivity and graph optimizations are done at this stage (before
+supply centers and powers are assigned) to prevent breaking the map later.
+
 Input: mesh_output.json from Phase 1
-Output: terrain_output.json with land/sea assignments
+Output: terrain_output.json with land/sea assignments and optimized structure
 """
 
 import json
@@ -275,6 +280,56 @@ def cull_single_cells(cells):
     return cells, changes
 
 
+def analyze_node_degrees(cells):
+    """
+    Analyze the degree (number of neighbors) of each node.
+    
+    Args:
+        cells: Dictionary of cell data
+        
+    Returns:
+        Dictionary with degree statistics
+    """
+    degrees = {}
+    
+    for cell_id, cell in cells.items():
+        if cell["type"] == "impassable":
+            continue
+        
+        degree = len(cell["neighbors"])
+        degrees[cell_id] = degree
+    
+    # Calculate statistics
+    degree_values = list(degrees.values())
+    
+    if not degree_values:
+        return {
+            "degrees": degrees,
+            "average": 0,
+            "min": 0,
+            "max": 0,
+            "highly_connected": [],
+            "dead_ends": []
+        }
+    
+    avg_degree = sum(degree_values) / len(degree_values)
+    
+    # Find problematic nodes
+    # Highly connected: >7 neighbors
+    highly_connected = [cell_id for cell_id, deg in degrees.items() if deg > 7]
+    # Dead ends: <3 neighbors
+    dead_ends = [cell_id for cell_id, deg in degrees.items() if deg < 3]
+    
+    return {
+        "degrees": degrees,
+        "average": avg_degree,
+        "min": min(degree_values),
+        "max": max(degree_values),
+        "highly_connected": highly_connected,
+        "dead_ends": dead_ends
+    }
+
+
 def check_sea_connectivity(cells):
     """
     Check if all sea zones are connected to each other.
@@ -326,6 +381,132 @@ def check_sea_connectivity(cells):
         "largest_component": max(len(c) for c in components) if components else 0,
         "component_sizes": [len(c) for c in components]
     }
+
+
+def merge_dead_end_node(cell_id, cells):
+    """
+    Merge a dead-end node by removing it and connecting its neighbors directly.
+    Only merges if it doesn't create invalid connections (e.g., land-to-sea).
+    
+    Args:
+        cell_id: ID of the dead-end node to merge
+        cells: Dictionary of cell data
+        
+    Returns:
+        True if merge was successful, False otherwise
+    """
+    if cell_id not in cells:
+        return False
+    
+    cell = cells[cell_id]
+    neighbors = cell["neighbors"]
+    cell_type = cell["type"]
+    
+    # Handle nodes with 0 neighbors (completely isolated)
+    if len(neighbors) == 0:
+        cell["type"] = "impassable"
+        cell["neighbors"] = []
+        return True
+    
+    # Handle nodes with 1 neighbor (isolated dead-end)
+    if len(neighbors) == 1:
+        neighbor_id = neighbors[0]
+        if neighbor_id in cells:
+            # Remove this node from its neighbor's list
+            if cell_id in cells[neighbor_id]["neighbors"]:
+                cells[neighbor_id]["neighbors"].remove(cell_id)
+        
+        # Mark the cell as impassable
+        cell["type"] = "impassable"
+        cell["neighbors"] = []
+        return True
+    
+    # Handle nodes with 2 neighbors (connect them directly)
+    if len(neighbors) == 2:
+        neighbor1_id, neighbor2_id = neighbors[0], neighbors[1]
+        
+        # Check both neighbors exist
+        if neighbor1_id not in cells or neighbor2_id not in cells:
+            return False
+        
+        neighbor1 = cells[neighbor1_id]
+        neighbor2 = cells[neighbor2_id]
+        
+        # IMPORTANT: Only merge if both neighbors are the same type as this cell
+        # This prevents connecting land to sea or other invalid connections
+        if neighbor1["type"] != cell_type or neighbor2["type"] != cell_type:
+            return False
+        
+        # Connect the two neighbors directly (if not already connected)
+        if neighbor2_id not in neighbor1["neighbors"]:
+            neighbor1["neighbors"].append(neighbor2_id)
+        if neighbor1_id not in neighbor2["neighbors"]:
+            neighbor2["neighbors"].append(neighbor1_id)
+        
+        # Remove the dead-end node from its neighbors' neighbor lists
+        if cell_id in neighbor1["neighbors"]:
+            neighbor1["neighbors"].remove(cell_id)
+        if cell_id in neighbor2["neighbors"]:
+            neighbor2["neighbors"].remove(cell_id)
+        
+        # Mark the cell as impassable
+        cell["type"] = "impassable"
+        cell["neighbors"] = []
+        return True
+    
+    # Can't merge nodes with 3+ neighbors
+    return False
+
+
+def split_highly_connected_node(cell_id, cells):
+    """
+    Split a highly connected node by reducing its connectivity.
+    
+    Since we can't actually create new cells in the Voronoi mesh,
+    we instead remove some edges to reduce connectivity.
+    
+    Args:
+        cell_id: ID of the highly connected node
+        cells: Dictionary of cell data
+        
+    Returns:
+        Number of edges removed
+    """
+    if cell_id not in cells:
+        return 0
+    
+    cell = cells[cell_id]
+    neighbors = cell["neighbors"][:]  # Copy list
+    
+    # Target: reduce to about 6 neighbors (midpoint of good range)
+    target_degree = 6
+    edges_to_remove = len(neighbors) - target_degree
+    
+    if edges_to_remove <= 0:
+        return 0
+    
+    # Strategy: Remove edges to neighbors that also have high degree
+    # This helps balance the graph overall
+    neighbor_degrees = []
+    for neighbor_id in neighbors:
+        if neighbor_id in cells:
+            degree = len(cells[neighbor_id]["neighbors"])
+            neighbor_degrees.append((neighbor_id, degree))
+    
+    # Sort by degree (highest first)
+    neighbor_degrees.sort(key=lambda x: x[1], reverse=True)
+    
+    # Remove edges to highest-degree neighbors
+    removed = 0
+    for neighbor_id, _ in neighbor_degrees[:edges_to_remove]:
+        # Remove bidirectional edge
+        if neighbor_id in cell["neighbors"]:
+            cell["neighbors"].remove(neighbor_id)
+        if cell_id in cells[neighbor_id]["neighbors"]:
+            cells[neighbor_id]["neighbors"].remove(cell_id)
+        removed += 1
+    
+    return removed
 
 
 def connect_sea_components(cells, sea_connectivity):
@@ -546,6 +727,71 @@ def run_phase2(phase1_output, config):
         # Re-check connectivity
         final_connectivity = check_sea_connectivity(cells)
         print(f"  Final connectivity: {final_connectivity['connected']}")
+    
+    # Step 6: Optimize graph structure (merge dead-ends and split highly-connected nodes)
+    print("\nStep 6: Optimizing graph structure...")
+    initial_analysis = analyze_node_degrees(cells)
+    print(f"  Initial: avg degree {initial_analysis['average']:.2f}, "
+          f"{len(initial_analysis['highly_connected'])} highly connected, "
+          f"{len(initial_analysis['dead_ends'])} dead ends")
+    
+    # Merge dead-end nodes (iterative, as merging can create new dead-ends)
+    if initial_analysis['dead_ends']:
+        print(f"  Merging dead-end nodes...")
+        total_merged = 0
+        max_iterations = 5
+        iteration = 0
+        
+        while iteration < max_iterations:
+            current_analysis = analyze_node_degrees(cells)
+            if not current_analysis['dead_ends']:
+                break
+            
+            merged_this_iteration = 0
+            for dead_end_id in current_analysis['dead_ends']:
+                if merge_dead_end_node(dead_end_id, cells):
+                    merged_this_iteration += 1
+                    total_merged += 1
+            
+            if merged_this_iteration == 0:
+                break
+            
+            iteration += 1
+        
+        if total_merged > 0:
+            print(f"    Merged {total_merged} dead-end nodes")
+    
+    # Split highly connected nodes
+    if initial_analysis['highly_connected']:
+        print(f"  Splitting highly connected nodes...")
+        total_edges_removed = 0
+        max_iterations = 5
+        iteration = 0
+        
+        while iteration < max_iterations:
+            current_analysis = analyze_node_degrees(cells)
+            if not current_analysis['highly_connected']:
+                break
+            
+            edges_removed_this_iteration = 0
+            for high_conn_id in current_analysis['highly_connected']:
+                edges_removed = split_highly_connected_node(high_conn_id, cells)
+                edges_removed_this_iteration += edges_removed
+                total_edges_removed += edges_removed
+            
+            if edges_removed_this_iteration == 0:
+                break
+            
+            iteration += 1
+        
+        if total_edges_removed > 0:
+            print(f"    Removed {total_edges_removed} edges from highly connected nodes")
+    
+    # Show final analysis
+    final_analysis = analyze_node_degrees(cells)
+    print(f"  Final: avg degree {final_analysis['average']:.2f}, "
+          f"{len(final_analysis['highly_connected'])} highly connected, "
+          f"{len(final_analysis['dead_ends'])} dead ends")
     
     # Recalculate statistics
     land_count = sum(1 for c in cells.values() if c["type"] == "land")
