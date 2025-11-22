@@ -16,6 +16,8 @@ import json
 import numpy as np
 import argparse
 
+from output_utils import get_output_path_for_phase
+
 
 def generate_perlin_noise_2d(shape, res, seed=None):
     """
@@ -334,14 +336,14 @@ def run_phase2(phase1_output, config):
 def main():
     """Main entry point for Phase 2."""
     parser = argparse.ArgumentParser(description="Phase 2: Terrain Assignment")
-    parser.add_argument("--input", type=str, default="mesh_output.json", help="Input JSON from Phase 1")
+    parser.add_argument("--input", type=str, required=True, help="Input JSON from Phase 1")
     parser.add_argument("--threshold", type=float, default=0.25, help="Terrain threshold")
     parser.add_argument("--land-ratio", type=float, default=0.6, help="Target land ratio")
     parser.add_argument("--octaves", type=int, default=4, help="Noise octaves")
     parser.add_argument("--radial-falloff", type=float, default=0.8, help="Radial mask falloff")
     parser.add_argument("--cull-iterations", type=int, default=2, help="Culling iterations")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--output", type=str, default="terrain_output.json", help="Output JSON file")
+    parser.add_argument("--output", type=str, default=None, help="Output JSON file path (default: auto-generated in same directory as input)")
     
     args = parser.parse_args()
     
@@ -361,11 +363,23 @@ def main():
     # Run phase 2
     output = run_phase2(phase1_output, config)
     
+    # Determine output path
+    if args.output:
+        # User specified a custom output path
+        output_path = args.output
+    else:
+        # Use automatic path generation (same directory as input)
+        _, _, output_path = get_output_path_for_phase(
+            "phase2_terrain_output",
+            input_file=args.input,
+            is_orchestrator=False
+        )
+    
     # Save output
-    with open(args.output, 'w') as f:
+    with open(output_path, 'w') as f:
         json.dump(output, f, indent=2)
     
-    print(f"\nOutput saved to: {args.output}")
+    print(f"\nOutput saved to: {output_path}")
 
 
 if __name__ == "__main__":

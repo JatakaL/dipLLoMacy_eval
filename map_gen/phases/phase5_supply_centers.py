@@ -16,6 +16,8 @@ import numpy as np
 import random
 import argparse
 
+from output_utils import get_output_path_for_phase
+
 # Configuration constants for SC placement
 PREFERRED_NEUTRAL_SC_DISTANCE = 0.2  # Preferred average distance of neutral SCs from powers
 BALANCE_WEIGHT = 0.4                 # Weight for balance score in SC selection
@@ -284,10 +286,10 @@ def run_phase5(phase4_output, config):
 def main():
     """Main entry point for Phase 5."""
     parser = argparse.ArgumentParser(description="Phase 5: Supply Center Distribution")
-    parser.add_argument("--input", type=str, default="kingdoms_output.json", help="Input JSON from Phase 4")
+    parser.add_argument("--input", type=str, required=True, help="Input JSON from Phase 4")
     parser.add_argument("--num-neutral-scs", type=int, default=13, help="Number of neutral supply centers")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--output", type=str, default="supply_centers_output.json", help="Output JSON file")
+    parser.add_argument("--output", type=str, default=None, help="Output JSON file path (default: auto-generated in same directory as input)")
     
     args = parser.parse_args()
     
@@ -303,11 +305,21 @@ def main():
     # Run phase 5
     output = run_phase5(phase4_output, config)
     
+    # Determine output path
+    if args.output:
+        output_path = args.output
+    else:
+        _, _, output_path = get_output_path_for_phase(
+            "phase5_supply_centers_output",
+            input_file=args.input,
+            is_orchestrator=False
+        )
+    
     # Save output
-    with open(args.output, 'w') as f:
+    with open(output_path, 'w') as f:
         json.dump(output, f, indent=2)
     
-    print(f"\nOutput saved to: {args.output}")
+    print(f"\nOutput saved to: {output_path}")
 
 
 if __name__ == "__main__":

@@ -16,6 +16,8 @@ import json
 import argparse
 from collections import deque
 
+from output_utils import get_output_path_for_phase
+
 # Configuration constants for graph quality thresholds
 HIGH_CONNECTIVITY_THRESHOLD = 7  # Nodes with more than this many neighbors are considered highly connected
 LOW_CONNECTIVITY_THRESHOLD = 3   # Nodes with fewer than this many neighbors are considered dead ends
@@ -380,8 +382,8 @@ def run_phase6(phase5_output, config):
 def main():
     """Main entry point for Phase 6."""
     parser = argparse.ArgumentParser(description="Phase 6: Graph Optimization")
-    parser.add_argument("--input", type=str, default="supply_centers_output.json", help="Input JSON from Phase 5")
-    parser.add_argument("--output", type=str, default="optimized_graph_output.json", help="Output JSON file")
+    parser.add_argument("--input", type=str, required=True, help="Input JSON from Phase 5")
+    parser.add_argument("--output", type=str, default=None, help="Output JSON file path (default: auto-generated in same directory as input)")
     
     args = parser.parse_args()
     
@@ -394,11 +396,21 @@ def main():
     # Run phase 6
     output = run_phase6(phase5_output, config)
     
+    # Determine output path
+    if args.output:
+        output_path = args.output
+    else:
+        _, _, output_path = get_output_path_for_phase(
+            "phase6_optimization_output",
+            input_file=args.input,
+            is_orchestrator=False
+        )
+    
     # Save output
-    with open(args.output, 'w') as f:
+    with open(output_path, 'w') as f:
         json.dump(output, f, indent=2)
     
-    print(f"\nOutput saved to: {args.output}")
+    print(f"\nOutput saved to: {output_path}")
 
 
 if __name__ == "__main__":
