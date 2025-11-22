@@ -369,7 +369,8 @@ class MapVisualizer:
                 else:
                     self.ax.plot(center[0], center[1], 'o', 
                                markersize=8, color='gold', 
-                               markeredgecolor='black', markeredgewidth=1.5)
+                               markeredgecolor='black', markeredgewidth=1.5,
+                               zorder=10)
             
             # Add markers for highly connected and dead-end nodes
             if cell_id in highly_connected:

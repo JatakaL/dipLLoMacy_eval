@@ -237,7 +237,7 @@ def visualize_map(map_data, output_path=None, dpi=150):
                 # Special marker for contested SCs (Belgium factor)
                 if cell_id in contested_sc_ids:
                     ax.plot(center[0], center[1], '*', 
-                           markersize=16, color='red', 
+                           markersize=14, color='red', 
                            markeredgecolor='darkred', markeredgewidth=2,
                            zorder=10)
                 else:
@@ -248,12 +248,12 @@ def visualize_map(map_data, output_path=None, dpi=150):
             # Add markers for highly connected and dead-end nodes
             if cell_id in highly_connected:
                 ax.plot(center[0], center[1], 'X', 
-                       markersize=12, color='red', 
+                       markersize=10, color='red', 
                        markeredgecolor='darkred', markeredgewidth=1.5,
                        zorder=5)
             elif cell_id in dead_ends:
                 ax.plot(center[0], center[1], 'D', 
-                       markersize=10, color='orange', 
+                       markersize=8, color='orange', 
                        markeredgecolor='darkorange', markeredgewidth=1.5,
                        zorder=5)
         
@@ -283,7 +283,7 @@ def visualize_map(map_data, output_path=None, dpi=150):
         if dead_ends:
             legend_elements.append(plt.Line2D([0], [0], marker='D', color='w',
                                              markerfacecolor='orange', markeredgecolor='darkorange',
-                                             markersize=10, label=f'Dead Ends (n={len(dead_ends)})'))
+                                             markersize=8, label=f'Dead Ends (n={len(dead_ends)})'))
         if contested_sc_ids:
             legend_elements.append(plt.Line2D([0], [0], marker='*', color='w',
                                              markerfacecolor='red', markeredgecolor='darkred',
