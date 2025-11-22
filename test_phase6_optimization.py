@@ -7,15 +7,26 @@ This script tests the optimization functions in Phase 6 to ensure they work corr
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen', 'phases'))
 
-from phase6_optimization import (
-    merge_dead_end_node,
-    split_highly_connected_node,
-    connect_sea_components,
-    analyze_node_degrees,
-    check_sea_connectivity
-)
+# Add the phases directory to path only if not already available
+try:
+    from map_gen.phases.phase6_optimization import (
+        merge_dead_end_node,
+        split_highly_connected_node,
+        connect_sea_components,
+        analyze_node_degrees,
+        check_sea_connectivity
+    )
+except ImportError:
+    # Fallback for direct script execution
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen', 'phases'))
+    from phase6_optimization import (
+        merge_dead_end_node,
+        split_highly_connected_node,
+        connect_sea_components,
+        analyze_node_degrees,
+        check_sea_connectivity
+    )
 
 
 def test_merge_dead_end_with_2_neighbors():

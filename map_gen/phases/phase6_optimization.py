@@ -60,7 +60,8 @@ def analyze_node_degrees(cells):
     
     # Find problematic nodes
     highly_connected = [cell_id for cell_id, deg in degrees.items() if deg > HIGH_CONNECTIVITY_THRESHOLD]
-    dead_ends = [cell_id for cell_id, deg in degrees.items() if deg < LOW_CONNECTIVITY_THRESHOLD and deg > 0]
+    # Include nodes with 0 neighbors as they are isolated and should be considered dead ends
+    dead_ends = [cell_id for cell_id, deg in degrees.items() if deg < LOW_CONNECTIVITY_THRESHOLD]
     
     return {
         "degrees": degrees,
@@ -257,6 +258,28 @@ def identify_belgium_factor(cells, territories, supply_centers):
     return contested_scs
 
 
+def mark_cell_as_impassable(cell):
+    """
+    Mark a cell as impassable and remove game-relevant attributes.
+    
+    Args:
+        cell: Cell dictionary to mark as impassable
+    """
+    cell["type"] = "impassable"
+    cell["neighbors"] = []
+    
+    # Remove supply center status if present
+    if cell.get("is_supply_center"):
+        cell["is_supply_center"] = False
+        cell["sc_type"] = None
+    
+    # Remove ownership if present
+    if cell.get("owner"):
+        cell["owner"] = None
+    if cell.get("is_home"):
+        cell["is_home"] = False
+
+
 def merge_dead_end_node(cell_id, cells):
     """
     Merge a dead-end node by removing it and connecting its neighbors directly.
@@ -274,6 +297,11 @@ def merge_dead_end_node(cell_id, cells):
     cell = cells[cell_id]
     neighbors = cell["neighbors"]
     
+    # Handle nodes with 0 neighbors (completely isolated)
+    if len(neighbors) == 0:
+        mark_cell_as_impassable(cell)
+        return True
+    
     # Handle nodes with 1 neighbor (isolated dead-end)
     if len(neighbors) == 1:
         neighbor_id = neighbors[0]
@@ -282,16 +310,8 @@ def merge_dead_end_node(cell_id, cells):
             if cell_id in cells[neighbor_id]["neighbors"]:
                 cells[neighbor_id]["neighbors"].remove(cell_id)
         
-        # Mark the cell as merged
-        cells[cell_id]["type"] = "impassable"
-        cells[cell_id]["impassable"] = True
-        cells[cell_id]["neighbors"] = []
-        
-        # Remove SC status if it had one
-        if cells[cell_id].get("is_supply_center"):
-            cells[cell_id]["is_supply_center"] = False
-            cells[cell_id]["sc_type"] = None
-        
+        # Mark the cell as impassable
+        mark_cell_as_impassable(cell)
         return True
     
     # Handle nodes with 2 neighbors (connect them directly)
@@ -317,19 +337,11 @@ def merge_dead_end_node(cell_id, cells):
         if cell_id in neighbor2["neighbors"]:
             neighbor2["neighbors"].remove(cell_id)
         
-        # Mark the cell as merged (keep it in data but mark as impassable)
-        cells[cell_id]["type"] = "impassable"
-        cells[cell_id]["impassable"] = True
-        cells[cell_id]["neighbors"] = []
-        
-        # Remove SC status if it had one
-        if cells[cell_id].get("is_supply_center"):
-            cells[cell_id]["is_supply_center"] = False
-            cells[cell_id]["sc_type"] = None
-        
+        # Mark the cell as impassable
+        mark_cell_as_impassable(cell)
         return True
     
-    # Can't merge nodes with 0 or 3+ neighbors
+    # Can't merge nodes with 3+ neighbors
     return False
 
 
