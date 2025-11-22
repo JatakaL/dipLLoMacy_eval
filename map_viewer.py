@@ -133,6 +133,8 @@ class MapVisualizer:
             self._visualize_terrain()
         elif phase == 3:
             self._visualize_provinces()
+        elif phase == 6:
+            self._visualize_optimization()
         elif phase >= 4:
             self._visualize_kingdoms()
         
@@ -293,6 +295,149 @@ class MapVisualizer:
             if legend_elements:
                 self.ax.legend(handles=legend_elements, loc='upper left', 
                              bbox_to_anchor=(0, 1), fontsize=8)
+    
+    def _visualize_optimization(self):
+        """Visualize Phase 6: Graph Optimization with analysis data."""
+        # Get analysis data
+        analysis = self.map_data.analysis
+        
+        # Get list of powers
+        if self.map_data.powers:
+            power_list = sorted(self.map_data.powers.keys())
+        else:
+            power_set = set()
+            for cell in self.map_data.cells.values():
+                owner = cell.get('owner')
+                if owner:
+                    power_set.add(owner)
+            power_list = sorted(power_set)
+        
+        # Get analysis-specific data
+        degree_analysis = analysis.get('degree_analysis', {})
+        highly_connected = set(degree_analysis.get('highly_connected_nodes', []))
+        dead_ends = set(degree_analysis.get('dead_end_nodes', []))
+        contested_scs = analysis.get('contested_scs', [])
+        contested_sc_ids = set(sc['cell_id'] for sc in contested_scs)
+        power_classifications = analysis.get('power_classifications', {})
+        
+        # Draw cells with power colors and analysis overlays
+        for cell_id, cell in self.map_data.cells.items():
+            vertices = np.array(cell.get('vertices', []))
+            if len(vertices) < 3:
+                continue
+            
+            cell_type = cell.get('type', 'land')
+            owner = cell.get('owner')
+            is_sc = cell.get('is_supply_center', False)
+            
+            # Default color
+            color = self.terrain_colors.get(cell_type, 'gray')
+            
+            # Color by owner
+            if owner and power_list:
+                if owner in power_list:
+                    power_idx = power_list.index(owner)
+                    color = self.power_colors[power_idx % len(self.power_colors)]
+            elif is_sc and not owner:
+                # Neutral supply center
+                color = '#FFE699' if cell_type == 'land' else '#9BC2E6'
+            
+            # Special border for highly connected nodes
+            edge_color = 'black'
+            edge_width = 0.8
+            if cell_id in highly_connected:
+                edge_color = 'red'
+                edge_width = 2.5
+            elif cell_id in dead_ends:
+                edge_color = 'orange'
+                edge_width = 2.5
+            
+            # Draw cell polygon
+            alpha = 0.9 if owner or is_sc else 0.6
+            self.ax.fill(vertices[:, 0], vertices[:, 1], 
+                        color=color, alpha=alpha, edgecolor=edge_color, linewidth=edge_width)
+            
+            # Draw supply center marker
+            center = cell.get('center', [0, 0])
+            if is_sc:
+                # Special marker for contested SCs (Belgium factor)
+                if cell_id in contested_sc_ids:
+                    self.ax.plot(center[0], center[1], '*', 
+                               markersize=14, color='red', 
+                               markeredgecolor='darkred', markeredgewidth=2,
+                               zorder=10)
+                else:
+                    self.ax.plot(center[0], center[1], 'o', 
+                               markersize=8, color='gold', 
+                               markeredgecolor='black', markeredgewidth=1.5)
+            
+            # Add markers for highly connected and dead-end nodes
+            if cell_id in highly_connected:
+                self.ax.plot(center[0], center[1], 'X', 
+                           markersize=10, color='red', 
+                           markeredgecolor='darkred', markeredgewidth=1.5,
+                           zorder=5)
+            elif cell_id in dead_ends:
+                self.ax.plot(center[0], center[1], 'D', 
+                           markersize=8, color='orange', 
+                           markeredgecolor='darkorange', markeredgewidth=1.5,
+                           zorder=5)
+        
+        # Create legend with powers and analysis indicators
+        legend_elements = []
+        
+        # Add power colors
+        if power_list:
+            for power_idx, power_id in enumerate(power_list):
+                color = self.power_colors[power_idx % len(self.power_colors)]
+                # Add classification if available
+                classification = power_classifications.get(power_id, {}).get('classification', '')
+                label = f"{power_id}"
+                if classification:
+                    label += f" ({classification[0].upper()})"  # C/M/C for corner/moderate/central
+                legend_elements.append(plt.Rectangle((0, 0), 1, 1, fc=color, label=label))
+        
+        # Add separator
+        if legend_elements:
+            legend_elements.append(plt.Line2D([0], [0], color='none', label=''))
+        
+        # Add analysis indicators
+        if highly_connected:
+            legend_elements.append(plt.Line2D([0], [0], marker='X', color='w', 
+                                             markerfacecolor='red', markeredgecolor='darkred',
+                                             markersize=10, label=f'High Connectivity (n={len(highly_connected)})'))
+        if dead_ends:
+            legend_elements.append(plt.Line2D([0], [0], marker='D', color='w',
+                                             markerfacecolor='orange', markeredgecolor='darkorange',
+                                             markersize=8, label=f'Dead Ends (n={len(dead_ends)})'))
+        if contested_sc_ids:
+            legend_elements.append(plt.Line2D([0], [0], marker='*', color='w',
+                                             markerfacecolor='red', markeredgecolor='darkred',
+                                             markersize=14, label=f'Contested SC (n={len(contested_sc_ids)})'))
+        
+        # Add statistics text
+        if analysis:
+            avg_degree = degree_analysis.get('average_degree', 0)
+            triangle_analysis = analysis.get('triangle_analysis', {})
+            triangle_density = triangle_analysis.get('triangle_density', 0)
+            sea_connectivity = analysis.get('sea_connectivity', {})
+            
+            stats_text = f"Avg Degree: {avg_degree:.1f}\n"
+            stats_text += f"Triangle Density: {triangle_density:.1%}\n"
+            stats_text += f"Seas Connected: {'Yes' if sea_connectivity.get('connected', False) else 'No'}"
+            
+            # Add text box with statistics
+            self.ax.text(0.98, 0.02, stats_text,
+                        transform=self.ax.transAxes,
+                        fontsize=8,
+                        verticalalignment='bottom',
+                        horizontalalignment='right',
+                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
+        # Add legend
+        if legend_elements:
+            self.ax.legend(handles=legend_elements, loc='upper left', 
+                         bbox_to_anchor=(0, 1), fontsize=7, framealpha=0.9)
 
 
 class MapViewerApp:
