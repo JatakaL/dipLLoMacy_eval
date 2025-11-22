@@ -19,6 +19,7 @@ Output: terrain_output.json with land/sea assignments
 import json
 import numpy as np
 import argparse
+from collections import deque
 
 from output_utils import get_output_path_for_phase
 
@@ -274,6 +275,181 @@ def cull_single_cells(cells):
     return cells, changes
 
 
+def check_sea_connectivity(cells):
+    """
+    Check if all sea zones are connected to each other.
+    
+    Args:
+        cells: Dictionary of cell data
+        
+    Returns:
+        Dictionary with connectivity information
+    """
+    # Find all sea cells
+    sea_cells = [cell_id for cell_id, cell in cells.items() if cell["type"] == "sea"]
+    
+    if not sea_cells:
+        return {
+            "connected": True,
+            "components": 0,
+            "largest_component": 0
+        }
+    
+    # BFS to find connected components
+    visited = set()
+    components = []
+    
+    for start_cell in sea_cells:
+        if start_cell in visited:
+            continue
+        
+        # Start new component
+        component = []
+        queue = deque([start_cell])
+        visited.add(start_cell)
+        
+        while queue:
+            cell_id = queue.popleft()
+            component.append(cell_id)
+            
+            # Add sea neighbors
+            for neighbor in cells[cell_id]["neighbors"]:
+                if neighbor in cells and cells[neighbor]["type"] == "sea" and neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append(neighbor)
+        
+        components.append(component)
+    
+    return {
+        "connected": len(components) <= 1,
+        "components": len(components),
+        "largest_component": max(len(c) for c in components) if components else 0,
+        "component_sizes": [len(c) for c in components]
+    }
+
+
+def connect_sea_components(cells, sea_connectivity):
+    """
+    Connect disconnected sea components by converting land bridges to sea.
+    
+    This is done in Phase 2 before any supply centers or powers are assigned,
+    so we don't need to worry about breaking the map by removing important cells.
+    
+    Args:
+        cells: Dictionary of cell data
+        sea_connectivity: Sea connectivity analysis
+        
+    Returns:
+        Number of land cells converted to sea
+    """
+    if sea_connectivity["connected"]:
+        return 0
+    
+    # Find all sea components using BFS
+    sea_cells = [cell_id for cell_id, cell in cells.items() if cell["type"] == "sea"]
+    
+    if len(sea_cells) < 2:
+        return 0
+    
+    # Build components
+    visited = set()
+    components = []
+    
+    for start_cell in sea_cells:
+        if start_cell in visited:
+            continue
+        
+        component = []
+        queue = deque([start_cell])
+        visited.add(start_cell)
+        
+        while queue:
+            cell_id = queue.popleft()
+            component.append(cell_id)
+            
+            for neighbor in cells[cell_id]["neighbors"]:
+                if neighbor in cells and cells[neighbor]["type"] == "sea" and neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append(neighbor)
+        
+        components.append(component)
+    
+    if len(components) <= 1:
+        return 0
+    
+    # Sort components by size (largest first)
+    components.sort(key=len, reverse=True)
+    
+    # Strategy: Connect smaller components to the largest one
+    # Find the shortest path through land cells between components
+    largest_component = set(components[0])
+    converted = 0
+    
+    for component in components[1:]:
+        # Find land cells adjacent to this component
+        adjacent_to_small = set()
+        for cell_id in component:
+            for neighbor in cells[cell_id]["neighbors"]:
+                if neighbor in cells and cells[neighbor]["type"] == "land":
+                    adjacent_to_small.add(neighbor)
+        
+        # Find land cells adjacent to the largest component
+        adjacent_to_large = set()
+        for cell_id in largest_component:
+            for neighbor in cells[cell_id]["neighbors"]:
+                if neighbor in cells and cells[neighbor]["type"] == "land":
+                    adjacent_to_large.add(neighbor)
+        
+        # Check if any land cells are adjacent to both (direct bridge)
+        direct_bridges = adjacent_to_small & adjacent_to_large
+        
+        if direct_bridges:
+            # Use the first direct bridge
+            bridge_id = list(direct_bridges)[0]
+        else:
+            # Find shortest path through land using BFS
+            visited_land = set()
+            parent = {}
+            queue = deque()
+            
+            for start in adjacent_to_small:
+                queue.append(start)
+                visited_land.add(start)
+                parent[start] = None
+            
+            found_bridge = None
+            while queue and not found_bridge:
+                current = queue.popleft()
+                
+                # Check if we reached a cell adjacent to the large component
+                if current in adjacent_to_large:
+                    found_bridge = current
+                    break
+                
+                # Explore land neighbors
+                for neighbor in cells[current]["neighbors"]:
+                    if neighbor in cells and cells[neighbor]["type"] == "land" and neighbor not in visited_land:
+                        visited_land.add(neighbor)
+                        parent[neighbor] = current
+                        queue.append(neighbor)
+            
+            if not found_bridge:
+                continue  # Can't connect this component
+            
+            # Trace back path and convert only the first cell in the path
+            # (We prefer converting fewer cells in Phase 2)
+            bridge_id = found_bridge
+        
+        # Convert the bridge cell to sea
+        if bridge_id and bridge_id in cells:
+            cells[bridge_id]["type"] = "sea"
+            cells[bridge_id]["coastal"] = False
+            converted += 1
+            largest_component.add(bridge_id)
+    
+    return converted
+
+
 def run_phase2(phase1_output, config):
     """
     Run Phase 2: Terrain Assignment.
@@ -338,6 +514,39 @@ def run_phase2(phase1_output, config):
         if changes == 0:
             break
     
+    # Step 5: Check and fix sea connectivity
+    print("\nStep 5: Checking sea connectivity...")
+    sea_connectivity = check_sea_connectivity(cells)
+    print(f"  All seas connected: {sea_connectivity['connected']}")
+    print(f"  Number of sea components: {sea_connectivity['components']}")
+    
+    if not sea_connectivity['connected']:
+        print(f"  Component sizes: {sea_connectivity['component_sizes']}")
+        print(f"  Connecting {sea_connectivity['components']} sea components...")
+        
+        total_converted = 0
+        max_attempts = 10
+        attempts = 0
+        
+        while attempts < max_attempts:
+            current_connectivity = check_sea_connectivity(cells)
+            if current_connectivity['connected']:
+                break
+            
+            converted = connect_sea_components(cells, current_connectivity)
+            if converted == 0:
+                break
+            
+            total_converted += converted
+            attempts += 1
+        
+        if total_converted > 0:
+            print(f"  Converted {total_converted} land cells to sea to connect oceans")
+        
+        # Re-check connectivity
+        final_connectivity = check_sea_connectivity(cells)
+        print(f"  Final connectivity: {final_connectivity['connected']}")
+    
     # Recalculate statistics
     land_count = sum(1 for c in cells.values() if c["type"] == "land")
     sea_count = sum(1 for c in cells.values() if c["type"] == "sea")
@@ -350,7 +559,8 @@ def run_phase2(phase1_output, config):
             "total_cells": len(cells),
             "land_cells": land_count,
             "sea_cells": sea_count,
-            "land_ratio": land_ratio
+            "land_ratio": land_ratio,
+            "sea_connectivity": check_sea_connectivity(cells)
         }
     }
     

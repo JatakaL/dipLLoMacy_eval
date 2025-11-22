@@ -141,13 +141,13 @@ def run_full_pipeline(config, output_dir=None, save_intermediate=True):
         with open(os.path.join(output_dir, filename), 'w') as f:
             json.dump(phase5_output, f, indent=2)
     
-    # Phase 6: Graph Optimization
+    # Phase 6: Graph Analysis and Validation
     phase6_config = {}
     
     phase6_output = run_phase6(phase5_output, phase6_config)
     
     if save_intermediate:
-        filename, _ = get_datetime_filename("phase6_optimization_output", datetime_str)
+        filename, _ = get_datetime_filename("phase6_analysis_output", datetime_str)
         with open(os.path.join(output_dir, filename), 'w') as f:
             json.dump(phase6_output, f, indent=2)
     
