@@ -5,8 +5,12 @@ Phase 2: Terrain Assignment (Land vs. Sea)
 This phase assigns terrain types to cells:
 1. Generate noise map (Perlin/Simplex noise)
 2. Apply radial gradient mask
-3. Assign land/sea based on threshold
-4. Cull single-cell islands and lakes
+3. Calculate threshold based on target land ratio
+4. Assign land/sea based on calculated threshold
+5. Cull single-cell islands and lakes
+
+The threshold is dynamically calculated from the noise value distribution
+to achieve the target land ratio specified in the configuration.
 
 Input: mesh_output.json from Phase 1
 Output: terrain_output.json with land/sea assignments
