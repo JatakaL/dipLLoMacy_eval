@@ -5,8 +5,12 @@ Phase 2: Terrain Assignment (Land vs. Sea)
 This phase assigns terrain types to cells:
 1. Generate noise map (Perlin/Simplex noise)
 2. Apply radial gradient mask
-3. Assign land/sea based on threshold
-4. Cull single-cell islands and lakes
+3. Calculate threshold based on target land ratio
+4. Assign land/sea based on calculated threshold
+5. Cull single-cell islands and lakes
+
+The threshold is dynamically calculated from the noise value distribution
+to achieve the target land ratio specified in the configuration.
 
 Input: mesh_output.json from Phase 1
 Output: terrain_output.json with land/sea assignments
@@ -180,25 +184,48 @@ def sample_noise_for_cell(noise_map, cell_center, width, height):
     return noise_map[y, x]
 
 
-def assign_terrain(cells, noise_map, threshold, width, height):
+def assign_terrain(cells, noise_map, threshold, width, height, land_ratio_target=None):
     """
     Assign land or sea to each cell based on noise value.
     
     Args:
         cells: Dictionary of cell data
         noise_map: 2D noise array
-        threshold: Threshold for land (value > threshold = land)
+        threshold: Threshold for land (value > threshold = land). 
+                   If land_ratio_target is provided, this will be recalculated.
         width: Map width
         height: Map height
+        land_ratio_target: Optional target land ratio (0-1). If provided, 
+                          threshold will be calculated to achieve this ratio.
         
     Returns:
-        Updated cells with terrain type
+        Updated cells with terrain type and the actual threshold used
     """
+    # Validate land_ratio_target if provided
+    if land_ratio_target is not None:
+        if not 0 <= land_ratio_target <= 1:
+            raise ValueError(f"land_ratio_target must be between 0 and 1, got {land_ratio_target}")
+    
+    # Sample all noise values for the cells
+    noise_values = []
+    for cell_id, cell in cells.items():
+        noise_value = sample_noise_for_cell(noise_map, cell["center"], width, height)
+        cell["noise_value"] = float(noise_value)
+        noise_values.append(noise_value)
+    
+    # If land_ratio_target is provided, calculate threshold from the distribution
+    if land_ratio_target is not None:
+        # We want the top land_ratio_target percent to be land
+        # So we need the (1 - land_ratio_target) percentile as the threshold
+        sea_percentile = (1 - land_ratio_target) * 100
+        threshold = np.percentile(noise_values, sea_percentile)
+    
+    # Now assign terrain types based on the threshold
     land_count = 0
     sea_count = 0
     
     for cell_id, cell in cells.items():
-        noise_value = sample_noise_for_cell(noise_map, cell["center"], width, height)
+        noise_value = cell["noise_value"]
         
         if noise_value > threshold:
             cell["type"] = "land"
@@ -206,10 +233,8 @@ def assign_terrain(cells, noise_map, threshold, width, height):
         else:
             cell["type"] = "sea"
             sea_count += 1
-        
-        cell["noise_value"] = float(noise_value)
     
-    return cells, land_count, sea_count
+    return cells, land_count, sea_count, threshold
 
 
 def cull_single_cells(cells):
@@ -296,9 +321,12 @@ def run_phase2(phase1_output, config):
     
     # Step 3: Assign terrain
     print("\nStep 3: Assigning terrain types...")
-    cells, land_count, sea_count = assign_terrain(cells, masked_noise, threshold, width, height)
+    cells, land_count, sea_count, actual_threshold = assign_terrain(
+        cells, masked_noise, threshold, width, height, land_ratio_target=land_ratio_target
+    )
     total = land_count + sea_count
     land_ratio = land_count / total if total > 0 else 0
+    print(f"  Calculated threshold: {actual_threshold:.3f} (target land ratio: {land_ratio_target})")
     print(f"  Land cells: {land_count} ({land_ratio:.1%})")
     print(f"  Sea cells: {sea_count} ({1-land_ratio:.1%})")
     
