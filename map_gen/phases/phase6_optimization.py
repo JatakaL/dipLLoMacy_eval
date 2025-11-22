@@ -598,29 +598,66 @@ def run_phase6(phase5_output, config):
     
     optimizations_applied = []
     
-    # Optimization 1: Merge dead-end nodes
+    # Optimization 1: Merge dead-end nodes (iterative, as merging can create new dead-ends)
     if degree_analysis['dead_ends']:
-        print(f"\nOptimization 1: Merging {len(degree_analysis['dead_ends'])} dead-end nodes...")
-        merged_count = 0
-        for dead_end_id in degree_analysis['dead_ends']:
-            if merge_dead_end_node(dead_end_id, cells):
-                print(f"  Merged {dead_end_id}")
-                merged_count += 1
-            else:
-                print(f"  Could not merge {dead_end_id}")
-        optimizations_applied.append(f"Merged {merged_count} dead-end nodes")
+        print(f"\nOptimization 1: Merging dead-end nodes...")
+        total_merged = 0
+        max_iterations = 10
+        iteration = 0
+        
+        while iteration < max_iterations:
+            # Re-analyze to find current dead-ends
+            current_analysis = analyze_node_degrees(cells)
+            if not current_analysis['dead_ends']:
+                break
+            
+            print(f"  Iteration {iteration + 1}: Found {len(current_analysis['dead_ends'])} dead-end nodes")
+            merged_this_iteration = 0
+            
+            for dead_end_id in current_analysis['dead_ends']:
+                if merge_dead_end_node(dead_end_id, cells):
+                    print(f"    Merged {dead_end_id}")
+                    merged_this_iteration += 1
+                    total_merged += 1
+            
+            if merged_this_iteration == 0:
+                # No progress made, stop
+                break
+            
+            iteration += 1
+        
+        if total_merged > 0:
+            optimizations_applied.append(f"Merged {total_merged} dead-end nodes")
     
-    # Optimization 2: Split highly connected nodes
+    # Optimization 2: Split highly connected nodes (iterative, as splitting can affect other nodes)
     if degree_analysis['highly_connected']:
-        print(f"\nOptimization 2: Splitting {len(degree_analysis['highly_connected'])} highly connected nodes...")
+        print(f"\nOptimization 2: Splitting highly connected nodes...")
         total_edges_removed = 0
-        for high_conn_id in degree_analysis['highly_connected']:
-            edges_removed = split_highly_connected_node(high_conn_id, cells)
-            if edges_removed > 0:
-                print(f"  Split {high_conn_id}: removed {edges_removed} edges")
-                total_edges_removed += edges_removed
-            else:
-                print(f"  Could not split {high_conn_id}")
+        max_iterations = 10
+        iteration = 0
+        
+        while iteration < max_iterations:
+            # Re-analyze to find current highly connected nodes
+            current_analysis = analyze_node_degrees(cells)
+            if not current_analysis['highly_connected']:
+                break
+            
+            print(f"  Iteration {iteration + 1}: Found {len(current_analysis['highly_connected'])} highly connected nodes")
+            edges_removed_this_iteration = 0
+            
+            for high_conn_id in current_analysis['highly_connected']:
+                edges_removed = split_highly_connected_node(high_conn_id, cells)
+                if edges_removed > 0:
+                    print(f"    Split {high_conn_id}: removed {edges_removed} edges")
+                    edges_removed_this_iteration += edges_removed
+                    total_edges_removed += edges_removed
+            
+            if edges_removed_this_iteration == 0:
+                # No progress made, stop
+                break
+            
+            iteration += 1
+        
         if total_edges_removed > 0:
             optimizations_applied.append(f"Split highly connected nodes: removed {total_edges_removed} edges")
     
