@@ -6,7 +6,6 @@ This test runs phases 1-3 and verifies that topology is correctly
 maintained and updated throughout the entire pipeline.
 """
 
-import json
 import sys
 import os
 
