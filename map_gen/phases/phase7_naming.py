@@ -15,8 +15,13 @@ import json
 import random
 import argparse
 import os
+import sys
+
+# Add parent directory to path for topology import
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase, get_input_directory, get_datetime_filename
+from topology import get_adjacency_from_topology
 
 
 class RegionNamer:
@@ -110,6 +115,28 @@ class RegionNamer:
         return name
 
 
+def get_coastal_faces(edges):
+    """
+    Determine which faces are coastal by checking if they have coast edges.
+    
+    Args:
+        edges: Dictionary of edge data from topology
+        
+    Returns:
+        Set of face IDs that are coastal
+    """
+    coastal_faces = set()
+    for edge_data in edges.values():
+        if edge_data.get("type") == "coast":
+            left_face = edge_data.get("left_face")
+            right_face = edge_data.get("right_face")
+            if left_face:
+                coastal_faces.add(left_face)
+            if right_face:
+                coastal_faces.add(right_face)
+    return coastal_faces
+
+
 def assign_names(faces, seed=None):
     """
     Assign names to all faces.
@@ -156,19 +183,8 @@ def create_adjacency_list(faces, edges):
     """
     adjacency = {}
     
-    # First, get adjacency by face ID from topology
-    face_adjacency = {}
-    for edge_data in edges.values():
-        left_face = edge_data.get("left_face")
-        right_face = edge_data.get("right_face")
-        
-        if left_face and right_face:
-            if left_face not in face_adjacency:
-                face_adjacency[left_face] = []
-            if right_face not in face_adjacency:
-                face_adjacency[right_face] = []
-            face_adjacency[left_face].append(right_face)
-            face_adjacency[right_face].append(left_face)
+    # Get adjacency by face ID from topology using existing function
+    face_adjacency = get_adjacency_from_topology(edges)
     
     # Convert to name-based adjacency
     for face_id, face in faces.items():
@@ -197,16 +213,8 @@ def create_power_map(faces, edges, territories):
     """
     power_map = {}
     
-    # Determine which faces are coastal by checking if they have coast edges
-    coastal_faces = set()
-    for edge_data in edges.values():
-        if edge_data.get("type") == "coast":
-            left_face = edge_data.get("left_face")
-            right_face = edge_data.get("right_face")
-            if left_face:
-                coastal_faces.add(left_face)
-            if right_face:
-                coastal_faces.add(right_face)
+    # Determine which faces are coastal
+    coastal_faces = get_coastal_faces(edges)
     
     for power_id, territory_data in territories.items():
         territory_cells = territory_data["cells"]
@@ -241,16 +249,8 @@ def create_supply_center_list(faces, edges, supply_centers):
     Returns:
         Dictionary with SC lists
     """
-    # Determine which faces are coastal by checking if they have coast edges
-    coastal_faces = set()
-    for edge_data in edges.values():
-        if edge_data.get("type") == "coast":
-            left_face = edge_data.get("left_face")
-            right_face = edge_data.get("right_face")
-            if left_face:
-                coastal_faces.add(left_face)
-            if right_face:
-                coastal_faces.add(right_face)
+    # Determine which faces are coastal
+    coastal_faces = get_coastal_faces(edges)
     
     sc_list = {
         "home": [
