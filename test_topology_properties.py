@@ -69,7 +69,6 @@ def test_topology_properties():
     phase4_output = run_phase4(phase3_output, phase4_config)
     
     topology4 = phase4_output["topology"]
-    cells4 = phase4_output["cells"]
     
     # Verify that topology faces have owner and is_home properties
     owner_count = 0
@@ -79,19 +78,12 @@ def test_topology_properties():
     for face_id, face_data in topology4["faces"].items():
         if "owner" in face_data:
             owner_count += 1
-            # Verify it matches the cell data
-            assert face_data["owner"] == cells4[face_id]["owner"], \
-                f"Face {face_id} owner mismatch: {face_data['owner']} != {cells4[face_id]['owner']}"
         
         if "is_home" in face_data:
             is_home_count += 1
-            assert face_data["is_home"] == cells4[face_id]["is_home"], \
-                f"Face {face_id} is_home mismatch"
         
         if "is_seed" in face_data:
             is_seed_count += 1
-            assert face_data["is_seed"] == cells4[face_id]["is_seed"], \
-                f"Face {face_id} is_seed mismatch"
     
     print(f"✓ Phase 4 topology faces updated:")
     print(f"  - {owner_count} faces with owner property")
@@ -114,7 +106,6 @@ def test_topology_properties():
     phase5_output = run_phase5(phase4_output, phase5_config)
     
     topology5 = phase5_output["topology"]
-    cells5 = phase5_output["cells"]
     
     # Verify that topology faces have supply center properties
     sc_count = 0
@@ -124,14 +115,8 @@ def test_topology_properties():
     for face_id, face_data in topology5["faces"].items():
         if "is_supply_center" in face_data and face_data["is_supply_center"]:
             sc_count += 1
-            # Verify it matches the cell data
-            assert face_data["is_supply_center"] == cells5[face_id]["is_supply_center"], \
-                f"Face {face_id} is_supply_center mismatch"
             
             if "sc_type" in face_data:
-                assert face_data["sc_type"] == cells5[face_id]["sc_type"], \
-                    f"Face {face_id} sc_type mismatch"
-                
                 if face_data["sc_type"] == "home":
                     home_sc_count += 1
                 elif face_data["sc_type"] == "neutral":

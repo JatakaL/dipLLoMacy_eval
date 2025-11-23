@@ -460,6 +460,78 @@ def connect_sea_components(cells, sea_connectivity):
     return converted
 
 
+def reconstruct_cells_from_topology(topology):
+    """
+    Reconstruct a cell-centric structure from topology for internal processing.
+    
+    Args:
+        topology: Topology dictionary with vertices, edges, and faces
+        
+    Returns:
+        Dictionary of cells with vertices, center, and neighbors
+    """
+    from topology import get_adjacency_from_topology
+    
+    # Create vertex lookup
+    vertex_coords = {v['id']: v['coords'] for v in topology['vertices']}
+    adjacency = get_adjacency_from_topology(topology['edges'])
+    
+    cells = {}
+    for face_id, face_data in topology['faces'].items():
+        # Reconstruct polygon vertices from edges
+        edge_ids = face_data.get('edges', [])
+        vertices = []
+        
+        # Build vertex graph from edges
+        vertex_graph = {}
+        for edge_id in edge_ids:
+            if edge_id in topology['edges']:
+                edge = topology['edges'][edge_id]
+                v1, v2 = edge['v1'], edge['v2']
+                if v1 not in vertex_graph:
+                    vertex_graph[v1] = []
+                if v2 not in vertex_graph:
+                    vertex_graph[v2] = []
+                vertex_graph[v1].append(v2)
+                vertex_graph[v2].append(v1)
+        
+        # Trace polygon boundary
+        if vertex_graph:
+            start_vertex = next(iter(vertex_graph.keys()))
+            current = start_vertex
+            visited = set()
+            
+            for _ in range(len(vertex_graph) + 1):
+                if current in visited and current == start_vertex and len(visited) > 0:
+                    break
+                if current in visited:
+                    break
+                visited.add(current)
+                if current in vertex_coords:
+                    vertices.append(vertex_coords[current])
+                
+                # Find next vertex
+                neighbors = vertex_graph.get(current, [])
+                next_vertex = None
+                for neighbor in neighbors:
+                    if neighbor not in visited or (neighbor == start_vertex and len(visited) == len(vertex_graph)):
+                        next_vertex = neighbor
+                        break
+                if next_vertex is None:
+                    break
+                current = next_vertex
+        
+        cells[face_id] = {
+            'id': face_id,
+            'type': face_data.get('type', 'land'),
+            'center': face_data.get('center', [0.5, 0.5]),
+            'vertices': vertices,
+            'neighbors': adjacency.get(face_id, [])
+        }
+    
+    return cells
+
+
 def run_phase2(phase1_output, config):
     """
     Run Phase 2: Terrain Assignment.
@@ -475,7 +547,12 @@ def run_phase2(phase1_output, config):
     print("PHASE 2: TERRAIN ASSIGNMENT (Land vs. Sea)")
     print("=" * 60)
     
-    cells = phase1_output["cells"]
+    # Reconstruct cells from topology for internal processing
+    if "cells" in phase1_output:
+        cells = phase1_output["cells"]
+    else:
+        print("  Reconstructing cells from topology for processing...")
+        cells = reconstruct_cells_from_topology(phase1_output["topology"])
     
     # Extract configuration
     width = phase1_output["config"].get("width", 1.0)
@@ -576,16 +653,40 @@ def run_phase2(phase1_output, config):
     for edge_type, count in edge_types.items():
         print(f"    - {edge_type}: {count}")
     
+    # Check sea connectivity using topology for output statistics
+    from topology import get_adjacency_from_topology
+    
+    # Get sea connectivity info for statistics
+    sea_faces = [f_id for f_id, f in topology['faces'].items() if f['type'] == 'sea']
+    sea_connectivity_topology = {
+        "connected": True,
+        "components": 1 if sea_faces else 0,
+        "largest_component": len(sea_faces)
+    }
+    # Simple check - if we have sea faces, they should be connected after the fix
+    if sea_faces:
+        adjacency = get_adjacency_from_topology(topology['edges'])
+        visited = set()
+        if sea_faces:
+            queue = deque([sea_faces[0]])
+            visited.add(sea_faces[0])
+            while queue:
+                face_id = queue.popleft()
+                for neighbor in adjacency.get(face_id, []):
+                    if neighbor in topology['faces'] and topology['faces'][neighbor]['type'] == 'sea' and neighbor not in visited:
+                        visited.add(neighbor)
+                        queue.append(neighbor)
+        sea_connectivity_topology["connected"] = len(visited) == len(sea_faces)
+    
     output = {
         "config": {**phase1_output["config"], **config},
-        "cells": cells,
         "topology": topology,
         "statistics": {
-            "total_cells": len(cells),
-            "land_cells": land_count,
-            "sea_cells": sea_count,
+            "total_faces": len(topology['faces']),
+            "land_faces": land_count,
+            "sea_faces": sea_count,
             "land_ratio": land_ratio,
-            "sea_connectivity": check_sea_connectivity(cells),
+            "sea_connectivity": sea_connectivity_topology,
             "topology_vertices": len(topology['vertices']),
             "topology_edges": len(topology['edges']),
             "edge_types": edge_types

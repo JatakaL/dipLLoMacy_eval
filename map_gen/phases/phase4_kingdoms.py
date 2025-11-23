@@ -20,36 +20,36 @@ from collections import deque
 from output_utils import get_output_path_for_phase
 
 
-def select_distant_seeds(coastal_cells, cells, num_powers=7, seed=None):
+def select_distant_seeds(coastal_faces, faces, num_powers=7, seed=None):
     """
-    Select equidistant coastal cells as starting seeds for powers.
+    Select equidistant coastal faces as starting seeds for powers.
     
     Args:
-        coastal_cells: List of coastal cell IDs
-        cells: Dictionary of all cells
+        coastal_faces: List of coastal face IDs
+        faces: Dictionary of all faces from topology
         num_powers: Number of powers to create
         seed: Random seed
         
     Returns:
-        List of seed cell IDs
+        List of seed face IDs
     """
     if seed is not None:
         np.random.seed(seed)
         random.seed(seed)
     
-    if len(coastal_cells) < num_powers:
-        print(f"  Warning: Only {len(coastal_cells)} coastal cells for {num_powers} powers")
-        return coastal_cells
+    if len(coastal_faces) < num_powers:
+        print(f"  Warning: Only {len(coastal_faces)} coastal faces for {num_powers} powers")
+        return coastal_faces
     
     # Use greedy selection to maximize minimum distance
     seeds = []
     
     # Pick first seed randomly
-    first_seed = random.choice(coastal_cells)
+    first_seed = random.choice(coastal_faces)
     seeds.append(first_seed)
     
-    # For each remaining seed, pick the cell farthest from all existing seeds
-    available = set(coastal_cells) - {first_seed}
+    # For each remaining seed, pick the face farthest from all existing seeds
+    available = set(coastal_faces) - {first_seed}
     
     for _ in range(num_powers - 1):
         if not available:
@@ -59,11 +59,11 @@ def select_distant_seeds(coastal_cells, cells, num_powers=7, seed=None):
         best_candidate = None
         
         for candidate in available:
-            candidate_pos = np.array(cells[candidate]["center"])
+            candidate_pos = np.array(faces[candidate]["center"])
             
             # Calculate minimum distance to existing seeds
             min_distance = min(
-                np.linalg.norm(candidate_pos - np.array(cells[seed]["center"]))
+                np.linalg.norm(candidate_pos - np.array(faces[seed]["center"]))
                 for seed in seeds
             )
             
@@ -78,17 +78,18 @@ def select_distant_seeds(coastal_cells, cells, num_powers=7, seed=None):
     return seeds
 
 
-def grow_territory_bfs(seeds, cells, territory_size=3):
+def grow_territory_bfs(seeds, faces, adjacency, territory_size=3):
     """
     Grow territories from seeds using simultaneous BFS.
     
     Args:
-        seeds: List of seed cell IDs
-        cells: Dictionary of all cells
+        seeds: List of seed face IDs
+        faces: Dictionary of all faces from topology
+        adjacency: Adjacency dictionary from topology
         territory_size: Target size for each territory
         
     Returns:
-        Dictionary mapping power ID to list of cell IDs
+        Dictionary mapping power ID to list of face IDs
     """
     territories = {f"Power{i+1}": [seed] for i, seed in enumerate(seeds)}
     claimed = set(seeds)
@@ -112,20 +113,20 @@ def grow_territory_bfs(seeds, cells, territory_size=3):
                 continue
             
             # Try to expand from current frontier
-            current_cell = queues[power_id].popleft()
+            current_face = queues[power_id].popleft()
             
             # Find unclaimed land neighbors
-            for neighbor in cells[current_cell]["neighbors"]:
+            for neighbor in adjacency.get(current_face, []):
                 if neighbor in claimed:
                     continue
                 
-                if neighbor not in cells:
+                if neighbor not in faces:
                     continue
                 
-                neighbor_cell = cells[neighbor]
+                neighbor_face = faces[neighbor]
                 
-                # Only claim land cells
-                if neighbor_cell["type"] != "land":
+                # Only claim land faces
+                if neighbor_face["type"] != "land":
                     continue
                 
                 # Claim this neighbor
@@ -140,13 +141,13 @@ def grow_territory_bfs(seeds, cells, territory_size=3):
     return territories
 
 
-def verify_contiguity(territory, cells):
+def verify_contiguity(territory, topology):
     """
-    Verify that a territory is contiguous (all cells connected).
+    Verify that a territory is contiguous (all faces connected).
     
     Args:
-        territory: List of cell IDs in the territory
-        cells: Dictionary of all cells
+        territory: List of face IDs in the territory
+        topology: Topology dictionary with edges and faces
         
     Returns:
         Boolean indicating if territory is contiguous
@@ -154,7 +155,11 @@ def verify_contiguity(territory, cells):
     if not territory:
         return False
     
-    # BFS to check if all cells are reachable from first cell
+    # Get adjacency from topology
+    from topology import get_adjacency_from_topology
+    adjacency = get_adjacency_from_topology(topology["edges"])
+    
+    # BFS to check if all faces are reachable from first face
     start = territory[0]
     visited = {start}
     queue = deque([start])
@@ -162,7 +167,7 @@ def verify_contiguity(territory, cells):
     while queue:
         current = queue.popleft()
         
-        for neighbor in cells[current]["neighbors"]:
+        for neighbor in adjacency.get(current, []):
             if neighbor in territory and neighbor not in visited:
                 visited.add(neighbor)
                 queue.append(neighbor)
@@ -185,7 +190,12 @@ def run_phase4(phase3_output, config):
     print("PHASE 4: KINGDOM GENERATION (Player Starts)")
     print("=" * 60)
     
-    cells = phase3_output["cells"]
+    # Get topology and derive adjacency
+    topology = phase3_output["topology"]
+    faces = topology["faces"]
+    
+    from topology import get_adjacency_from_topology
+    adjacency = get_adjacency_from_topology(topology["edges"])
     
     # Extract configuration
     num_powers = config.get("num_powers", 7)
@@ -198,18 +208,26 @@ def run_phase4(phase3_output, config):
     print(f"  Territory size: {territory_size}")
     print(f"  Max retries: {max_retries}")
     
-    # Step 1: Find coastal cells
-    print("\nStep 1: Finding coastal cells for seed placement...")
-    coastal_cells = [
-        cell_id for cell_id, cell in cells.items()
-        if cell["type"] == "land" and cell.get("coastal", False)
-    ]
-    print(f"  Found {len(coastal_cells)} coastal cells")
+    # Step 1: Find coastal faces
+    print("\nStep 1: Finding coastal faces for seed placement...")
+    # Coastal faces are land faces adjacent to sea faces
+    coastal_faces = []
+    for face_id, face in faces.items():
+        if face["type"] == "land":
+            # Check if any neighbor is sea
+            has_sea_neighbor = any(
+                faces.get(neighbor, {}).get("type") == "sea"
+                for neighbor in adjacency.get(face_id, [])
+            )
+            if has_sea_neighbor:
+                coastal_faces.append(face_id)
     
-    if len(coastal_cells) < num_powers:
-        print(f"  ERROR: Not enough coastal cells ({len(coastal_cells)}) for {num_powers} powers")
-        print("  Using all available coastal cells...")
-        num_powers = len(coastal_cells)
+    print(f"  Found {len(coastal_faces)} coastal faces")
+    
+    if len(coastal_faces) < num_powers:
+        print(f"  ERROR: Not enough coastal faces ({len(coastal_faces)}) for {num_powers} powers")
+        print("  Using all available coastal faces...")
+        num_powers = len(coastal_faces)
     
     # Step 2: Select equidistant seeds
     print("\nStep 2: Selecting equidistant seeds...")
@@ -218,26 +236,26 @@ def run_phase4(phase3_output, config):
     best_contiguity = 0
     
     for attempt in range(max_retries):
-        seeds = select_distant_seeds(coastal_cells, cells, num_powers, seed + attempt)
+        seeds = select_distant_seeds(coastal_faces, faces, num_powers, seed + attempt)
         
         # Calculate minimum distance between seeds
         min_distance = float('inf')
         for i, seed1 in enumerate(seeds):
             for seed2 in seeds[i+1:]:
-                pos1 = np.array(cells[seed1]["center"])
-                pos2 = np.array(cells[seed2]["center"])
+                pos1 = np.array(faces[seed1]["center"])
+                pos2 = np.array(faces[seed2]["center"])
                 distance = np.linalg.norm(pos1 - pos2)
                 min_distance = min(min_distance, distance)
         
         print(f"  Attempt {attempt+1}: {len(seeds)} seeds, min distance: {min_distance:.3f}")
         
         # Step 3: Grow territories
-        territories = grow_territory_bfs(seeds, cells, territory_size)
+        territories = grow_territory_bfs(seeds, faces, adjacency, territory_size)
         
         # Step 4: Verify contiguity
         contiguous_count = 0
         for power_id, territory in territories.items():
-            is_contiguous = verify_contiguity(territory, cells)
+            is_contiguous = verify_contiguity(territory, topology)
             if is_contiguous:
                 contiguous_count += 1
         
@@ -255,43 +273,30 @@ def run_phase4(phase3_output, config):
     territories = best_territories
     seeds = best_seeds
     
-    # Assign ownership to cells
-    for power_id, territory in territories.items():
-        for cell_id in territory:
-            cells[cell_id]["owner"] = power_id
-            cells[cell_id]["is_home"] = True
-    
-    # Mark seeds as starting positions
-    for i, seed in enumerate(seeds):
-        cells[seed]["is_seed"] = True
-    
     # Update topology faces with ownership information
-    topology = phase3_output.get("topology", {})
-    if topology and "faces" in topology:
-        for power_id, territory in territories.items():
-            for cell_id in territory:
-                if cell_id in topology["faces"]:
-                    topology["faces"][cell_id]["owner"] = power_id
-                    topology["faces"][cell_id]["is_home"] = True
-        
-        # Mark seeds in topology
-        for seed in seeds:
-            if seed in topology["faces"]:
-                topology["faces"][seed]["is_seed"] = True
+    for power_id, territory in territories.items():
+        for face_id in territory:
+            if face_id in topology["faces"]:
+                topology["faces"][face_id]["owner"] = power_id
+                topology["faces"][face_id]["is_home"] = True
+    
+    # Mark seeds in topology
+    for seed in seeds:
+        if seed in topology["faces"]:
+            topology["faces"][seed]["is_seed"] = True
     
     # Calculate statistics
     territory_sizes = {power_id: len(territory) for power_id, territory in territories.items()}
     
     output = {
         "config": {**phase3_output["config"], **config},
-        "cells": cells,
         "topology": topology,
         "territories": {
             power_id: {
-                "cells": territory,
+                "cells": territory,  # "cells" here means list of face IDs, not the legacy cells dict
                 "seed": seeds[i],
                 "size": len(territory),
-                "contiguous": verify_contiguity(territory, cells)
+                "contiguous": verify_contiguity(territory, topology)
             }
             for i, (power_id, territory) in enumerate(territories.items())
         },

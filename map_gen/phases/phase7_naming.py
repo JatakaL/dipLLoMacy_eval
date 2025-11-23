@@ -294,10 +294,16 @@ def generate_map_summary(output):
     summary.append("DIPLOMACY MAP SUMMARY")
     summary.append("=" * 60)
     summary.append("")
-    summary.append(f"Total Cells: {stats['total_cells']}")
-    summary.append(f"  - Land: {stats['land_cells']}")
-    summary.append(f"  - Sea: {stats['sea_cells']}")
-    summary.append(f"  - Impassable: {stats['impassable_cells']}")
+    # Use 'total_faces' if available, fall back to 'total_cells' for backward compatibility
+    total_key = 'total_faces' if 'total_faces' in stats else 'total_cells'
+    land_key = 'land_faces' if 'land_faces' in stats else 'land_cells'
+    sea_key = 'sea_faces' if 'sea_faces' in stats else 'sea_cells'
+    impassable_key = 'impassable_faces' if 'impassable_faces' in stats else 'impassable_cells'
+    
+    summary.append(f"Total Faces: {stats[total_key]}")
+    summary.append(f"  - Land: {stats[land_key]}")
+    summary.append(f"  - Sea: {stats[sea_key]}")
+    summary.append(f"  - Impassable: {stats[impassable_key]}")
     summary.append("")
     summary.append(f"Supply Centers: {stats['total_supply_centers']}")
     summary.append(f"  - Home: {stats['home_supply_centers']}")
@@ -308,8 +314,10 @@ def generate_map_summary(output):
     summary.append(f"  - Central Powers: {stats['central_powers']}")
     summary.append("")
     summary.append(f"Geography:")
-    summary.append(f"  - Coastal Cells: {stats['coastal_cells']}")
-    summary.append(f"  - Inland Cells: {stats['inland_cells']}")
+    coastal_key = 'coastal_faces' if 'coastal_faces' in stats else 'coastal_cells'
+    inland_key = 'inland_faces' if 'inland_faces' in stats else 'inland_cells'
+    summary.append(f"  - Coastal Faces: {stats[coastal_key]}")
+    summary.append(f"  - Inland Faces: {stats[inland_key]}")
     summary.append(f"  - Ocean Regions: {stats['num_oceans']}")
     summary.append("")
     

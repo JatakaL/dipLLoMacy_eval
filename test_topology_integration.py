@@ -104,43 +104,22 @@ def test_topology_integration():
     print(f"  - {len(topology3['vertices'])} vertices")
     print(f"  - {len(topology3['edges'])} edges")
     
-    # Verify adjacency consistency
+    # Verify adjacency is correctly derived from topology
     print("\n" + "=" * 60)
-    print("Verifying Adjacency Consistency...")
+    print("Verifying Adjacency from Topology...")
     print("=" * 60)
     
     # Get adjacency from topology
     topology_adjacency = get_adjacency_from_topology(topology3["edges"])
     
-    # Get adjacency from legacy cells
-    cells = phase3_output["cells"]
-    legacy_adjacency = {cell_id: cell_data.get("neighbors", []) 
-                       for cell_id, cell_data in cells.items()}
-    
-    # Compare adjacencies
-    discrepancies = 0
-    for cell_id in topology_adjacency:
-        topo_neighbors = set(topology_adjacency[cell_id])
-        legacy_neighbors = set(legacy_adjacency.get(cell_id, []))
-        
-        if topo_neighbors != legacy_neighbors:
-            discrepancies += 1
-            if discrepancies <= 3:  # Only print first 3
-                print(f"  Adjacency mismatch for {cell_id}:")
-                print(f"    Topology: {topo_neighbors}")
-                print(f"    Legacy:   {legacy_neighbors}")
-    
-    if discrepancies == 0:
-        print("✓ All adjacencies match between topology and legacy format")
-    else:
-        print(f"⚠ Found {discrepancies} adjacency discrepancies")
-        print("  Note: Minor discrepancies may occur if the legacy neighbor list")
-        print("  was not updated after terrain changes. The topology is authoritative.")
-        
-        # If there are many discrepancies, that's a concern
-        if discrepancies > len(cells) * 0.1:  # More than 10% mismatch
-            print(f"  WARNING: {discrepancies}/{len(cells)} cells have mismatches - this may indicate a bug")
+    # Verify all faces have adjacency info
+    faces = set(topology3["faces"].keys())
+    for face_id in faces:
+        if face_id not in topology_adjacency:
+            print(f"  WARNING: Face {face_id} missing from adjacency")
             return False
+    
+    print(f"✓ Adjacency correctly derived from topology for {len(topology_adjacency)} faces")
     
     # Verify topology integrity
     print("\n" + "=" * 60)
