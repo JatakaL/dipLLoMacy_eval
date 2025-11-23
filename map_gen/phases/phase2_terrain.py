@@ -31,7 +31,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase
-from topology import convert_cells_to_topology
+from topology import convert_cells_to_topology, reconstruct_cells_from_topology, get_adjacency_from_topology
 
 
 def generate_perlin_noise_2d(shape, res, seed=None):
@@ -480,7 +480,6 @@ def run_phase2(phase1_output, config):
         cells = phase1_output["cells"]
     else:
         print("  Reconstructing cells from topology for processing...")
-        from topology import reconstruct_cells_from_topology
         cells = reconstruct_cells_from_topology(phase1_output["topology"])
     
     # Extract configuration
@@ -583,8 +582,6 @@ def run_phase2(phase1_output, config):
         print(f"    - {edge_type}: {count}")
     
     # Check sea connectivity using topology for output statistics
-    from topology import get_adjacency_from_topology
-    
     # Get sea connectivity info for statistics
     sea_faces = [f_id for f_id, f in topology['faces'].items() if f['type'] == 'sea']
     sea_connectivity_topology = {
