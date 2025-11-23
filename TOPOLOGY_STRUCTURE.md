@@ -193,4 +193,4 @@ Potential improvements to the topology system:
 - Original issue: "Refactor Map Data Structure to Face-Edge-Vertex Topology"
 - Implementation: `map_gen/topology.py`
 - Tests: `test_topology.py`, `test_topology_integration.py`
-- Visualization: `map_gen/visualization.py` (see `visualize_topology()` method)
+- Visualization: `map_viewer.py` and `map_viewer_cli.py` (interactive viewer and CLI renderer)
