@@ -85,6 +85,7 @@ class Face:
         self.type = face_type
         self.edges: List[str] = []  # Ordered list of edge IDs forming the perimeter
         self.center: Optional[Tuple[float, float]] = None
+        self.coastal: bool = False  # Whether this land face is coastal
     
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""
@@ -94,6 +95,9 @@ class Face:
         }
         if self.center is not None:
             result["center"] = list(self.center)
+        # Include coastal property for land faces
+        if self.coastal:
+            result["coastal"] = self.coastal
         return result
 
 
@@ -232,6 +236,7 @@ class TopologyConverter:
             # Create face for this cell
             face = Face(cell_id, cell_data.get("type", "land"))
             face.center = tuple(cell_data["center"]) if "center" in cell_data else None
+            face.coastal = cell_data.get("coastal", False)
             
             # Get vertices of this cell's polygon
             vertices = cell_data["vertices"]
