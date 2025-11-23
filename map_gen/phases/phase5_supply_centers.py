@@ -49,9 +49,9 @@ def mark_home_centers(faces, territories):
     home_sc_count = 0
     
     for power_id, territory_data in territories.items():
-        territory_cells = territory_data["cells"]
+        territory_faces = territory_data["faces"]
         
-        for face_id in territory_cells:
+        for face_id in territory_faces:
             if face_id in faces:
                 faces[face_id]["is_supply_center"] = True
                 faces[face_id]["sc_type"] = "home"
@@ -75,7 +75,7 @@ def find_neutral_candidates(faces, edges, territories):
     # Get all owned faces
     owned_faces = set()
     for territory_data in territories.values():
-        owned_faces.update(territory_data["cells"])
+        owned_faces.update(territory_data["faces"])
     
     # Determine which faces are coastal by checking for coast edges
     coastal_faces = set()
@@ -130,7 +130,7 @@ def calculate_power_distances(face_id, faces, territories):
         # Find closest face in this power's territory
         min_dist = float('inf')
         
-        for territory_face in territory_data["cells"]:
+        for territory_face in territory_data["faces"]:
             if territory_face not in faces:
                 continue
             
