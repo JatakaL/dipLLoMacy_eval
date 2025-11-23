@@ -24,10 +24,6 @@ try:
     from map_gen.phases.phase2_terrain import (
         check_sea_connectivity
     )
-    # Import topology-based analysis from phase6
-    from map_gen.phases.phase6_optimization import (
-        analyze_node_degrees as analyze_node_degrees_topology
-    )
 except ImportError:
     # Fallback for direct script execution
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen', 'phases'))
@@ -38,9 +34,6 @@ except ImportError:
     )
     from phase2_terrain import (
         check_sea_connectivity
-    )
-    from phase6_optimization import (
-        analyze_node_degrees as analyze_node_degrees_topology
     )
 
 
