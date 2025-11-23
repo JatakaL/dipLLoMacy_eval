@@ -58,10 +58,10 @@ def test_coastal_property_in_topology():
     assert 'faces' in topology
     assert 'C1' in topology['faces']
     assert 'coastal' in topology['faces']['C1'], "Coastal property not found in topology face C1"
-    assert topology['faces']['C1']['coastal'] == True, "C1 should be coastal"
+    assert topology['faces']['C1']['coastal'] is True, "C1 should be coastal"
     assert 'C3' in topology['faces']
     # C3 should not have coastal=True in the output (only included if True)
-    assert topology['faces']['C3'].get('coastal', False) == False, "C3 should not be coastal"
+    assert topology['faces']['C3'].get('coastal', False) is False, "C3 should not be coastal"
     
     print("✓ Coastal property preserved in topology")
 
@@ -110,8 +110,8 @@ def test_coastal_property_in_reconstruction():
     # Check that coastal property is preserved
     assert 'C1' in cells
     assert 'coastal' in cells['C1'], "Coastal property not found in reconstructed cell C1"
-    assert cells['C1']['coastal'] == True, "C1 should be coastal after reconstruction"
-    assert cells['C2']['coastal'] == False, "C2 should not be coastal"
+    assert cells['C1']['coastal'] is True, "C1 should be coastal after reconstruction"
+    assert cells['C2']['coastal'] is False, "C2 should not be coastal"
     
     print("✓ Coastal property preserved in reconstruction")
 
@@ -169,7 +169,7 @@ def test_map_viewer_cli_reconstruction():
         # Check reconstruction
         assert len(map_data.cells) > 0, "Cells should be reconstructed"
         assert 'C1' in map_data.cells, "C1 should be in reconstructed cells"
-        assert map_data.cells['C1']['coastal'] == True, "C1 should be coastal in MapData"
+        assert map_data.cells['C1']['coastal'] is True, "C1 should be coastal in MapData"
         
         print("✓ Map viewer CLI reconstruction preserves coastal property")
     finally:
