@@ -100,16 +100,13 @@ class Face:
 class TopologyConverter:
     """Converts Voronoi cell data to Face-Edge-Vertex topology."""
     
-    def __init__(self, tolerance: float = 1e-9):
+    def __init__(self):
         """
         Initialize the topology converter.
         
-        Args:
-            tolerance: Distance threshold for considering vertices identical.
-                      Note: Currently uses fixed precision (9 decimals) for deduplication.
-                      The tolerance parameter is reserved for future enhancements.
+        Note: Currently uses fixed precision (9 decimals) for deduplication.
+        # TODO: If a tolerance-based deduplication is needed, add a tolerance parameter here.
         """
-        self.tolerance = tolerance  # Reserved for future use
         self.vertices: Dict[int, Vertex] = {}
         self.edges: Dict[str, Edge] = {}
         self.faces: Dict[str, Face] = {}
