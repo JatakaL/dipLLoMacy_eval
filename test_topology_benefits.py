@@ -115,7 +115,7 @@ def test_explicit_adjacency():
     
     # Convert to topology
     converter = TopologyConverter()
-    vertices, edges, faces = converter.convert_cells_to_topology(cells)
+    _ = converter.convert_cells_to_topology(cells)
     
     print("\nTopological Approach:")
     print("  Adjacency determined by shared edges")
