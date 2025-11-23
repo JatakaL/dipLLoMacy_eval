@@ -137,6 +137,7 @@ class MapData:
                 'is_supply_center': face_data.get('is_supply_center', False),
                 'sc_type': face_data.get('sc_type'),
                 'is_home': face_data.get('is_home', False),
+                'coastal': face_data.get('coastal', False),
             }
             
             self.cells[face_id] = cell
