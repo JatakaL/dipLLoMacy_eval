@@ -6,10 +6,8 @@ This test runs all phases (1-7) and verifies that topology is correctly
 maintained and updated throughout the entire pipeline.
 """
 
-import json
 import sys
 import os
-import tempfile
 
 # Add the map_gen directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen', 'phases'))
