@@ -24,8 +24,14 @@ import json
 import numpy as np
 import argparse
 from collections import deque
+import sys
+import os
+
+# Add parent directory to path for topology import
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase
+from topology import convert_cells_to_topology
 
 
 def generate_perlin_noise_2d(shape, res, seed=None):
@@ -556,15 +562,33 @@ def run_phase2(phase1_output, config):
     sea_count = sum(1 for c in cells.values() if c["type"] == "sea")
     land_ratio = land_count / (land_count + sea_count) if (land_count + sea_count) > 0 else 0
     
+    # Step 6: Update topology with terrain changes
+    print(f"\nStep 6: Updating topology with terrain assignments...")
+    topology = convert_cells_to_topology(cells)
+    
+    # Count edges by type
+    edge_types = {}
+    for edge_data in topology["edges"].values():
+        edge_type = edge_data.get("type", "unknown")
+        edge_types[edge_type] = edge_types.get(edge_type, 0) + 1
+    
+    print(f"  Edge types:")
+    for edge_type, count in edge_types.items():
+        print(f"    - {edge_type}: {count}")
+    
     output = {
         "config": {**phase1_output["config"], **config},
         "cells": cells,
+        "topology": topology,
         "statistics": {
             "total_cells": len(cells),
             "land_cells": land_count,
             "sea_cells": sea_count,
             "land_ratio": land_ratio,
-            "sea_connectivity": check_sea_connectivity(cells)
+            "sea_connectivity": check_sea_connectivity(cells),
+            "topology_vertices": len(topology['vertices']),
+            "topology_edges": len(topology['edges']),
+            "edge_types": edge_types
         }
     }
     

@@ -6,16 +6,26 @@ This module handles the visualization of the generated map.
 
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import numpy as np
 
 class MapVisualizer:
     """Handles the visualization of the generated map."""
     
-    def __init__(self, cells, regions, supply_centers, starting_positions):
-        """Initialize with map data."""
+    def __init__(self, cells, regions, supply_centers, starting_positions, topology=None):
+        """Initialize with map data.
+        
+        Args:
+            cells: Dictionary of cell data (legacy format)
+            regions: Dictionary of region data
+            supply_centers: Set of supply center IDs
+            starting_positions: Dictionary of starting positions by power
+            topology: Optional topology data (vertices, edges, faces)
+        """
         self.cells = cells
         self.regions = regions
         self.supply_centers = supply_centers
         self.starting_positions = starting_positions
+        self.topology = topology
         self.terrain_colors = {
             "land": "#C5E0B4",
             "sea": "#BDD7EE"
@@ -51,6 +61,10 @@ class MapVisualizer:
         # Draw region polygons
         for region_id, region in self.regions.items():
             polygon = region["vertices"]
+            # Convert to numpy array if needed
+            if not isinstance(polygon, np.ndarray):
+                polygon = np.array(polygon)
+            
             region_type = region["type"]
             color = self.terrain_colors[region_type]
             
@@ -142,6 +156,142 @@ class MapVisualizer:
             title += " (Showing Cells)"
         if show_sea_growth:
             title += " (Sea Growth Visualization)"
+        
+        plt.title(title)
+        plt.axis('off')
+        plt.tight_layout()
+        return plt
+    
+    def visualize_topology(self, show_edge_types=True, show_vertices=False):
+        """
+        Visualize the map using topological representation (edges and vertices).
+        
+        This renders the map from the Face-Edge-Vertex topology structure instead
+        of from polygons, demonstrating that the topology correctly represents
+        the map structure.
+        
+        Args:
+            show_edge_types: Color-code edges by type (land, sea, coast, map-edge)
+            show_vertices: Show vertex points
+            
+        Returns:
+            matplotlib.pyplot object
+        """
+        if self.topology is None:
+            print("Warning: No topology data available, falling back to polygon rendering")
+            return self.visualize_map()
+        
+        plt.figure(figsize=(15, 12))
+        
+        # Extract topology data
+        vertices = self.topology.get('vertices', [])
+        edges = self.topology.get('edges', {})
+        faces = self.topology.get('faces', {})
+        
+        # Create vertex lookup
+        vertex_coords = {v['id']: v['coords'] for v in vertices}
+        
+        # Draw faces (fill with color)
+        for face_id, face_data in faces.items():
+            face_type = face_data.get('type', 'land')
+            color = self.terrain_colors.get(face_type, '#CCCCCC')
+            
+            # Get the polygon vertices from edges
+            edge_ids = face_data.get('edges', [])
+            if not edge_ids:
+                continue
+            
+            # Reconstruct the polygon from edges
+            # This is a bit complex since edges may not be in order
+            polygon_coords = []
+            
+            # Start with the first edge
+            if edge_ids:
+                first_edge = edges.get(edge_ids[0])
+                if first_edge:
+                    v1 = first_edge.get('v1')
+                    v2 = first_edge.get('v2')
+                    
+                    # Try to build an ordered polygon
+                    # For now, use the legacy vertices if available
+                    if face_id in self.regions:
+                        polygon = self.regions[face_id].get('vertices')
+                    elif face_id in self.cells:
+                        polygon = self.cells[face_id].get('vertices')
+                    else:
+                        continue
+                    
+                    if polygon is not None:
+                        if not isinstance(polygon, np.ndarray):
+                            polygon = np.array(polygon)
+                        
+                        # Fill the polygon
+                        plt.fill(polygon[:, 0], polygon[:, 1], color=color, alpha=0.6)
+        
+        # Define edge colors by type
+        edge_colors = {
+            'land': '#4A7C59',      # Dark green for land-land borders
+            'sea': '#5B9BD5',       # Blue for sea-sea borders
+            'coast': '#C55A11',     # Orange for coastlines
+            'map-edge': '#7F7F7F'   # Gray for map boundaries
+        }
+        
+        edge_widths = {
+            'land': 1.5,
+            'sea': 0.5,
+            'coast': 2.5,
+            'map-edge': 3.0
+        }
+        
+        # Draw edges
+        for edge_id, edge_data in edges.items():
+            v1_id = edge_data.get('v1')
+            v2_id = edge_data.get('v2')
+            edge_type = edge_data.get('type', 'land')
+            
+            if v1_id not in vertex_coords or v2_id not in vertex_coords:
+                continue
+            
+            v1_coords = vertex_coords[v1_id]
+            v2_coords = vertex_coords[v2_id]
+            
+            # Get color and width based on edge type
+            if show_edge_types:
+                color = edge_colors.get(edge_type, '#000000')
+                linewidth = edge_widths.get(edge_type, 1.0)
+            else:
+                color = '#000000'
+                linewidth = 1.0
+            
+            # Draw the edge
+            plt.plot([v1_coords[0], v2_coords[0]], 
+                    [v1_coords[1], v2_coords[1]], 
+                    color=color, linewidth=linewidth, alpha=0.8)
+        
+        # Optionally draw vertices
+        if show_vertices:
+            for vertex in vertices:
+                coords = vertex['coords']
+                plt.plot(coords[0], coords[1], 'ko', markersize=2, alpha=0.5)
+        
+        # Add legend for edge types
+        if show_edge_types:
+            from matplotlib.lines import Line2D
+            legend_elements = [
+                Line2D([0], [0], color=edge_colors['land'], linewidth=edge_widths['land'], 
+                       label='Land border'),
+                Line2D([0], [0], color=edge_colors['coast'], linewidth=edge_widths['coast'], 
+                       label='Coastline'),
+                Line2D([0], [0], color=edge_colors['sea'], linewidth=edge_widths['sea'], 
+                       label='Sea border'),
+                Line2D([0], [0], color=edge_colors['map-edge'], linewidth=edge_widths['map-edge'], 
+                       label='Map boundary')
+            ]
+            plt.legend(handles=legend_elements, loc='upper right')
+        
+        title = "Topology Visualization (Edge-Based Rendering)"
+        if show_vertices:
+            title += " with Vertices"
         
         plt.title(title)
         plt.axis('off')

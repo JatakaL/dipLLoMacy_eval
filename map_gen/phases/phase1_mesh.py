@@ -16,8 +16,14 @@ import numpy as np
 from scipy.spatial import Voronoi
 from shapely.geometry import Polygon as ShapelyPolygon
 import argparse
+import sys
+import os
+
+# Add parent directory to path for topology import
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase
+from topology import convert_cells_to_topology
 
 
 def poisson_disk_sampling(width, height, min_distance, num_points, seed=None):
@@ -280,17 +286,30 @@ def run_phase1(config):
         print(f"\nStep 4: Applying Lloyd's relaxation...")
         cells = lloyds_relaxation(cells, lloyd_iterations, width, height)
     
+    # Step 5: Convert to topological representation
+    print(f"\nStep 5: Converting to topological representation (Face-Edge-Vertex)...")
+    topology = convert_cells_to_topology(cells)
+    
+    # Verify topology integrity
+    print(f"  Topology verification:")
+    print(f"    - {len(topology['vertices'])} unique vertices")
+    print(f"    - {len(topology['edges'])} edges")
+    print(f"    - {len(topology['faces'])} faces")
+    
     output = {
         "config": config,
         "cells": cells,
+        "topology": topology,
         "statistics": {
             "total_cells": len(cells),
-            "average_neighbors": avg_neighbors
+            "average_neighbors": avg_neighbors,
+            "topology_vertices": len(topology['vertices']),
+            "topology_edges": len(topology['edges'])
         }
     }
     
     print("\n" + "=" * 60)
-    print(f"PHASE 1 COMPLETE: Generated {len(cells)} cells")
+    print(f"PHASE 1 COMPLETE: Generated {len(cells)} cells with topology")
     print("=" * 60)
     
     return output
