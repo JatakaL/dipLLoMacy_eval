@@ -271,6 +271,7 @@ def run_phase4(phase3_output, config):
     output = {
         "config": {**phase3_output["config"], **config},
         "cells": cells,
+        "topology": phase3_output.get("topology", {}),
         "territories": {
             power_id: {
                 "cells": territory,

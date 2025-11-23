@@ -266,6 +266,7 @@ def run_phase5(phase4_output, config):
     output = {
         "config": {**phase4_output["config"], **config},
         "cells": cells,
+        "topology": phase4_output.get("topology", {}),
         "territories": territories,
         "supply_centers": all_scs,
         "statistics": {

@@ -364,6 +364,7 @@ def run_phase7(phase6_output, config):
             "phases_completed": 7
         },
         "cells": cells,
+        "topology": phase6_output.get("topology", {}),
         "adjacency": adjacency_list,
         "powers": power_map,
         "supply_centers": sc_list,
