@@ -36,7 +36,7 @@ def example_full_pipeline():
     )
     
     print("\nMap generated successfully!")
-    print(f"Total cells: {output['statistics']['total_cells']}")
+    print(f"Total faces: {output['statistics']['total_faces']}")
     print(f"Powers: {output['statistics']['num_powers']}")
     print(f"Supply centers: {output['statistics']['total_supply_centers']}")
 
@@ -66,7 +66,7 @@ def example_custom_pipeline():
     )
     
     print("\nLarge map generated successfully!")
-    print(f"Total cells: {output['statistics']['total_cells']}")
+    print(f"Total faces: {output['statistics']['total_faces']}")
     print(f"Powers: {output['statistics']['num_powers']}")
     print(f"Supply centers: {output['statistics']['total_supply_centers']}")
 
@@ -92,7 +92,7 @@ def example_small_game():
     )
     
     print("\nSmall map generated successfully!")
-    print(f"Total cells: {output['statistics']['total_cells']}")
+    print(f"Total faces: {output['statistics']['total_faces']}")
     print(f"Powers: {output['statistics']['num_powers']}")
     print(f"Supply centers: {output['statistics']['total_supply_centers']}")
 
