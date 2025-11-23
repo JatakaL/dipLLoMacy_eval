@@ -179,8 +179,11 @@ class MapData:
         current = start_vertex
         visited = set()
         
-        while current not in visited or current == start_vertex and len(visited) < len(vertex_graph):
-            if current in visited and current == start_vertex:
+        # Trace the polygon boundary by following unvisited neighbors
+        max_iterations = len(vertex_graph) + 1  # Safety limit
+        for _ in range(max_iterations):
+            if current in visited:
+                # We've completed the loop back to a visited vertex
                 break
             
             visited.add(current)
@@ -191,11 +194,16 @@ class MapData:
             neighbors = vertex_graph.get(current, [])
             next_vertex = None
             for neighbor in neighbors:
-                if neighbor not in visited or (neighbor == start_vertex and len(visited) == len(vertex_graph)):
+                if neighbor not in visited:
+                    next_vertex = neighbor
+                    break
+                # Allow closing the loop by returning to start
+                elif neighbor == start_vertex and len(visited) == len(vertex_graph):
                     next_vertex = neighbor
                     break
             
             if next_vertex is None:
+                # No more neighbors to visit
                 break
             current = next_vertex
         
