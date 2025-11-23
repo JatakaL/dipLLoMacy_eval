@@ -170,7 +170,13 @@ def run_phase3(phase2_output, config):
     print("PHASE 3: PROVINCE DEFINITION")
     print("=" * 60)
     
-    cells = phase2_output["cells"]
+    # Reconstruct cells from topology for internal processing
+    if "cells" in phase2_output:
+        cells = phase2_output["cells"]
+    else:
+        print("  Reconstructing cells from topology for processing...")
+        from topology import reconstruct_cells_from_topology
+        cells = reconstruct_cells_from_topology(phase2_output["topology"])
     
     # Extract configuration
     num_impassable = config.get("num_impassable_zones", 1)
@@ -214,23 +220,22 @@ def run_phase3(phase2_output, config):
     
     output = {
         "config": {**phase2_output["config"], **config},
-        "cells": cells,
         "topology": topology,
         "oceans": [
             {
                 "ocean_id": i,
                 "size": len(ocean),
-                "cells": ocean
+                "faces": ocean  # Changed from "cells" to "faces" for consistency
             }
             for i, ocean in enumerate(oceans)
         ],
         "statistics": {
-            "total_cells": len(cells),
-            "land_cells": land_cells,
-            "sea_cells": sea_cells,
-            "impassable_cells": impassable,
-            "coastal_cells": coastal_count,
-            "inland_cells": inland_count,
+            "total_faces": len(topology['faces']),
+            "land_faces": land_cells,
+            "sea_faces": sea_cells,
+            "impassable_faces": impassable,
+            "coastal_faces": coastal_count,
+            "inland_faces": inland_count,
             "num_oceans": len(oceans),
             "topology_vertices": len(topology['vertices']),
             "topology_edges": len(topology['edges'])

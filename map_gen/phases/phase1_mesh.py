@@ -298,10 +298,9 @@ def run_phase1(config):
     
     output = {
         "config": config,
-        "cells": cells,
         "topology": topology,
         "statistics": {
-            "total_cells": len(cells),
+            "total_faces": len(topology['faces']),
             "average_neighbors": avg_neighbors,
             "topology_vertices": len(topology['vertices']),
             "topology_edges": len(topology['edges'])
@@ -309,7 +308,7 @@ def run_phase1(config):
     }
     
     print("\n" + "=" * 60)
-    print(f"PHASE 1 COMPLETE: Generated {len(cells)} cells with topology")
+    print(f"PHASE 1 COMPLETE: Generated {len(topology['faces'])} faces with topology")
     print("=" * 60)
     
     return output
