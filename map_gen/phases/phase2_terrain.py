@@ -460,78 +460,6 @@ def connect_sea_components(cells, sea_connectivity):
     return converted
 
 
-def reconstruct_cells_from_topology(topology):
-    """
-    Reconstruct a cell-centric structure from topology for internal processing.
-    
-    Args:
-        topology: Topology dictionary with vertices, edges, and faces
-        
-    Returns:
-        Dictionary of cells with vertices, center, and neighbors
-    """
-    from topology import get_adjacency_from_topology
-    
-    # Create vertex lookup
-    vertex_coords = {v['id']: v['coords'] for v in topology['vertices']}
-    adjacency = get_adjacency_from_topology(topology['edges'])
-    
-    cells = {}
-    for face_id, face_data in topology['faces'].items():
-        # Reconstruct polygon vertices from edges
-        edge_ids = face_data.get('edges', [])
-        vertices = []
-        
-        # Build vertex graph from edges
-        vertex_graph = {}
-        for edge_id in edge_ids:
-            if edge_id in topology['edges']:
-                edge = topology['edges'][edge_id]
-                v1, v2 = edge['v1'], edge['v2']
-                if v1 not in vertex_graph:
-                    vertex_graph[v1] = []
-                if v2 not in vertex_graph:
-                    vertex_graph[v2] = []
-                vertex_graph[v1].append(v2)
-                vertex_graph[v2].append(v1)
-        
-        # Trace polygon boundary
-        if vertex_graph:
-            start_vertex = next(iter(vertex_graph.keys()))
-            current = start_vertex
-            visited = set()
-            
-            for _ in range(len(vertex_graph) + 1):
-                if current in visited and current == start_vertex and len(visited) > 0:
-                    break
-                if current in visited:
-                    break
-                visited.add(current)
-                if current in vertex_coords:
-                    vertices.append(vertex_coords[current])
-                
-                # Find next vertex
-                neighbors = vertex_graph.get(current, [])
-                next_vertex = None
-                for neighbor in neighbors:
-                    if neighbor not in visited or (neighbor == start_vertex and len(visited) == len(vertex_graph)):
-                        next_vertex = neighbor
-                        break
-                if next_vertex is None:
-                    break
-                current = next_vertex
-        
-        cells[face_id] = {
-            'id': face_id,
-            'type': face_data.get('type', 'land'),
-            'center': face_data.get('center', [0.5, 0.5]),
-            'vertices': vertices,
-            'neighbors': adjacency.get(face_id, [])
-        }
-    
-    return cells
-
-
 def run_phase2(phase1_output, config):
     """
     Run Phase 2: Terrain Assignment.
@@ -552,6 +480,7 @@ def run_phase2(phase1_output, config):
         cells = phase1_output["cells"]
     else:
         print("  Reconstructing cells from topology for processing...")
+        from topology import reconstruct_cells_from_topology
         cells = reconstruct_cells_from_topology(phase1_output["topology"])
     
     # Extract configuration

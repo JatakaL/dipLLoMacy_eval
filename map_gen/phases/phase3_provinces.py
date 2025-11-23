@@ -155,69 +155,6 @@ def create_impassable_zones(cells, num_zones=1):
     return cells, impassable_cells
 
 
-def reconstruct_cells_from_topology(topology):
-    """
-    Reconstruct a cell-centric structure from topology for internal processing.
-    Same function as in phase2_terrain.py
-    """
-    from topology import get_adjacency_from_topology
-    
-    vertex_coords = {v['id']: v['coords'] for v in topology['vertices']}
-    adjacency = get_adjacency_from_topology(topology['edges'])
-    
-    cells = {}
-    for face_id, face_data in topology['faces'].items():
-        edge_ids = face_data.get('edges', [])
-        vertices = []
-        
-        vertex_graph = {}
-        for edge_id in edge_ids:
-            if edge_id in topology['edges']:
-                edge = topology['edges'][edge_id]
-                v1, v2 = edge['v1'], edge['v2']
-                if v1 not in vertex_graph:
-                    vertex_graph[v1] = []
-                if v2 not in vertex_graph:
-                    vertex_graph[v2] = []
-                vertex_graph[v1].append(v2)
-                vertex_graph[v2].append(v1)
-        
-        if vertex_graph:
-            start_vertex = next(iter(vertex_graph.keys()))
-            current = start_vertex
-            visited = set()
-            
-            for _ in range(len(vertex_graph) + 1):
-                if current in visited and current == start_vertex and len(visited) > 0:
-                    break
-                if current in visited:
-                    break
-                visited.add(current)
-                if current in vertex_coords:
-                    vertices.append(vertex_coords[current])
-                
-                neighbors = vertex_graph.get(current, [])
-                next_vertex = None
-                for neighbor in neighbors:
-                    if neighbor not in visited or (neighbor == start_vertex and len(visited) == len(vertex_graph)):
-                        next_vertex = neighbor
-                        break
-                if next_vertex is None:
-                    break
-                current = next_vertex
-        
-        cells[face_id] = {
-            'id': face_id,
-            'type': face_data.get('type', 'land'),
-            'center': face_data.get('center', [0.5, 0.5]),
-            'vertices': vertices,
-            'neighbors': adjacency.get(face_id, []),
-            'coastal': face_data.get('coastal', False)
-        }
-    
-    return cells
-
-
 def run_phase3(phase2_output, config):
     """
     Run Phase 3: Province Definition.
@@ -238,6 +175,7 @@ def run_phase3(phase2_output, config):
         cells = phase2_output["cells"]
     else:
         print("  Reconstructing cells from topology for processing...")
+        from topology import reconstruct_cells_from_topology
         cells = reconstruct_cells_from_topology(phase2_output["topology"])
     
     # Extract configuration
