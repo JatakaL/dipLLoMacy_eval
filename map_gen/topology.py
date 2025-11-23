@@ -11,7 +11,7 @@ Data Structures:
 """
 
 import numpy as np
-from typing import Dict, List, Tuple, Optional, Set
+from typing import Dict, List, Tuple, Optional
 
 
 class Vertex:
