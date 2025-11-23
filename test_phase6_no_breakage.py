@@ -118,8 +118,8 @@ def test_phase6_does_not_modify_map():
     
     # Verify territories were not modified
     for power, data in output["territories"].items():
-        assert data["cells"] == original_territories[power]["cells"], \
-            f"Territory {power} cells changed"
+        assert data["faces"] == original_territories[power]["faces"], \
+            f"Territory {power} faces changed"
     
     # Verify supply centers were not modified
     assert output["supply_centers"]["home"] == original_scs["home"], \

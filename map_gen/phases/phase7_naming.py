@@ -217,7 +217,7 @@ def create_power_map(faces, edges, territories):
     coastal_faces = get_coastal_faces(edges)
     
     for power_id, territory_data in territories.items():
-        territory_cells = territory_data["cells"]
+        territory_faces = territory_data["faces"]
         
         power_map[power_id] = {
             "home_territories": [

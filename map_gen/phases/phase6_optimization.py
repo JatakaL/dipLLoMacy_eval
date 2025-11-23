@@ -217,12 +217,12 @@ def identify_corner_powers(topology, territories):
     faces = topology["faces"]
     
     for power_id, territory_data in territories.items():
-        territory_cells = territory_data["cells"]
+        territory_faces = territory_data["faces"]
         
         # Count unique neighboring powers
         neighboring_powers = set()
         
-        for face_id in territory_cells:
+        for face_id in territory_faces:
             if face_id not in faces:
                 continue
             
@@ -675,7 +675,7 @@ def run_phase6(phase5_output, config):
     
     # Check that all powers have exactly 3 SCs
     for power_id, territory_data in territories.items():
-        power_sc_count = sum(1 for face_id in territory_data["cells"] 
+        power_sc_count = sum(1 for face_id in territory_data["faces"] 
                             if face_id in faces and faces[face_id].get("is_supply_center", False))
         if power_sc_count != 3:
             integrity_issues.append(f"Power {power_id} has {power_sc_count} SCs (expected 3)")

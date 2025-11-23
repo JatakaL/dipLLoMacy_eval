@@ -293,7 +293,7 @@ def run_phase4(phase3_output, config):
         "topology": topology,
         "territories": {
             power_id: {
-                "cells": territory,  # "cells" here means list of face IDs, not the legacy cells dict
+                "faces": territory,  # List of face IDs in this territory
                 "seed": seeds[i],
                 "size": len(territory),
                 "contiguous": verify_contiguity(territory, topology)
