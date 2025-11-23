@@ -120,7 +120,6 @@ def test_phase5_topology_only():
     
     
     # Create vertex lookup (same as map_viewer)
-    vertex_coords = {v['id']: v['coords'] for v in vertices_list}
     
     # Reconstruct cells from faces
     reconstructed_cells = {}
