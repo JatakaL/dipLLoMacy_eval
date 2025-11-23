@@ -265,13 +265,27 @@ def run_phase4(phase3_output, config):
     for i, seed in enumerate(seeds):
         cells[seed]["is_seed"] = True
     
+    # Update topology faces with ownership information
+    topology = phase3_output.get("topology", {})
+    if topology and "faces" in topology:
+        for power_id, territory in territories.items():
+            for cell_id in territory:
+                if cell_id in topology["faces"]:
+                    topology["faces"][cell_id]["owner"] = power_id
+                    topology["faces"][cell_id]["is_home"] = True
+        
+        # Mark seeds in topology
+        for seed in seeds:
+            if seed in topology["faces"]:
+                topology["faces"][seed]["is_seed"] = True
+    
     # Calculate statistics
     territory_sizes = {power_id: len(territory) for power_id, territory in territories.items()}
     
     output = {
         "config": {**phase3_output["config"], **config},
         "cells": cells,
-        "topology": phase3_output.get("topology", {}),
+        "topology": topology,
         "territories": {
             power_id: {
                 "cells": territory,
