@@ -47,6 +47,10 @@ class MapData:
         
         # Detect phase
         self.phase = self._detect_phase()
+        
+        # For phase 7 (or any phase without cells), reconstruct cell-like data from topology
+        if not self.cells and self.topology:
+            self._reconstruct_cells_from_topology()
     
     def _detect_phase(self):
         """Detect which phase this JSON represents."""
@@ -88,7 +92,114 @@ class MapData:
         elif 'vertices' in sample_cell:
             return 1  # Phase 1: basic mesh
         
+        # Check if topology has faces with names (phase 7 without cells)
+        if self.topology and 'faces' in self.topology:
+            sample_face = next(iter(self.topology['faces'].values()), {})
+            if 'name' in sample_face:
+                return 7
+        
         return 7  # Default to final phase if unsure
+    
+    def _reconstruct_cells_from_topology(self):
+        """Reconstruct cell-like data from topology for visualization.
+        
+        This is used for phase 7 which doesn't have a cells dictionary.
+        """
+        if not self.topology:
+            return
+        
+        vertices_list = self.topology.get('vertices', [])
+        edges = self.topology.get('edges', {})
+        faces = self.topology.get('faces', {})
+        
+        # Create vertex lookup
+        vertex_coords = {v['id']: v['coords'] for v in vertices_list}
+        
+        # Reconstruct cells from faces
+        self.cells = {}
+        for face_id, face_data in faces.items():
+            # Get the edges that form this face
+            face_edges = face_data.get('edges', [])
+            
+            # Reconstruct polygon from edges
+            polygon_vertices = self._reconstruct_polygon_from_edges(
+                face_edges, edges, vertex_coords
+            )
+            
+            # Create cell-like structure
+            cell = {
+                'id': face_id,
+                'type': face_data.get('type', 'land'),
+                'center': face_data.get('center', [0.5, 0.5]),
+                'vertices': polygon_vertices,
+                'name': face_data.get('name', face_id),
+                'owner': face_data.get('owner'),
+                'is_supply_center': face_data.get('is_supply_center', False),
+                'sc_type': face_data.get('sc_type'),
+                'is_home': face_data.get('is_home', False),
+            }
+            
+            self.cells[face_id] = cell
+    
+    def _reconstruct_polygon_from_edges(self, edge_ids, edges, vertex_coords):
+        """Reconstruct an ordered polygon from a list of edge IDs.
+        
+        Args:
+            edge_ids: List of edge IDs that form the face boundary
+            edges: Dictionary of all edges
+            vertex_coords: Dictionary mapping vertex ID to coordinates
+            
+        Returns:
+            List of [x, y] coordinates forming the polygon
+        """
+        if not edge_ids:
+            return []
+        
+        # Build a graph of vertex connections from edges
+        vertex_graph = {}
+        for edge_id in edge_ids:
+            if edge_id not in edges:
+                continue
+            edge = edges[edge_id]
+            v1, v2 = edge['v1'], edge['v2']
+            
+            if v1 not in vertex_graph:
+                vertex_graph[v1] = []
+            if v2 not in vertex_graph:
+                vertex_graph[v2] = []
+            vertex_graph[v1].append(v2)
+            vertex_graph[v2].append(v1)
+        
+        if not vertex_graph:
+            return []
+        
+        # Start from any vertex and trace the boundary
+        start_vertex = next(iter(vertex_graph.keys()))
+        polygon = []
+        current = start_vertex
+        visited = set()
+        
+        while current not in visited or current == start_vertex and len(visited) < len(vertex_graph):
+            if current in visited and current == start_vertex:
+                break
+            
+            visited.add(current)
+            if current in vertex_coords:
+                polygon.append(vertex_coords[current])
+            
+            # Find next unvisited neighbor
+            neighbors = vertex_graph.get(current, [])
+            next_vertex = None
+            for neighbor in neighbors:
+                if neighbor not in visited or (neighbor == start_vertex and len(visited) == len(vertex_graph)):
+                    next_vertex = neighbor
+                    break
+            
+            if next_vertex is None:
+                break
+            current = next_vertex
+        
+        return polygon
     
     def get_phase_name(self):
         """Get human-readable phase name."""
