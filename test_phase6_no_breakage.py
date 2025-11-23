@@ -57,41 +57,69 @@ def test_phase6_does_not_modify_map():
             "home": ["C1", "C2", "C3", "C4", "C5", "C6"],
             "neutral": ["C7"]
         },
-        "statistics": {}
+        "statistics": {},
+        # Add mock topology data for Phase 6 to analyze
+        "topology": {
+            "vertices": [],
+            "edges": {
+                "E_C1_C2": {"v1": 0, "v2": 1, "left_face": "C1", "right_face": "C2"},
+                "E_C1_C3": {"v1": 0, "v2": 2, "left_face": "C1", "right_face": "C3"},
+                "E_C2_C3": {"v1": 1, "v2": 2, "left_face": "C2", "right_face": "C3"},
+                "E_C4_C5": {"v1": 3, "v2": 4, "left_face": "C4", "right_face": "C5"},
+                "E_C4_C6": {"v1": 3, "v2": 5, "left_face": "C4", "right_face": "C6"},
+                "E_C5_C6": {"v1": 4, "v2": 5, "left_face": "C5", "right_face": "C6"},
+                "E_C1_C7": {"v1": 0, "v2": 6, "left_face": "C1", "right_face": "C7"},
+                "E_C4_C7": {"v1": 3, "v2": 6, "left_face": "C4", "right_face": "C7"},
+                "E_C1_S1": {"v1": 0, "v2": 7, "left_face": "C1", "right_face": "S1"},
+                "E_C4_S2": {"v1": 3, "v2": 8, "left_face": "C4", "right_face": "S2"},
+            },
+            "faces": {
+                "C1": {"type": "land", "edges": [], "owner": "Power1", "is_home": True, "is_supply_center": True, "sc_type": "home"},
+                "C2": {"type": "land", "edges": [], "owner": "Power1", "is_home": True, "is_supply_center": True, "sc_type": "home"},
+                "C3": {"type": "land", "edges": [], "owner": "Power1", "is_home": True, "is_supply_center": True, "sc_type": "home"},
+                "C4": {"type": "land", "edges": [], "owner": "Power2", "is_home": True, "is_supply_center": True, "sc_type": "home"},
+                "C5": {"type": "land", "edges": [], "owner": "Power2", "is_home": True, "is_supply_center": True, "sc_type": "home"},
+                "C6": {"type": "land", "edges": [], "owner": "Power2", "is_home": True, "is_supply_center": True, "sc_type": "home"},
+                "C7": {"type": "land", "edges": [], "is_supply_center": True, "sc_type": "neutral"},
+                "S1": {"type": "sea", "edges": []},
+                "S2": {"type": "sea", "edges": []},
+            }
+        }
     }
     
     # Take a snapshot of the original data
-    original_cells = {cell_id: dict(cell) for cell_id, cell in phase5_output["cells"].items()}
+    original_faces = {face_id: dict(face) for face_id, face in phase5_output["topology"]["faces"].items()}
     original_territories = {power: dict(data) for power, data in phase5_output["territories"].items()}
     original_scs = dict(phase5_output["supply_centers"])
     
     # Run Phase 6
     output = run_phase6(phase5_output, {})
     
-    # Verify cells were not modified
-    for cell_id, cell in output["cells"].items():
-        original = original_cells[cell_id]
+    # Verify topology faces were not modified
+    output_faces = output["topology"]["faces"]
+    for face_id, face in output_faces.items():
+        original = original_faces[face_id]
         
         # Check type
-        assert cell["type"] == original["type"], \
-            f"Cell {cell_id} type changed: {original['type']} -> {cell['type']}"
+        assert face["type"] == original["type"], \
+            f"Face {face_id} type changed: {original['type']} -> {face['type']}"
         
         # Check ownership
-        assert cell.get("owner") == original.get("owner"), \
-            f"Cell {cell_id} ownership changed"
+        assert face.get("owner") == original.get("owner"), \
+            f"Face {face_id} ownership changed"
         
         # Check SC status
-        assert cell.get("is_supply_center") == original.get("is_supply_center"), \
-            f"Cell {cell_id} SC status changed"
+        assert face.get("is_supply_center") == original.get("is_supply_center"), \
+            f"Face {face_id} SC status changed"
         
         # Check home status
-        assert cell.get("is_home") == original.get("is_home"), \
-            f"Cell {cell_id} home status changed"
+        assert face.get("is_home") == original.get("is_home"), \
+            f"Face {face_id} home status changed"
     
     # Verify territories were not modified
     for power, data in output["territories"].items():
-        assert data["cells"] == original_territories[power]["cells"], \
-            f"Territory {power} cells changed"
+        assert data["faces"] == original_territories[power]["faces"], \
+            f"Territory {power} faces changed"
     
     # Verify supply centers were not modified
     assert output["supply_centers"]["home"] == original_scs["home"], \

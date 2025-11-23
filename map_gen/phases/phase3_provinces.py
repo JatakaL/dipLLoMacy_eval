@@ -14,8 +14,14 @@ Output: provinces_output.json with province classifications
 import json
 import random
 import argparse
+import sys
+import os
+
+# Add parent directory to path for topology import
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase
+from topology import convert_cells_to_topology, reconstruct_cells_from_topology
 
 
 def identify_coastlines(cells):
@@ -164,7 +170,12 @@ def run_phase3(phase2_output, config):
     print("PHASE 3: PROVINCE DEFINITION")
     print("=" * 60)
     
-    cells = phase2_output["cells"]
+    # Reconstruct cells from topology for internal processing
+    if "cells" in phase2_output:
+        cells = phase2_output["cells"]
+    else:
+        print("  Reconstructing cells from topology for processing...")
+        cells = reconstruct_cells_from_topology(phase2_output["topology"])
     
     # Extract configuration
     num_impassable = config.get("num_impassable_zones", 1)
@@ -201,25 +212,32 @@ def run_phase3(phase2_output, config):
     sea_cells = sum(1 for c in cells.values() if c["type"] == "sea")
     impassable = sum(1 for c in cells.values() if c["type"] == "impassable")
     
+    # Step 4: Update topology with province designations
+    print("\nStep 4: Updating topology with province designations...")
+    topology = convert_cells_to_topology(cells)
+    print(f"  Topology updated with {len(topology['vertices'])} vertices, {len(topology['edges'])} edges")
+    
     output = {
         "config": {**phase2_output["config"], **config},
-        "cells": cells,
+        "topology": topology,
         "oceans": [
             {
                 "ocean_id": i,
                 "size": len(ocean),
-                "cells": ocean
+                "faces": ocean  # Changed from "cells" to "faces" for consistency
             }
             for i, ocean in enumerate(oceans)
         ],
         "statistics": {
-            "total_cells": len(cells),
-            "land_cells": land_cells,
-            "sea_cells": sea_cells,
-            "impassable_cells": impassable,
-            "coastal_cells": coastal_count,
-            "inland_cells": inland_count,
-            "num_oceans": len(oceans)
+            "total_faces": len(topology['faces']),
+            "land_faces": land_cells,
+            "sea_faces": sea_cells,
+            "impassable_faces": impassable,
+            "coastal_faces": coastal_count,
+            "inland_faces": inland_count,
+            "num_oceans": len(oceans),
+            "topology_vertices": len(topology['vertices']),
+            "topology_edges": len(topology['edges'])
         }
     }
     

@@ -7,6 +7,10 @@ This phase places supply centers across the map:
 2. Place neutral supply centers in strategic locations
 3. Ensure neutral SCs are equidistant between powers
 
+Data Structure:
+This phase uses TOPOLOGY exclusively (Face-Edge-Vertex structure), not cell-centered data.
+The output no longer includes the 'cells' dictionary - only topology, territories, and supply centers.
+
 Input: kingdoms_output.json from Phase 4
 Output: supply_centers_output.json with SC placements
 """
@@ -15,8 +19,14 @@ import json
 import numpy as np
 import random
 import argparse
+import sys
+import os
+
+# Add parent directory to path for topology import
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase
+from topology import get_adjacency_from_topology
 
 # Configuration constants for SC placement
 PREFERRED_NEUTRAL_SC_DISTANCE = 0.2  # Preferred average distance of neutral SCs from powers
@@ -25,95 +35,107 @@ COASTAL_WEIGHT = 0.3                 # Weight for coastal preference in SC selec
 DISTANCE_WEIGHT = 0.3                # Weight for distance score in SC selection
 
 
-def mark_home_centers(cells, territories):
+def mark_home_centers(faces, territories):
     """
-    Mark all home territory cells as supply centers.
+    Mark all home territory faces as supply centers using topology.
     
     Args:
-        cells: Dictionary of all cells
+        faces: Dictionary of all faces from topology
         territories: Dictionary of power territories
         
     Returns:
-        Updated cells, count of home supply centers
+        Updated faces, count of home supply centers
     """
     home_sc_count = 0
     
     for power_id, territory_data in territories.items():
-        territory_cells = territory_data["cells"]
+        territory_faces = territory_data["faces"]
         
-        for cell_id in territory_cells:
-            if cell_id in cells:
-                cells[cell_id]["is_supply_center"] = True
-                cells[cell_id]["sc_type"] = "home"
+        for face_id in territory_faces:
+            if face_id in faces:
+                faces[face_id]["is_supply_center"] = True
+                faces[face_id]["sc_type"] = "home"
                 home_sc_count += 1
     
-    return cells, home_sc_count
+    return faces, home_sc_count
 
 
-def find_neutral_candidates(cells, territories):
+def find_neutral_candidates(faces, edges, territories):
     """
-    Find candidate cells for neutral supply centers.
+    Find candidate faces for neutral supply centers using topology.
     
     Args:
-        cells: Dictionary of all cells
+        faces: Dictionary of all faces from topology
+        edges: Dictionary of all edges from topology
         territories: Dictionary of power territories
         
     Returns:
-        List of candidate cell IDs
+        List of candidate face IDs
     """
-    # Get all owned cells
-    owned_cells = set()
+    # Get all owned faces
+    owned_faces = set()
     for territory_data in territories.values():
-        owned_cells.update(territory_data["cells"])
+        owned_faces.update(territory_data["faces"])
     
-    # Find neutral land cells (not owned, preferably coastal)
+    # Determine which faces are coastal by checking for coast edges
+    coastal_faces = set()
+    for edge_data in edges.values():
+        if edge_data.get("type") == "coast":
+            left_face = edge_data.get("left_face")
+            right_face = edge_data.get("right_face")
+            if left_face:
+                coastal_faces.add(left_face)
+            if right_face:
+                coastal_faces.add(right_face)
+    
+    # Find neutral land faces (not owned, preferably coastal)
     coastal_neutral = []
     inland_neutral = []
     
-    for cell_id, cell in cells.items():
-        if cell["type"] != "land":
+    for face_id, face in faces.items():
+        # Only consider land faces (excludes sea and impassable)
+        if face["type"] != "land":
             continue
         
-        if cell_id in owned_cells:
+        # Skip owned faces
+        if face_id in owned_faces:
             continue
         
-        if cell.get("impassable", False):
-            continue
-        
-        if cell.get("coastal", False):
-            coastal_neutral.append(cell_id)
+        # Categorize by coastal status
+        if face_id in coastal_faces:
+            coastal_neutral.append(face_id)
         else:
-            inland_neutral.append(cell_id)
+            inland_neutral.append(face_id)
     
-    # Prefer coastal cells
+    # Prefer coastal faces
     return coastal_neutral + inland_neutral
 
 
-def calculate_power_distances(cell_id, cells, territories):
+def calculate_power_distances(face_id, faces, territories):
     """
-    Calculate distances from a cell to all power territories.
+    Calculate distances from a face to all power territories using topology.
     
     Args:
-        cell_id: ID of the cell to check
-        cells: Dictionary of all cells
+        face_id: ID of the face to check
+        faces: Dictionary of all faces from topology
         territories: Dictionary of power territories
         
     Returns:
         List of (power_id, distance) tuples
     """
-    cell_pos = np.array(cells[cell_id]["center"])
+    face_pos = np.array(faces[face_id]["center"])
     distances = []
     
     for power_id, territory_data in territories.items():
-        # Find closest cell in this power's territory
+        # Find closest face in this power's territory
         min_dist = float('inf')
         
-        for territory_cell in territory_data["cells"]:
-            if territory_cell not in cells:
+        for territory_face in territory_data["faces"]:
+            if territory_face not in faces:
                 continue
             
-            territory_pos = np.array(cells[territory_cell]["center"])
-            dist = np.linalg.norm(cell_pos - territory_pos)
+            territory_pos = np.array(faces[territory_face]["center"])
+            dist = np.linalg.norm(face_pos - territory_pos)
             min_dist = min(min_dist, dist)
         
         distances.append((power_id, min_dist))
@@ -121,24 +143,25 @@ def calculate_power_distances(cell_id, cells, territories):
     return distances
 
 
-def select_neutral_scs(candidates, cells, territories, num_neutral, seed=None):
+def select_neutral_scs(candidates, faces, edges, territories, num_neutral, seed=None):
     """
-    Select neutral supply centers from candidates.
+    Select neutral supply centers from candidates using topology.
     
     Priority:
-    1. Cells equidistant between multiple powers
-    2. Coastal cells
+    1. Faces equidistant between multiple powers
+    2. Coastal faces
     3. Not adjacent to other neutral SCs
     
     Args:
-        candidates: List of candidate cell IDs
-        cells: Dictionary of all cells
+        candidates: List of candidate face IDs
+        faces: Dictionary of all faces from topology
+        edges: Dictionary of all edges from topology
         territories: Dictionary of power territories
         num_neutral: Number of neutral SCs to place
         seed: Random seed
         
     Returns:
-        List of selected neutral SC cell IDs
+        List of selected neutral SC face IDs
     """
     if seed is not None:
         random.seed(seed)
@@ -149,12 +172,26 @@ def select_neutral_scs(candidates, cells, territories, num_neutral, seed=None):
     selected = []
     available = set(candidates)
     
+    # Get adjacency from topology
+    adjacency = get_adjacency_from_topology(edges)
+    
+    # Determine which faces are coastal
+    coastal_faces = set()
+    for edge_data in edges.values():
+        if edge_data.get("type") == "coast":
+            left_face = edge_data.get("left_face")
+            right_face = edge_data.get("right_face")
+            if left_face:
+                coastal_faces.add(left_face)
+            if right_face:
+                coastal_faces.add(right_face)
+    
     # Score each candidate
     candidate_scores = []
     
-    for cell_id in available:
+    for face_id in available:
         # Calculate distances to all powers
-        power_distances = calculate_power_distances(cell_id, cells, territories)
+        power_distances = calculate_power_distances(face_id, faces, territories)
         
         # Score based on:
         # 1. Balance (how evenly distributed are the distances to powers)
@@ -162,13 +199,13 @@ def select_neutral_scs(candidates, cells, territories, num_neutral, seed=None):
         if not distances:
             continue
         
-        # Preference for cells that are roughly equidistant to multiple powers
+        # Preference for faces that are roughly equidistant to multiple powers
         min_dist = min(distances)
         max_dist = max(distances)
         balance_score = 1.0 - (max_dist - min_dist) / (max_dist + 0.001)
         
         # 2. Coastal preference
-        coastal_score = 1.0 if cells[cell_id].get("coastal", False) else 0.5
+        coastal_score = 1.0 if face_id in coastal_faces else 0.5
         
         # 3. Average distance to powers (prefer contested areas, not too far)
         avg_dist = np.mean(distances)
@@ -177,30 +214,28 @@ def select_neutral_scs(candidates, cells, territories, num_neutral, seed=None):
         # Combined score
         total_score = balance_score * BALANCE_WEIGHT + coastal_score * COASTAL_WEIGHT + distance_score * DISTANCE_WEIGHT
         
-        candidate_scores.append((cell_id, total_score, power_distances))
+        candidate_scores.append((face_id, total_score, power_distances))
     
     # Sort by score (descending)
     candidate_scores.sort(key=lambda x: x[1], reverse=True)
     
     # Select top candidates, avoiding adjacent placements
-    for cell_id, score, _ in candidate_scores:
+    for face_id, score, _ in candidate_scores:
         if len(selected) >= num_neutral:
             break
         
-        # Check if adjacent to any already selected SC
-        is_adjacent = any(
-            neighbor in selected
-            for neighbor in cells[cell_id]["neighbors"]
-        )
+        # Check if adjacent to any already selected SC using topology adjacency
+        neighbors = adjacency.get(face_id, [])
+        is_adjacent = any(neighbor in selected for neighbor in neighbors)
         
         if not is_adjacent:
-            selected.append(cell_id)
+            selected.append(face_id)
     
-    # If we couldn't find enough non-adjacent cells, just take top scoring ones
+    # If we couldn't find enough non-adjacent faces, just take top scoring ones
     if len(selected) < num_neutral:
-        for cell_id, score, _ in candidate_scores:
-            if cell_id not in selected:
-                selected.append(cell_id)
+        for face_id, score, _ in candidate_scores:
+            if face_id not in selected:
+                selected.append(face_id)
                 if len(selected) >= num_neutral:
                     break
     
@@ -216,13 +251,19 @@ def run_phase5(phase4_output, config):
         config: Configuration parameters
         
     Returns:
-        Dictionary with supply center data
+        Dictionary with supply center data (using topology, no cells dictionary)
     """
     print("=" * 60)
     print("PHASE 5: SUPPLY CENTER DISTRIBUTION")
     print("=" * 60)
     
-    cells = phase4_output["cells"]
+    # Use topology structure instead of cells
+    topology = phase4_output.get("topology", {})
+    if not topology or "faces" not in topology:
+        raise ValueError("Phase 4 output must contain topology with faces")
+    
+    faces = topology["faces"]
+    edges = topology["edges"]
     territories = phase4_output["territories"]
     
     # Extract configuration
@@ -234,29 +275,29 @@ def run_phase5(phase4_output, config):
     
     # Step 1: Mark home centers
     print("\nStep 1: Marking home territory supply centers...")
-    cells, home_sc_count = mark_home_centers(cells, territories)
+    faces, home_sc_count = mark_home_centers(faces, territories)
     print(f"  Marked {home_sc_count} home supply centers")
     
     # Step 2: Find neutral candidates
     print("\nStep 2: Finding neutral supply center candidates...")
-    candidates = find_neutral_candidates(cells, territories)
-    print(f"  Found {len(candidates)} candidate cells")
+    candidates = find_neutral_candidates(faces, edges, territories)
+    print(f"  Found {len(candidates)} candidate faces")
     
     # Step 3: Select neutral SCs
     print("\nStep 3: Selecting neutral supply centers...")
-    neutral_scs = select_neutral_scs(candidates, cells, territories, num_neutral, seed)
+    neutral_scs = select_neutral_scs(candidates, faces, edges, territories, num_neutral, seed)
     print(f"  Selected {len(neutral_scs)} neutral supply centers")
     
-    # Mark neutral SCs
-    for cell_id in neutral_scs:
-        cells[cell_id]["is_supply_center"] = True
-        cells[cell_id]["sc_type"] = "neutral"
+    # Mark neutral SCs in faces
+    for face_id in neutral_scs:
+        faces[face_id]["is_supply_center"] = True
+        faces[face_id]["sc_type"] = "neutral"
     
     # Compile all supply centers
     all_scs = {
         "home": [
-            cell_id for cell_id, cell in cells.items()
-            if cell.get("is_supply_center", False) and cell.get("sc_type") == "home"
+            face_id for face_id, face in faces.items()
+            if face.get("is_supply_center", False) and face.get("sc_type") == "home"
         ],
         "neutral": neutral_scs
     }
@@ -265,7 +306,7 @@ def run_phase5(phase4_output, config):
     
     output = {
         "config": {**phase4_output["config"], **config},
-        "cells": cells,
+        "topology": topology,
         "territories": territories,
         "supply_centers": all_scs,
         "statistics": {

@@ -24,8 +24,14 @@ import json
 import numpy as np
 import argparse
 from collections import deque
+import sys
+import os
+
+# Add parent directory to path for topology import
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase
+from topology import convert_cells_to_topology, reconstruct_cells_from_topology, get_adjacency_from_topology
 
 
 def generate_perlin_noise_2d(shape, res, seed=None):
@@ -469,7 +475,12 @@ def run_phase2(phase1_output, config):
     print("PHASE 2: TERRAIN ASSIGNMENT (Land vs. Sea)")
     print("=" * 60)
     
-    cells = phase1_output["cells"]
+    # Reconstruct cells from topology for internal processing
+    if "cells" in phase1_output:
+        cells = phase1_output["cells"]
+    else:
+        print("  Reconstructing cells from topology for processing...")
+        cells = reconstruct_cells_from_topology(phase1_output["topology"])
     
     # Extract configuration
     width = phase1_output["config"].get("width", 1.0)
@@ -556,15 +567,55 @@ def run_phase2(phase1_output, config):
     sea_count = sum(1 for c in cells.values() if c["type"] == "sea")
     land_ratio = land_count / (land_count + sea_count) if (land_count + sea_count) > 0 else 0
     
+    # Step 6: Update topology with terrain changes
+    print(f"\nStep 6: Updating topology with terrain assignments...")
+    topology = convert_cells_to_topology(cells)
+    
+    # Count edges by type
+    edge_types = {}
+    for edge_data in topology["edges"].values():
+        edge_type = edge_data.get("type", "unknown")
+        edge_types[edge_type] = edge_types.get(edge_type, 0) + 1
+    
+    print(f"  Edge types:")
+    for edge_type, count in edge_types.items():
+        print(f"    - {edge_type}: {count}")
+    
+    # Check sea connectivity using topology for output statistics
+    # Get sea connectivity info for statistics
+    sea_faces = [f_id for f_id, f in topology['faces'].items() if f['type'] == 'sea']
+    sea_connectivity_topology = {
+        "connected": True,
+        "components": 1 if sea_faces else 0,
+        "largest_component": len(sea_faces)
+    }
+    # Simple check - if we have sea faces, they should be connected after the fix
+    if sea_faces:
+        adjacency = get_adjacency_from_topology(topology['edges'])
+        visited = set()
+        if sea_faces:
+            queue = deque([sea_faces[0]])
+            visited.add(sea_faces[0])
+            while queue:
+                face_id = queue.popleft()
+                for neighbor in adjacency.get(face_id, []):
+                    if neighbor in topology['faces'] and topology['faces'][neighbor]['type'] == 'sea' and neighbor not in visited:
+                        visited.add(neighbor)
+                        queue.append(neighbor)
+        sea_connectivity_topology["connected"] = len(visited) == len(sea_faces)
+    
     output = {
         "config": {**phase1_output["config"], **config},
-        "cells": cells,
+        "topology": topology,
         "statistics": {
-            "total_cells": len(cells),
-            "land_cells": land_count,
-            "sea_cells": sea_count,
+            "total_faces": len(topology['faces']),
+            "land_faces": land_count,
+            "sea_faces": sea_count,
             "land_ratio": land_ratio,
-            "sea_connectivity": check_sea_connectivity(cells)
+            "sea_connectivity": sea_connectivity_topology,
+            "topology_vertices": len(topology['vertices']),
+            "topology_edges": len(topology['edges']),
+            "edge_types": edge_types
         }
     }
     

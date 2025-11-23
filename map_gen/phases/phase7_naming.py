@@ -15,8 +15,13 @@ import json
 import random
 import argparse
 import os
+import sys
+
+# Add parent directory to path for topology import
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase, get_input_directory, get_datetime_filename
+from topology import get_adjacency_from_topology
 
 
 class RegionNamer:
@@ -110,16 +115,38 @@ class RegionNamer:
         return name
 
 
-def assign_names(cells, seed=None):
+def get_coastal_faces(edges):
     """
-    Assign names to all cells.
+    Determine which faces are coastal by checking if they have coast edges.
     
     Args:
-        cells: Dictionary of cell data
+        edges: Dictionary of edge data from topology
+        
+    Returns:
+        Set of face IDs that are coastal
+    """
+    coastal_faces = set()
+    for edge_data in edges.values():
+        if edge_data.get("type") == "coast":
+            left_face = edge_data.get("left_face")
+            right_face = edge_data.get("right_face")
+            if left_face:
+                coastal_faces.add(left_face)
+            if right_face:
+                coastal_faces.add(right_face)
+    return coastal_faces
+
+
+def assign_names(faces, seed=None):
+    """
+    Assign names to all faces.
+    
+    Args:
+        faces: Dictionary of face data from topology
         seed: Random seed
         
     Returns:
-        Updated cells with names
+        Updated faces with names
     """
     namer = RegionNamer(seed)
     
@@ -127,52 +154,58 @@ def assign_names(cells, seed=None):
     sea_count = 0
     impassable_count = 0
     
-    for cell_id, cell in cells.items():
-        if cell["type"] == "land":
-            cell["name"] = namer.generate_land_name()
+    for face_id, face in faces.items():
+        if face["type"] == "land":
+            face["name"] = namer.generate_land_name()
             land_count += 1
-        elif cell["type"] == "sea":
-            cell["name"] = namer.generate_sea_name()
+        elif face["type"] == "sea":
+            face["name"] = namer.generate_sea_name()
             sea_count += 1
-        elif cell["type"] == "impassable":
-            cell["name"] = namer.generate_impassable_name()
+        elif face["type"] == "impassable":
+            face["name"] = namer.generate_impassable_name()
             impassable_count += 1
         else:
-            cell["name"] = f"Unknown_{cell_id}"
+            face["name"] = f"Unknown_{face_id}"
     
-    return cells, land_count, sea_count, impassable_count
+    return faces, land_count, sea_count, impassable_count
 
 
-def create_adjacency_list(cells):
+def create_adjacency_list(faces, edges):
     """
-    Create a simple adjacency list representation of the graph.
+    Create a simple adjacency list representation of the graph using topology.
     
     Args:
-        cells: Dictionary of cell data
+        faces: Dictionary of face data from topology
+        edges: Dictionary of edge data from topology
         
     Returns:
-        Dictionary mapping cell names to neighbor names
+        Dictionary mapping face names to neighbor names
     """
     adjacency = {}
     
-    for cell_id, cell in cells.items():
-        cell_name = cell.get("name", cell_id)
+    # Get adjacency by face ID from topology using existing function
+    face_adjacency = get_adjacency_from_topology(edges)
+    
+    # Convert to name-based adjacency
+    for face_id, face in faces.items():
+        face_name = face.get("name", face_id)
         neighbor_names = [
-            cells[n].get("name", n)
-            for n in cell["neighbors"]
-            if n in cells
+            faces[n].get("name", n)
+            for n in face_adjacency.get(face_id, [])
+            if n in faces
         ]
-        adjacency[cell_name] = neighbor_names
+        adjacency[face_name] = neighbor_names
     
     return adjacency
 
 
-def create_power_map(cells, territories):
+def create_power_map(faces, edges, territories):
     """
     Create a mapping of power names to their territories.
     
     Args:
-        cells: Dictionary of cell data
+        faces: Dictionary of face data from topology
+        edges: Dictionary of edge data from topology
         territories: Dictionary of power territories
         
     Returns:
@@ -180,19 +213,22 @@ def create_power_map(cells, territories):
     """
     power_map = {}
     
+    # Determine which faces are coastal
+    coastal_faces = get_coastal_faces(edges)
+    
     for power_id, territory_data in territories.items():
-        territory_cells = territory_data["cells"]
+        territory_faces = territory_data["faces"]
         
         power_map[power_id] = {
             "home_territories": [
                 {
-                    "cell_id": cell_id,
-                    "name": cells[cell_id].get("name", cell_id),
-                    "is_supply_center": cells[cell_id].get("is_supply_center", False),
-                    "coastal": cells[cell_id].get("coastal", False)
+                    "cell_id": face_id,
+                    "name": faces[face_id].get("name", face_id),
+                    "is_supply_center": faces[face_id].get("is_supply_center", False),
+                    "coastal": face_id in coastal_faces
                 }
-                for cell_id in territory_cells
-                if cell_id in cells
+                for face_id in territory_cells
+                if face_id in faces
             ],
             "seed": territory_data.get("seed"),
             "size": territory_data.get("size", len(territory_cells))
@@ -201,36 +237,40 @@ def create_power_map(cells, territories):
     return power_map
 
 
-def create_supply_center_list(cells, supply_centers):
+def create_supply_center_list(faces, edges, supply_centers):
     """
     Create a formatted list of all supply centers.
     
     Args:
-        cells: Dictionary of cell data
+        faces: Dictionary of face data from topology
+        edges: Dictionary of edge data from topology
         supply_centers: Supply center data
         
     Returns:
         Dictionary with SC lists
     """
+    # Determine which faces are coastal
+    coastal_faces = get_coastal_faces(edges)
+    
     sc_list = {
         "home": [
             {
-                "cell_id": cell_id,
-                "name": cells[cell_id].get("name", cell_id),
-                "owner": cells[cell_id].get("owner"),
-                "coastal": cells[cell_id].get("coastal", False)
+                "cell_id": face_id,
+                "name": faces[face_id].get("name", face_id),
+                "owner": faces[face_id].get("owner"),
+                "coastal": face_id in coastal_faces
             }
-            for cell_id in supply_centers.get("home", [])
-            if cell_id in cells
+            for face_id in supply_centers.get("home", [])
+            if face_id in faces
         ],
         "neutral": [
             {
-                "cell_id": cell_id,
-                "name": cells[cell_id].get("name", cell_id),
-                "coastal": cells[cell_id].get("coastal", False)
+                "cell_id": face_id,
+                "name": faces[face_id].get("name", face_id),
+                "coastal": face_id in coastal_faces
             }
-            for cell_id in supply_centers.get("neutral", [])
-            if cell_id in cells
+            for face_id in supply_centers.get("neutral", [])
+            if face_id in faces
         ]
     }
     
@@ -254,10 +294,16 @@ def generate_map_summary(output):
     summary.append("DIPLOMACY MAP SUMMARY")
     summary.append("=" * 60)
     summary.append("")
-    summary.append(f"Total Cells: {stats['total_cells']}")
-    summary.append(f"  - Land: {stats['land_cells']}")
-    summary.append(f"  - Sea: {stats['sea_cells']}")
-    summary.append(f"  - Impassable: {stats['impassable_cells']}")
+    # Use 'total_faces' if available, fall back to 'total_cells' for backward compatibility
+    total_key = 'total_faces' if 'total_faces' in stats else 'total_cells'
+    land_key = 'land_faces' if 'land_faces' in stats else 'land_cells'
+    sea_key = 'sea_faces' if 'sea_faces' in stats else 'sea_cells'
+    impassable_key = 'impassable_faces' if 'impassable_faces' in stats else 'impassable_cells'
+    
+    summary.append(f"Total Faces: {stats[total_key]}")
+    summary.append(f"  - Land: {stats[land_key]}")
+    summary.append(f"  - Sea: {stats[sea_key]}")
+    summary.append(f"  - Impassable: {stats[impassable_key]}")
     summary.append("")
     summary.append(f"Supply Centers: {stats['total_supply_centers']}")
     summary.append(f"  - Home: {stats['home_supply_centers']}")
@@ -268,8 +314,10 @@ def generate_map_summary(output):
     summary.append(f"  - Central Powers: {stats['central_powers']}")
     summary.append("")
     summary.append(f"Geography:")
-    summary.append(f"  - Coastal Cells: {stats['coastal_cells']}")
-    summary.append(f"  - Inland Cells: {stats['inland_cells']}")
+    coastal_key = 'coastal_faces' if 'coastal_faces' in stats else 'coastal_cells'
+    inland_key = 'inland_faces' if 'inland_faces' in stats else 'inland_cells'
+    summary.append(f"  - Coastal Faces: {stats[coastal_key]}")
+    summary.append(f"  - Inland Faces: {stats[inland_key]}")
     summary.append(f"  - Ocean Regions: {stats['num_oceans']}")
     summary.append("")
     
@@ -322,7 +370,13 @@ def run_phase7(phase6_output, config):
     print("PHASE 7: NAMING AND VISUALIZATION")
     print("=" * 60)
     
-    cells = phase6_output["cells"]
+    # Use topology structure instead of cells
+    topology = phase6_output.get("topology", {})
+    if not topology or "faces" not in topology:
+        raise ValueError("Phase 6 output must contain topology with faces")
+    
+    faces = topology["faces"]
+    edges = topology["edges"]
     territories = phase6_output["territories"]
     supply_centers = phase6_output["supply_centers"]
     
@@ -334,28 +388,28 @@ def run_phase7(phase6_output, config):
     
     # Step 1: Assign names
     print("\nStep 1: Assigning names to all provinces...")
-    cells, land_count, sea_count, impassable_count = assign_names(cells, seed)
+    faces, land_count, sea_count, impassable_count = assign_names(faces, seed)
     print(f"  Named {land_count} land provinces")
     print(f"  Named {sea_count} sea regions")
     print(f"  Named {impassable_count} impassable zones")
     
     # Step 2: Create adjacency representation
     print("\nStep 2: Creating adjacency list...")
-    adjacency_list = create_adjacency_list(cells)
+    adjacency_list = create_adjacency_list(faces, edges)
     print(f"  Created adjacency list with {len(adjacency_list)} nodes")
     
     # Step 3: Create power map
     print("\nStep 3: Creating power territories map...")
-    power_map = create_power_map(cells, territories)
+    power_map = create_power_map(faces, edges, territories)
     print(f"  Mapped {len(power_map)} powers")
     
     # Step 4: Create supply center list
     print("\nStep 4: Creating supply center list...")
-    sc_list = create_supply_center_list(cells, supply_centers)
+    sc_list = create_supply_center_list(faces, edges, supply_centers)
     print(f"  Listed {len(sc_list['home'])} home SCs")
     print(f"  Listed {len(sc_list['neutral'])} neutral SCs")
     
-    # Create final output
+    # Create final output (without cells dictionary)
     output = {
         "config": phase6_output["config"],
         "metadata": {
@@ -363,7 +417,7 @@ def run_phase7(phase6_output, config):
             "generator": "Diplomacy Map Generator - Phased Pipeline",
             "phases_completed": 7
         },
-        "cells": cells,
+        "topology": topology,
         "adjacency": adjacency_list,
         "powers": power_map,
         "supply_centers": sc_list,

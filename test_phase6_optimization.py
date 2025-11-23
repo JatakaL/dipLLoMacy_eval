@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """
-Test Phase 6 Analysis Functions
+Test Phase 6 Legacy Cell-Based Functions
 
-This script tests the analysis functions used in Phase 6 and Phase 2 to ensure they work correctly.
-Note: Phase 6 is now analysis-only and does not modify the map. Ocean connectivity fixes
-are now done in Phase 2.
+This script tests the legacy cell-based optimization functions that are still available
+in phase6_optimization.py for backward compatibility and are used by Phase 2 for ocean
+connectivity fixes.
+
+Note: Phase 6 is now analysis-only and does not modify the map. These functions are
+kept for Phase 2 usage and backward compatibility but are not used in run_phase6().
 """
 
 import sys
@@ -15,8 +18,10 @@ try:
     from map_gen.phases.phase6_optimization import (
         merge_dead_end_node,
         split_highly_connected_node,
-        connect_sea_components,
-        analyze_node_degrees,
+        connect_sea_components
+    )
+    # Import cell-based version from phase2
+    from map_gen.phases.phase2_terrain import (
         check_sea_connectivity
     )
 except ImportError:
@@ -25,8 +30,9 @@ except ImportError:
     from phase6_optimization import (
         merge_dead_end_node,
         split_highly_connected_node,
-        connect_sea_components,
-        analyze_node_degrees,
+        connect_sea_components
+    )
+    from phase2_terrain import (
         check_sea_connectivity
     )
 
@@ -148,39 +154,21 @@ def test_connect_sea_components():
 
 
 def test_analyze_node_degrees():
-    """Test node degree analysis."""
-    print("\nTest 5: Analyze node degrees")
-    
-    cells = {
-        "A": {"id": "A", "type": "land", "neighbors": ["B", "C"]},
-        "B": {"id": "B", "type": "land", "neighbors": ["A", "C", "D", "E", "F", "G", "H", "I"]},
-        "C": {"id": "C", "type": "land", "neighbors": ["A", "B"]},
-        "D": {"id": "D", "type": "land", "neighbors": ["B"]},
-        "E": {"id": "E", "type": "land", "neighbors": ["B"]},
-        "F": {"id": "F", "type": "land", "neighbors": ["B"]},
-        "G": {"id": "G", "type": "land", "neighbors": ["B"]},
-        "H": {"id": "H", "type": "land", "neighbors": ["B"]},
-        "I": {"id": "I", "type": "land", "neighbors": ["B"]},
-        "X": {"id": "X", "type": "impassable", "neighbors": []}
-    }
-    
-    analysis = analyze_node_degrees(cells)
-    
-    assert analysis["min"] == 1, "Min degree should be 1 (node D, E, F, G, H, I)"
-    assert analysis["max"] == 8, "Max degree should be 8 (node B)"
-    assert len(analysis["highly_connected"]) == 1, "Should have 1 highly connected node"
-    assert "B" in analysis["highly_connected"], "B should be highly connected"
-    assert len(analysis["dead_ends"]) == 8, "Should have 8 dead-end nodes: A and C (degree 2), D-I (degree 1)"
-    
-    print("  ✓ Node degree analysis correct")
+    """Test node degree analysis (SKIPPED - now uses topology, not cells)."""
+    print("\nTest 5: Analyze node degrees (skipped - function now uses topology)")
+    print("  ⊘ Test skipped - analyze_node_degrees now uses topology format, not cell-based neighbors")
+    # This test is skipped because analyze_node_degrees now takes topology as input,
+    # not cell-based neighbor lists. The function is tested via test_phase6_no_breakage.py
+    # which uses actual topology data.
 
 
 def run_all_tests():
     """Run all tests."""
     print("=" * 60)
-    print("PHASE 6 ANALYSIS FUNCTIONS TESTS")
+    print("PHASE 6 LEGACY CELL-BASED FUNCTIONS TESTS")
     print("=" * 60)
-    print("Note: These functions are used for analysis and in Phase 2 for ocean connectivity fixes.")
+    print("Note: These legacy functions are kept for Phase 2 ocean connectivity fixes.")
+    print("Phase 6 now uses topology exclusively.")
     
     try:
         test_merge_dead_end_with_2_neighbors()

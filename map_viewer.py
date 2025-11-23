@@ -43,9 +43,14 @@ class MapData:
         self.supply_centers = self.data.get('supply_centers', {})
         self.adjacency = self.data.get('adjacency', {})
         self.analysis = self.data.get('analysis', {})
+        self.topology = self.data.get('topology', None)
         
         # Detect phase
         self.phase = self._detect_phase()
+        
+        # For phase 7 (or any phase without cells), reconstruct cell-like data from topology
+        if not self.cells and self.topology:
+            self._reconstruct_cells_from_topology()
     
     def _detect_phase(self):
         """Detect which phase this JSON represents."""
@@ -87,7 +92,122 @@ class MapData:
         elif 'vertices' in sample_cell:
             return 1  # Phase 1: basic mesh
         
+        # Check if topology has faces with names (phase 7 without cells)
+        if self.topology and 'faces' in self.topology:
+            sample_face = next(iter(self.topology['faces'].values()), {})
+            if 'name' in sample_face:
+                return 7
+        
         return 7  # Default to final phase if unsure
+    
+    def _reconstruct_cells_from_topology(self):
+        """Reconstruct cell-like data from topology for visualization.
+        
+        This is used for phase 7 which doesn't have a cells dictionary.
+        """
+        if not self.topology:
+            return
+        
+        vertices_list = self.topology.get('vertices', [])
+        edges = self.topology.get('edges', {})
+        faces = self.topology.get('faces', {})
+        
+        # Create vertex lookup
+        vertex_coords = {v['id']: v['coords'] for v in vertices_list}
+        
+        # Reconstruct cells from faces
+        self.cells = {}
+        for face_id, face_data in faces.items():
+            # Get the edges that form this face
+            face_edges = face_data.get('edges', [])
+            
+            # Reconstruct polygon from edges
+            polygon_vertices = self._reconstruct_polygon_from_edges(
+                face_edges, edges, vertex_coords
+            )
+            
+            # Create cell-like structure
+            cell = {
+                'id': face_id,
+                'type': face_data.get('type', 'land'),
+                'center': face_data.get('center', [0.5, 0.5]),
+                'vertices': polygon_vertices,
+                'name': face_data.get('name', face_id),
+                'owner': face_data.get('owner'),
+                'is_supply_center': face_data.get('is_supply_center', False),
+                'sc_type': face_data.get('sc_type'),
+                'is_home': face_data.get('is_home', False),
+            }
+            
+            self.cells[face_id] = cell
+    
+    def _reconstruct_polygon_from_edges(self, edge_ids, edges, vertex_coords):
+        """Reconstruct an ordered polygon from a list of edge IDs.
+        
+        Args:
+            edge_ids: List of edge IDs that form the face boundary
+            edges: Dictionary of all edges
+            vertex_coords: Dictionary mapping vertex ID to coordinates
+            
+        Returns:
+            List of [x, y] coordinates forming the polygon
+        """
+        if not edge_ids:
+            return []
+        
+        # Build a graph of vertex connections from edges
+        vertex_graph = {}
+        for edge_id in edge_ids:
+            if edge_id not in edges:
+                continue
+            edge = edges[edge_id]
+            v1, v2 = edge['v1'], edge['v2']
+            
+            if v1 not in vertex_graph:
+                vertex_graph[v1] = []
+            if v2 not in vertex_graph:
+                vertex_graph[v2] = []
+            vertex_graph[v1].append(v2)
+            vertex_graph[v2].append(v1)
+        
+        if not vertex_graph:
+            return []
+        
+        # Start from any vertex and trace the boundary
+        start_vertex = next(iter(vertex_graph.keys()))
+        polygon = []
+        current = start_vertex
+        visited = set()
+        
+        # Trace the polygon boundary by following unvisited neighbors
+        max_iterations = len(vertex_graph) + 1  # Safety limit
+        for _ in range(max_iterations):
+            if current in visited:
+                # We've completed the loop back to a visited vertex
+                break
+            
+            visited.add(current)
+            if current in vertex_coords:
+                polygon.append(vertex_coords[current])
+            
+            # Find next unvisited neighbor
+            neighbors = vertex_graph.get(current, [])
+            next_vertex = None
+            for neighbor in neighbors:
+                if neighbor not in visited:
+                    next_vertex = neighbor
+                    break
+                # Allow closing the loop by returning to start
+                elif neighbor == start_vertex and len(visited) == len(vertex_graph):
+                    next_vertex = neighbor
+                    break
+            
+            if next_vertex is None:
+                # No more neighbors to visit
+                break
+            current = next_vertex
+        
+        return polygon
     
     def get_phase_name(self):
         """Get human-readable phase name."""
@@ -148,42 +268,52 @@ class MapVisualizer:
     
     def _visualize_mesh(self):
         """Visualize Phase 1: Basic mesh structure."""
-        for cell_id, cell in self.map_data.cells.items():
-            vertices = np.array(cell.get('vertices', []))
-            if len(vertices) < 3:
-                continue
-            
-            # Draw cell polygon
-            self.ax.fill(vertices[:, 0], vertices[:, 1], 
-                        color='lightgray', alpha=0.5, edgecolor='black', linewidth=1)
-            
-            # Draw center point
-            center = cell.get('center', [0, 0])
-            self.ax.plot(center[0], center[1], 'o', color='red', markersize=3)
-            
-            # Label with cell ID
-            self.ax.text(center[0], center[1], cell_id, 
-                        ha='center', va='center', fontsize=6)
+        # If topology is available, visualize edges
+        if self.map_data.topology:
+            self._visualize_with_topology(show_labels=True)
+        else:
+            # Legacy visualization
+            for cell_id, cell in self.map_data.cells.items():
+                vertices = np.array(cell.get('vertices', []))
+                if len(vertices) < 3:
+                    continue
+                
+                # Draw cell polygon
+                self.ax.fill(vertices[:, 0], vertices[:, 1], 
+                            color='lightgray', alpha=0.5, edgecolor='black', linewidth=1)
+                
+                # Draw center point
+                center = cell.get('center', [0, 0])
+                self.ax.plot(center[0], center[1], 'o', color='red', markersize=3)
+                
+                # Label with cell ID
+                self.ax.text(center[0], center[1], cell_id, 
+                            ha='center', va='center', fontsize=6)
     
     def _visualize_terrain(self):
         """Visualize Phase 2: Terrain (land vs sea)."""
-        for cell_id, cell in self.map_data.cells.items():
-            vertices = np.array(cell.get('vertices', []))
-            if len(vertices) < 3:
-                continue
-            
-            cell_type = cell.get('type', 'land')
-            color = self.terrain_colors.get(cell_type, 'gray')
-            
-            # Draw cell polygon
-            self.ax.fill(vertices[:, 0], vertices[:, 1], 
-                        color=color, alpha=0.8, edgecolor='black', linewidth=0.5)
-            
-            # Optional: Label with cell ID
-            if self.map_data.config.get('num_cells', 100) < 50:  # Only for small maps
-                center = cell.get('center', [0, 0])
-                self.ax.text(center[0], center[1], cell_id, 
-                            ha='center', va='center', fontsize=6, alpha=0.7)
+        # If topology is available, use topology-based rendering
+        if self.map_data.topology:
+            self._visualize_with_topology(show_labels=(self.map_data.config.get('num_cells', 100) < 50))
+        else:
+            # Legacy visualization
+            for cell_id, cell in self.map_data.cells.items():
+                vertices = np.array(cell.get('vertices', []))
+                if len(vertices) < 3:
+                    continue
+                
+                cell_type = cell.get('type', 'land')
+                color = self.terrain_colors.get(cell_type, 'gray')
+                
+                # Draw cell polygon
+                self.ax.fill(vertices[:, 0], vertices[:, 1], 
+                            color=color, alpha=0.8, edgecolor='black', linewidth=0.5)
+                
+                # Optional: Label with cell ID
+                if self.map_data.config.get('num_cells', 100) < 50:  # Only for small maps
+                    center = cell.get('center', [0, 0])
+                    self.ax.text(center[0], center[1], cell_id, 
+                                ha='center', va='center', fontsize=6, alpha=0.7)
     
     def _visualize_provinces(self):
         """Visualize Phase 3: Provinces (coastlines, oceans)."""
@@ -295,6 +425,89 @@ class MapVisualizer:
             if legend_elements:
                 self.ax.legend(handles=legend_elements, loc='upper left', 
                              bbox_to_anchor=(0, 1), fontsize=8)
+    
+    def _visualize_with_topology(self, show_labels=False):
+        """Visualize using topology data structure (Face-Edge-Vertex).
+        
+        Args:
+            show_labels: Whether to show cell ID labels
+        """
+        topology = self.map_data.topology
+        vertices_list = topology.get('vertices', [])
+        edges = topology.get('edges', {})
+        faces = topology.get('faces', {})
+        cells = self.map_data.cells
+        
+        # Create vertex lookup
+        vertex_coords = {v['id']: v['coords'] for v in vertices_list}
+        
+        # Define edge colors by type
+        edge_colors = {
+            'land': '#4A7C59',      # Dark green for land-land borders
+            'sea': '#5B9BD5',       # Blue for sea-sea borders
+            'coast': '#C55A11',     # Orange for coastlines
+            'map-edge': '#2F2F2F'   # Dark gray for map boundaries
+        }
+        
+        edge_widths = {
+            'land': 1.0,
+            'sea': 0.8,
+            'coast': 1.8,
+            'map-edge': 2.0
+        }
+        
+        # First pass: Draw filled faces
+        for face_id, face_data in faces.items():
+            face_type = face_data.get('type', 'land')
+            color = self.terrain_colors.get(face_type, 'gray')
+            
+            # Get polygon vertices from legacy cell data if available
+            if face_id in cells and 'vertices' in cells[face_id]:
+                polygon = np.array(cells[face_id]['vertices'])
+                if len(polygon) >= 3:
+                    self.ax.fill(polygon[:, 0], polygon[:, 1], color=color, alpha=0.7)
+        
+        # Second pass: Draw edges with type-based styling
+        for edge_id, edge_data in edges.items():
+            v1_id = edge_data.get('v1')
+            v2_id = edge_data.get('v2')
+            edge_type = edge_data.get('type', 'land')
+            
+            if v1_id not in vertex_coords or v2_id not in vertex_coords:
+                continue
+            
+            v1_coords = vertex_coords[v1_id]
+            v2_coords = vertex_coords[v2_id]
+            
+            # Get color and width based on edge type
+            color = edge_colors.get(edge_type, '#000000')
+            linewidth = edge_widths.get(edge_type, 1.0)
+            
+            # Draw the edge
+            self.ax.plot([v1_coords[0], v2_coords[0]], 
+                        [v1_coords[1], v2_coords[1]], 
+                        color=color, linewidth=linewidth, alpha=0.9, solid_capstyle='round')
+        
+        # Optional: Add labels
+        if show_labels:
+            for face_id, face_data in faces.items():
+                center = face_data.get('center')
+                if center:
+                    self.ax.text(center[0], center[1], face_id, 
+                                ha='center', va='center', fontsize=6, alpha=0.8)
+        
+        # Add simple legend for edge types
+        legend_elements = [
+            plt.Line2D([0], [0], color=edge_colors['land'], linewidth=edge_widths['land'], 
+                       label='Land border'),
+            plt.Line2D([0], [0], color=edge_colors['coast'], linewidth=edge_widths['coast'], 
+                       label='Coastline'),
+            plt.Line2D([0], [0], color=edge_colors['sea'], linewidth=edge_widths['sea'], 
+                       label='Sea border'),
+            plt.Line2D([0], [0], color=edge_colors['map-edge'], linewidth=edge_widths['map-edge'], 
+                       label='Map boundary')
+        ]
+        self.ax.legend(handles=legend_elements, loc='upper right', fontsize=8, framealpha=0.9)
     
     def _visualize_optimization(self):
         """Visualize Phase 6: Graph Optimization with analysis data."""
