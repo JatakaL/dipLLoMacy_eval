@@ -88,32 +88,33 @@ def test_phase6_does_not_modify_map():
     }
     
     # Take a snapshot of the original data
-    original_cells = {cell_id: dict(cell) for cell_id, cell in phase5_output["cells"].items()}
+    original_faces = {face_id: dict(face) for face_id, face in phase5_output["topology"]["faces"].items()}
     original_territories = {power: dict(data) for power, data in phase5_output["territories"].items()}
     original_scs = dict(phase5_output["supply_centers"])
     
     # Run Phase 6
     output = run_phase6(phase5_output, {})
     
-    # Verify cells were not modified
-    for cell_id, cell in output["cells"].items():
-        original = original_cells[cell_id]
+    # Verify topology faces were not modified
+    output_faces = output["topology"]["faces"]
+    for face_id, face in output_faces.items():
+        original = original_faces[face_id]
         
         # Check type
-        assert cell["type"] == original["type"], \
-            f"Cell {cell_id} type changed: {original['type']} -> {cell['type']}"
+        assert face["type"] == original["type"], \
+            f"Face {face_id} type changed: {original['type']} -> {face['type']}"
         
         # Check ownership
-        assert cell.get("owner") == original.get("owner"), \
-            f"Cell {cell_id} ownership changed"
+        assert face.get("owner") == original.get("owner"), \
+            f"Face {face_id} ownership changed"
         
         # Check SC status
-        assert cell.get("is_supply_center") == original.get("is_supply_center"), \
-            f"Cell {cell_id} SC status changed"
+        assert face.get("is_supply_center") == original.get("is_supply_center"), \
+            f"Face {face_id} SC status changed"
         
         # Check home status
-        assert cell.get("is_home") == original.get("is_home"), \
-            f"Cell {cell_id} home status changed"
+        assert face.get("is_home") == original.get("is_home"), \
+            f"Face {face_id} home status changed"
     
     # Verify territories were not modified
     for power, data in output["territories"].items():

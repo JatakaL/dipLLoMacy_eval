@@ -15,8 +15,12 @@ Analysis includes:
 Note: Ocean connectivity is now fixed in Phase 2 (before SCs and powers are assigned).
 Phase 6 only validates that the ocean is connected and warns if it's not.
 
+Data Structure:
+This phase uses TOPOLOGY exclusively (Face-Edge-Vertex structure), not cell-centered data.
+The output no longer includes the 'cells' dictionary - only topology, territories, and analysis.
+
 Input: supply_centers_output.json from Phase 5
-Output: analysis_output.json with quality metrics and recommendations
+Output: analysis_output.json with topology, quality metrics, and recommendations
 """
 
 import json
@@ -296,9 +300,19 @@ def identify_belgium_factor(topology, territories, supply_centers):
     return contested_scs
 
 
+# =============================================================================
+# LEGACY CELL-BASED FUNCTIONS
+# These functions operate on cell-centered data and are kept for backward 
+# compatibility. They are NOT used in run_phase6() which now uses topology.
+# These functions are still used by Phase 2 for ocean connectivity fixes.
+# =============================================================================
+
 def mark_cell_as_impassable(cell):
     """
-    Mark a cell as impassable and remove game-relevant attributes.
+    LEGACY: Mark a cell as impassable and remove game-relevant attributes.
+    
+    Note: This function operates on cell-centered data, not topology.
+    It is not used in run_phase6() but is kept for Phase 2 usage.
     
     Args:
         cell: Cell dictionary to mark as impassable
@@ -320,7 +334,10 @@ def mark_cell_as_impassable(cell):
 
 def merge_dead_end_node(cell_id, cells):
     """
-    Merge a dead-end node by removing it and connecting its neighbors directly.
+    LEGACY: Merge a dead-end node by removing it and connecting its neighbors directly.
+    
+    Note: This function operates on cell-centered data, not topology.
+    It is not used in run_phase6() but is kept for backward compatibility.
     
     Args:
         cell_id: ID of the dead-end node to merge
@@ -385,10 +402,13 @@ def merge_dead_end_node(cell_id, cells):
 
 def split_highly_connected_node(cell_id, cells):
     """
-    Split a highly connected node by reducing its connectivity.
+    LEGACY: Split a highly connected node by reducing its connectivity.
     
     Since we can't actually create new cells in the Voronoi mesh,
     we instead remove some edges to reduce connectivity.
+    
+    Note: This function operates on cell-centered data, not topology.
+    It is not used in run_phase6() but is kept for backward compatibility.
     
     Args:
         cell_id: ID of the highly connected node
@@ -436,7 +456,10 @@ def split_highly_connected_node(cell_id, cells):
 
 def connect_sea_components(cells, sea_connectivity):
     """
-    Connect disconnected sea components by converting land bridges to sea.
+    LEGACY: Connect disconnected sea components by converting land bridges to sea.
+    
+    Note: This function operates on cell-centered data, not topology.
+    It is not used in run_phase6() but is kept for Phase 2 usage.
     
     Args:
         cells: Dictionary of cell data
@@ -597,7 +620,6 @@ def run_phase6(phase5_output, config):
     print("\nNOTE: This phase performs analysis only and does NOT modify the map.")
     print("Ocean connectivity is now fixed in Phase 2 (before SCs/powers are assigned).")
     
-    cells = phase5_output["cells"]
     topology = phase5_output.get("topology", {})
     territories = phase5_output["territories"]
     supply_centers = phase5_output["supply_centers"]
@@ -711,8 +733,7 @@ def run_phase6(phase5_output, config):
     
     output = {
         "config": phase5_output["config"],
-        "cells": cells,
-        "topology": phase5_output.get("topology", {}),
+        "topology": topology,
         "territories": territories,
         "supply_centers": supply_centers,
         "analysis": {
