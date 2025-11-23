@@ -21,9 +21,15 @@ Output: analysis_output.json with quality metrics and recommendations
 
 import json
 import argparse
+import sys
+import os
 from collections import deque
 
+# Add parent directory to path for topology import
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 from output_utils import get_output_path_for_phase
+from topology import get_adjacency_from_topology
 
 # Configuration constants for graph quality thresholds
 HIGH_CONNECTIVITY_THRESHOLD = 7  # Nodes with more than this many neighbors are considered highly connected
@@ -31,24 +37,30 @@ LOW_CONNECTIVITY_THRESHOLD = 3   # Nodes with fewer than this many neighbors are
 MIN_TRIANGLE_DENSITY = 0.3       # Minimum triangle density for good Diplomacy gameplay (30%)
 
 
-def analyze_node_degrees(cells):
+def analyze_node_degrees(topology):
     """
-    Analyze the degree (number of neighbors) of each node.
+    Analyze the degree (number of neighbors) of each node using topology.
     
     Args:
-        cells: Dictionary of cell data
+        topology: Dictionary with topology data (vertices, edges, faces)
         
     Returns:
         Dictionary with degree statistics
     """
     degrees = {}
     
-    for cell_id, cell in cells.items():
-        if cell["type"] == "impassable":
+    # Get adjacency from topology
+    adjacency = get_adjacency_from_topology(topology["edges"])
+    faces = topology["faces"]
+    
+    for face_id, face_data in faces.items():
+        if face_data["type"] == "impassable":
             continue
         
-        degree = len(cell["neighbors"])
-        degrees[cell_id] = degree
+        # Get number of neighbors from topology adjacency
+        neighbors = adjacency.get(face_id, [])
+        degree = len(neighbors)
+        degrees[face_id] = degree
     
     # Calculate statistics
     degree_values = list(degrees.values())
@@ -66,9 +78,9 @@ def analyze_node_degrees(cells):
     avg_degree = sum(degree_values) / len(degree_values)
     
     # Find problematic nodes
-    highly_connected = [cell_id for cell_id, deg in degrees.items() if deg > HIGH_CONNECTIVITY_THRESHOLD]
+    highly_connected = [face_id for face_id, deg in degrees.items() if deg > HIGH_CONNECTIVITY_THRESHOLD]
     # Include nodes with 0 neighbors as they are isolated and should be considered dead ends
-    dead_ends = [cell_id for cell_id, deg in degrees.items() if deg < LOW_CONNECTIVITY_THRESHOLD]
+    dead_ends = [face_id for face_id, deg in degrees.items() if deg < LOW_CONNECTIVITY_THRESHOLD]
     
     return {
         "degrees": degrees,
@@ -80,20 +92,24 @@ def analyze_node_degrees(cells):
     }
 
 
-def check_sea_connectivity(cells):
+def check_sea_connectivity(topology):
     """
-    Check if all sea zones are connected to each other.
+    Check if all sea zones are connected to each other using topology.
     
     Args:
-        cells: Dictionary of cell data
+        topology: Dictionary with topology data (vertices, edges, faces)
         
     Returns:
         Dictionary with connectivity information
     """
-    # Find all sea cells
-    sea_cells = [cell_id for cell_id, cell in cells.items() if cell["type"] == "sea"]
+    # Get adjacency from topology
+    adjacency = get_adjacency_from_topology(topology["edges"])
+    faces = topology["faces"]
     
-    if not sea_cells:
+    # Find all sea faces
+    sea_faces = [face_id for face_id, face_data in faces.items() if face_data["type"] == "sea"]
+    
+    if not sea_faces:
         return {
             "connected": True,
             "components": 0,
@@ -104,22 +120,23 @@ def check_sea_connectivity(cells):
     visited = set()
     components = []
     
-    for start_cell in sea_cells:
-        if start_cell in visited:
+    for start_face in sea_faces:
+        if start_face in visited:
             continue
         
         # Start new component
         component = []
-        queue = deque([start_cell])
-        visited.add(start_cell)
+        queue = deque([start_face])
+        visited.add(start_face)
         
         while queue:
-            cell_id = queue.popleft()
-            component.append(cell_id)
+            face_id = queue.popleft()
+            component.append(face_id)
             
             # Add sea neighbors
-            for neighbor in cells[cell_id]["neighbors"]:
-                if neighbor in cells and cells[neighbor]["type"] == "sea" and neighbor not in visited:
+            neighbors = adjacency.get(face_id, [])
+            for neighbor in neighbors:
+                if neighbor in faces and faces[neighbor]["type"] == "sea" and neighbor not in visited:
                     visited.add(neighbor)
                     queue.append(neighbor)
         
@@ -133,15 +150,15 @@ def check_sea_connectivity(cells):
     }
 
 
-def calculate_triangle_density(cells):
+def calculate_triangle_density(topology):
     """
-    Calculate the "triangle density" - how often provinces form triangles.
+    Calculate the "triangle density" - how often provinces form triangles using topology.
     
     In Diplomacy, if A touches B and C, then B and C should often touch each other,
     forming triangles that enable the support mechanic.
     
     Args:
-        cells: Dictionary of cell data
+        topology: Dictionary with topology data (vertices, edges, faces)
         
     Returns:
         Triangle density ratio
@@ -149,11 +166,15 @@ def calculate_triangle_density(cells):
     total_pairs = 0
     connected_pairs = 0
     
-    for cell_id, cell in cells.items():
-        if cell["type"] == "impassable":
+    # Get adjacency from topology
+    adjacency = get_adjacency_from_topology(topology["edges"])
+    faces = topology["faces"]
+    
+    for face_id, face_data in faces.items():
+        if face_data["type"] == "impassable":
             continue
         
-        neighbors = [n for n in cell["neighbors"] if n in cells and cells[n]["type"] != "impassable"]
+        neighbors = [n for n in adjacency.get(face_id, []) if n in faces and faces[n]["type"] != "impassable"]
         
         # For each pair of neighbors, check if they're also connected
         for i, neighbor1 in enumerate(neighbors):
@@ -161,7 +182,7 @@ def calculate_triangle_density(cells):
                 total_pairs += 1
                 
                 # Check if neighbor1 and neighbor2 are connected
-                if neighbor2 in cells[neighbor1]["neighbors"]:
+                if neighbor2 in adjacency.get(neighbor1, []):
                     connected_pairs += 1
     
     triangle_density = connected_pairs / total_pairs if total_pairs > 0 else 0
@@ -173,13 +194,13 @@ def calculate_triangle_density(cells):
     }
 
 
-def identify_corner_powers(cells, territories):
+def identify_corner_powers(topology, territories):
     """
     Identify which powers are in "corners" (fewer neighbors, easier defense)
-    vs "central" (more neighbors, high risk/high reward).
+    vs "central" (more neighbors, high risk/high reward) using topology.
     
     Args:
-        cells: Dictionary of cell data
+        topology: Dictionary with topology data (vertices, edges, faces)
         territories: Dictionary of power territories
         
     Returns:
@@ -187,21 +208,26 @@ def identify_corner_powers(cells, territories):
     """
     power_classifications = {}
     
+    # Get adjacency from topology
+    adjacency = get_adjacency_from_topology(topology["edges"])
+    faces = topology["faces"]
+    
     for power_id, territory_data in territories.items():
         territory_cells = territory_data["cells"]
         
         # Count unique neighboring powers
         neighboring_powers = set()
         
-        for cell_id in territory_cells:
-            if cell_id not in cells:
+        for face_id in territory_cells:
+            if face_id not in faces:
                 continue
             
-            for neighbor in cells[cell_id]["neighbors"]:
-                if neighbor not in cells:
+            neighbors = adjacency.get(face_id, [])
+            for neighbor in neighbors:
+                if neighbor not in faces:
                     continue
                 
-                neighbor_owner = cells[neighbor].get("owner")
+                neighbor_owner = faces[neighbor].get("owner")
                 if neighbor_owner and neighbor_owner != power_id:
                     neighboring_powers.add(neighbor_owner)
         
@@ -224,13 +250,13 @@ def identify_corner_powers(cells, territories):
     return power_classifications
 
 
-def identify_belgium_factor(cells, territories, supply_centers):
+def identify_belgium_factor(topology, territories, supply_centers):
     """
-    Identify neutral SCs accessible by 3+ powers in the first turn.
+    Identify neutral SCs accessible by 3+ powers in the first turn using topology.
     These create the "Belgium factor" - forcing early diplomacy.
     
     Args:
-        cells: Dictionary of cell data
+        topology: Dictionary with topology data (vertices, edges, faces)
         territories: Dictionary of power territories
         supply_centers: Supply center data
         
@@ -239,18 +265,23 @@ def identify_belgium_factor(cells, territories, supply_centers):
     """
     contested_scs = []
     
+    # Get adjacency from topology
+    adjacency = get_adjacency_from_topology(topology["edges"])
+    faces = topology["faces"]
+    
     for sc_id in supply_centers.get("neutral", []):
-        if sc_id not in cells:
+        if sc_id not in faces:
             continue
         
         # Find which powers are adjacent to this SC
         adjacent_powers = set()
         
-        for neighbor in cells[sc_id]["neighbors"]:
-            if neighbor not in cells:
+        neighbors = adjacency.get(sc_id, [])
+        for neighbor in neighbors:
+            if neighbor not in faces:
                 continue
             
-            neighbor_owner = cells[neighbor].get("owner")
+            neighbor_owner = faces[neighbor].get("owner")
             if neighbor_owner:
                 adjacent_powers.add(neighbor_owner)
         
@@ -567,14 +598,15 @@ def run_phase6(phase5_output, config):
     print("Ocean connectivity is now fixed in Phase 2 (before SCs/powers are assigned).")
     
     cells = phase5_output["cells"]
+    topology = phase5_output.get("topology", {})
     territories = phase5_output["territories"]
     supply_centers = phase5_output["supply_centers"]
     
-    print("\nAnalyzing map graph quality...")
+    print("\nAnalyzing map graph quality using topology...")
     
     # Step 1: Analyze node degrees
     print("\nStep 1: Analyzing node degrees...")
-    degree_analysis = analyze_node_degrees(cells)
+    degree_analysis = analyze_node_degrees(topology)
     print(f"  Average degree: {degree_analysis['average']:.2f}")
     print(f"  Range: {degree_analysis['min']} - {degree_analysis['max']}")
     print(f"  Highly connected nodes (>7): {len(degree_analysis['highly_connected'])}")
@@ -582,7 +614,7 @@ def run_phase6(phase5_output, config):
     
     # Step 2: Check sea connectivity (validation only)
     print("\nStep 2: Validating sea connectivity...")
-    sea_connectivity = check_sea_connectivity(cells)
+    sea_connectivity = check_sea_connectivity(topology)
     print(f"  All seas connected: {sea_connectivity['connected']}")
     print(f"  Number of sea components: {sea_connectivity['components']}")
     if sea_connectivity['components'] > 1:
@@ -591,13 +623,13 @@ def run_phase6(phase5_output, config):
     
     # Step 3: Calculate triangle density
     print("\nStep 3: Calculating triangle density...")
-    triangle_analysis = calculate_triangle_density(cells)
+    triangle_analysis = calculate_triangle_density(topology)
     print(f"  Triangle density: {triangle_analysis['triangle_density']:.1%}")
     print(f"  Connected pairs: {triangle_analysis['connected_pairs']}/{triangle_analysis['total_pairs']}")
     
     # Step 4: Identify corner vs central powers
     print("\nStep 4: Classifying power positions...")
-    power_classifications = identify_corner_powers(cells, territories)
+    power_classifications = identify_corner_powers(topology, territories)
     corner_powers = [p for p, data in power_classifications.items() if data["classification"] == "corner"]
     central_powers = [p for p, data in power_classifications.items() if data["classification"] == "central"]
     moderate_powers = [p for p, data in power_classifications.items() if data["classification"] == "moderate"]
@@ -608,7 +640,7 @@ def run_phase6(phase5_output, config):
     
     # Step 5: Identify Belgium factor
     print("\nStep 5: Identifying contested neutral SCs (Belgium factor)...")
-    contested_scs = identify_belgium_factor(cells, territories, supply_centers)
+    contested_scs = identify_belgium_factor(topology, territories, supply_centers)
     print(f"  Found {len(contested_scs)} SCs accessible by 3+ powers")
     for sc_data in contested_scs:
         print(f"    {sc_data['cell_id']}: accessible by {sc_data['num_powers']} powers")
@@ -617,15 +649,17 @@ def run_phase6(phase5_output, config):
     print("\nStep 6: Verifying map integrity...")
     integrity_issues = []
     
+    faces = topology.get("faces", {})
+    
     # Check that all powers have exactly 3 SCs
     for power_id, territory_data in territories.items():
-        power_sc_count = sum(1 for cell_id in territory_data["cells"] 
-                            if cells[cell_id].get("is_supply_center", False))
+        power_sc_count = sum(1 for face_id in territory_data["cells"] 
+                            if face_id in faces and faces[face_id].get("is_supply_center", False))
         if power_sc_count != 3:
             integrity_issues.append(f"Power {power_id} has {power_sc_count} SCs (expected 3)")
     
     # Count total SCs
-    total_scs = sum(1 for cell in cells.values() if cell.get("is_supply_center", False))
+    total_scs = sum(1 for face in faces.values() if face.get("is_supply_center", False))
     expected_scs = len(territories) * 3 + len(supply_centers.get("neutral", []))
     if total_scs != expected_scs:
         integrity_issues.append(f"Total SC count mismatch: {total_scs} (expected {expected_scs})")
@@ -678,6 +712,7 @@ def run_phase6(phase5_output, config):
     output = {
         "config": phase5_output["config"],
         "cells": cells,
+        "topology": phase5_output.get("topology", {}),
         "territories": territories,
         "supply_centers": supply_centers,
         "analysis": {

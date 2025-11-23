@@ -252,6 +252,22 @@ def run_phase5(phase4_output, config):
         cells[cell_id]["is_supply_center"] = True
         cells[cell_id]["sc_type"] = "neutral"
     
+    # Update topology faces with supply center information
+    topology = phase4_output.get("topology", {})
+    if topology and "faces" in topology:
+        # Mark home supply centers in topology
+        for power_id, territory_data in territories.items():
+            for cell_id in territory_data["cells"]:
+                if cell_id in topology["faces"]:
+                    topology["faces"][cell_id]["is_supply_center"] = True
+                    topology["faces"][cell_id]["sc_type"] = "home"
+        
+        # Mark neutral supply centers in topology
+        for cell_id in neutral_scs:
+            if cell_id in topology["faces"]:
+                topology["faces"][cell_id]["is_supply_center"] = True
+                topology["faces"][cell_id]["sc_type"] = "neutral"
+    
     # Compile all supply centers
     all_scs = {
         "home": [
@@ -266,6 +282,7 @@ def run_phase5(phase4_output, config):
     output = {
         "config": {**phase4_output["config"], **config},
         "cells": cells,
+        "topology": topology,
         "territories": territories,
         "supply_centers": all_scs,
         "statistics": {

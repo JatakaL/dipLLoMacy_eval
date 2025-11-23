@@ -57,7 +57,34 @@ def test_phase6_does_not_modify_map():
             "home": ["C1", "C2", "C3", "C4", "C5", "C6"],
             "neutral": ["C7"]
         },
-        "statistics": {}
+        "statistics": {},
+        # Add mock topology data for Phase 6 to analyze
+        "topology": {
+            "vertices": [],
+            "edges": {
+                "E_C1_C2": {"v1": 0, "v2": 1, "left_face": "C1", "right_face": "C2"},
+                "E_C1_C3": {"v1": 0, "v2": 2, "left_face": "C1", "right_face": "C3"},
+                "E_C2_C3": {"v1": 1, "v2": 2, "left_face": "C2", "right_face": "C3"},
+                "E_C4_C5": {"v1": 3, "v2": 4, "left_face": "C4", "right_face": "C5"},
+                "E_C4_C6": {"v1": 3, "v2": 5, "left_face": "C4", "right_face": "C6"},
+                "E_C5_C6": {"v1": 4, "v2": 5, "left_face": "C5", "right_face": "C6"},
+                "E_C1_C7": {"v1": 0, "v2": 6, "left_face": "C1", "right_face": "C7"},
+                "E_C4_C7": {"v1": 3, "v2": 6, "left_face": "C4", "right_face": "C7"},
+                "E_C1_S1": {"v1": 0, "v2": 7, "left_face": "C1", "right_face": "S1"},
+                "E_C4_S2": {"v1": 3, "v2": 8, "left_face": "C4", "right_face": "S2"},
+            },
+            "faces": {
+                "C1": {"type": "land", "edges": [], "owner": "Power1", "is_home": True, "is_supply_center": True, "sc_type": "home"},
+                "C2": {"type": "land", "edges": [], "owner": "Power1", "is_home": True, "is_supply_center": True, "sc_type": "home"},
+                "C3": {"type": "land", "edges": [], "owner": "Power1", "is_home": True, "is_supply_center": True, "sc_type": "home"},
+                "C4": {"type": "land", "edges": [], "owner": "Power2", "is_home": True, "is_supply_center": True, "sc_type": "home"},
+                "C5": {"type": "land", "edges": [], "owner": "Power2", "is_home": True, "is_supply_center": True, "sc_type": "home"},
+                "C6": {"type": "land", "edges": [], "owner": "Power2", "is_home": True, "is_supply_center": True, "sc_type": "home"},
+                "C7": {"type": "land", "edges": [], "is_supply_center": True, "sc_type": "neutral"},
+                "S1": {"type": "sea", "edges": []},
+                "S2": {"type": "sea", "edges": []},
+            }
+        }
     }
     
     # Take a snapshot of the original data

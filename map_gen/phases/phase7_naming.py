@@ -339,6 +339,13 @@ def run_phase7(phase6_output, config):
     print(f"  Named {sea_count} sea regions")
     print(f"  Named {impassable_count} impassable zones")
     
+    # Update topology faces with names
+    topology = phase6_output.get("topology", {})
+    if topology and "faces" in topology:
+        for cell_id, cell in cells.items():
+            if cell_id in topology["faces"] and "name" in cell:
+                topology["faces"][cell_id]["name"] = cell["name"]
+    
     # Step 2: Create adjacency representation
     print("\nStep 2: Creating adjacency list...")
     adjacency_list = create_adjacency_list(cells)
@@ -364,6 +371,7 @@ def run_phase7(phase6_output, config):
             "phases_completed": 7
         },
         "cells": cells,
+        "topology": topology,
         "adjacency": adjacency_list,
         "powers": power_map,
         "supply_centers": sc_list,
