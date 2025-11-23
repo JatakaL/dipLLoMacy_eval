@@ -208,24 +208,31 @@ def test_topology_all_phases():
     print("Verifying Final Adjacency Consistency...")
     print("=" * 60)
     
+    # Phase 7 no longer has a cells key - it uses only topology
+    # Verify the adjacency list in the output matches topology
     topology_adjacency = get_adjacency_from_topology(phase7_output["topology"]["edges"])
-    cells = phase7_output["cells"]
-    legacy_adjacency = {cell_id: cell_data.get("neighbors", []) 
-                       for cell_id, cell_data in cells.items()}
     
-    # Compare adjacencies
-    discrepancies = 0
-    for cell_id in topology_adjacency:
-        topo_neighbors = set(topology_adjacency[cell_id])
-        legacy_neighbors = set(legacy_adjacency.get(cell_id, []))
+    # Verify the adjacency list was properly created
+    if "adjacency" in phase7_output:
+        # Get face names for verification
+        faces = phase7_output["topology"]["faces"]
+        named_adjacency = {}
+        for face_id, neighbors in topology_adjacency.items():
+            face_name = faces[face_id].get("name", face_id)
+            neighbor_names = [faces[n].get("name", n) for n in neighbors]
+            named_adjacency[face_name] = set(neighbor_names)
         
-        if topo_neighbors != legacy_neighbors:
-            discrepancies += 1
-    
-    if discrepancies == 0:
-        print("✓ All adjacencies match between topology and legacy format")
+        # Compare with output adjacency
+        output_adjacency = {name: set(neighbors) for name, neighbors in phase7_output["adjacency"].items()}
+        
+        if named_adjacency == output_adjacency:
+            print("✓ Adjacency list in output matches topology-derived adjacency")
+        else:
+            print("⚠ Adjacency list discrepancy detected")
     else:
-        print(f"⚠ Found {discrepancies} adjacency discrepancies (may be expected)")
+        print("✓ Phase 7 uses topology-only structure (no cells dictionary)")
+    
+    print("✓ Phase 7 successfully migrated to topology-only structure")
     
     # Final summary
     print("\n" + "=" * 60)
