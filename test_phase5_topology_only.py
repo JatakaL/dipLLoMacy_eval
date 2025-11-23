@@ -117,7 +117,7 @@ def test_phase5_topology_only():
     print("\nTest 6: Simulate map viewer cell reconstruction...")
     topology = phase5_output["topology"]
     vertices_list = topology.get('vertices', [])
-    edges = topology.get('edges', {})
+    
     
     # Create vertex lookup (same as map_viewer)
     vertex_coords = {v['id']: v['coords'] for v in vertices_list}
