@@ -93,15 +93,15 @@ def find_neutral_candidates(faces, edges, territories):
     inland_neutral = []
     
     for face_id, face in faces.items():
+        # Only consider land faces (excludes sea and impassable)
         if face["type"] != "land":
             continue
         
+        # Skip owned faces
         if face_id in owned_faces:
             continue
         
-        if face["type"] == "impassable":
-            continue
-        
+        # Categorize by coastal status
         if face_id in coastal_faces:
             coastal_neutral.append(face_id)
         else:
