@@ -173,23 +173,43 @@ def test_topology_properties():
     phase7_output = run_phase7(phase6_output, phase7_config)
     
     topology7 = phase7_output["topology"]
-    cells7 = phase7_output["cells"]
+    
+    # Phase 7 no longer outputs cells - it uses topology-only structure
+    assert "cells" not in phase7_output, "Phase 7 should not output cells dictionary"
     
     # Verify that topology faces have name properties
     name_count = 0
+    land_names = []
+    sea_names = []
     
     for face_id, face_data in topology7["faces"].items():
         if "name" in face_data:
             name_count += 1
-            # Verify it matches the cell data
-            assert face_data["name"] == cells7[face_id]["name"], \
-                f"Face {face_id} name mismatch: {face_data['name']} != {cells7[face_id]['name']}"
+            # Verify the name is not empty
+            assert len(face_data["name"]) > 0, f"Face {face_id} has empty name"
+            
+            # Collect names by type for verification
+            if face_data["type"] == "land":
+                land_names.append(face_data["name"])
+            elif face_data["type"] == "sea":
+                sea_names.append(face_data["name"])
     
     print(f"✓ Phase 7 topology faces updated:")
     print(f"  - {name_count} faces with name property")
+    print(f"  - {len(land_names)} land regions named")
+    print(f"  - {len(sea_names)} sea regions named")
     
     assert name_count > 0, "Phase 7 should add name property to topology faces"
     assert name_count == len(topology7["faces"]), "Phase 7 should name all faces"
+    
+    # Verify adjacency list uses names
+    assert "adjacency" in phase7_output, "Phase 7 should output adjacency list"
+    adjacency = phase7_output["adjacency"]
+    assert len(adjacency) > 0, "Adjacency list should not be empty"
+    
+    # Verify adjacency keys are names, not IDs
+    for key in list(adjacency.keys())[:3]:
+        assert not key.startswith("C"), f"Adjacency should use names, not IDs: {key}"
     
     # Final verification
     print("\n" + "=" * 60)
