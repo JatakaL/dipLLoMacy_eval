@@ -21,7 +21,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase
-from topology import convert_cells_to_topology
+from topology import convert_cells_to_topology, reconstruct_cells_from_topology
 
 
 def identify_coastlines(cells):
@@ -175,7 +175,6 @@ def run_phase3(phase2_output, config):
         cells = phase2_output["cells"]
     else:
         print("  Reconstructing cells from topology for processing...")
-        from topology import reconstruct_cells_from_topology
         cells = reconstruct_cells_from_topology(phase2_output["topology"])
     
     # Extract configuration
