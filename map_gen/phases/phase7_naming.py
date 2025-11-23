@@ -227,11 +227,11 @@ def create_power_map(faces, edges, territories):
                     "is_supply_center": faces[face_id].get("is_supply_center", False),
                     "coastal": face_id in coastal_faces
                 }
-                for face_id in territory_cells
+                for face_id in territory_faces
                 if face_id in faces
             ],
             "seed": territory_data.get("seed"),
-            "size": territory_data.get("size", len(territory_cells))
+            "size": territory_data.get("size", len(territory_faces))
         }
     
     return power_map
