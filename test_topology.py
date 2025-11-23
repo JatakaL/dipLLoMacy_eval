@@ -146,7 +146,7 @@ def test_adjacency_derivation():
     }
     
     converter = TopologyConverter()
-    vertices, edges, faces = converter.convert_cells_to_topology(cells)
+    _, edges, faces = converter.convert_cells_to_topology(cells)
     
     # Derive adjacency
     adjacency = converter.get_adjacency_from_topology()
