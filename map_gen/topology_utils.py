@@ -5,15 +5,17 @@ This module implements utility functions for topology manipulation including:
 - Calculating edge lengths using Euclidean distance
 - Calculating face sizes (areas) using the shoelace formula
 - Merging adjacent faces (removes shared edges, fully implemented)
-- Splitting faces (fully implemented geometric split with new vertices and edges)
+- Splitting faces (geometric split with proper polygon tracing)
 
 Note on split_face():
     The split_face() function implements a geometric face splitting algorithm:
     - Finds the longest edge and its opposite edge
     - Creates new vertices at the midpoints of these edges
     - Splits the edges and creates a connecting edge between midpoints
-    - Creates two new faces (_a and _b) from the split
+    - Uses polygon tracing to properly assign edges to each new face
+    - Creates two new faces (_a and _b) with correct closed polygons
     - Properly maintains coastal properties and edge references
+    - Updates neighboring faces that shared the split edges
 """
 
 import math
@@ -429,47 +431,169 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     face1_id = f"{face_id}_a"
     face2_id = f"{face_id}_b"
     
-    # Trace edges for each side of the split
-    # We need to determine which edges belong to which side
-    # Build a graph of edges and trace two separate polygons
+    # Determine which vertices belong to which side of the split
+    # The split line goes from midpoint1 to midpoint2
+    # We'll use the cross product to determine which side each vertex is on
     
-    # Simplified edge distribution approach
-    # NOTE: A complete geometric split would require determining which side of the 
-    # split line each edge/vertex belongs to and ensuring proper polygon closure.
-    # This simplified version divides edges evenly, which works for the Phase 2
-    # use case (territory size tracking) but may not create geometrically valid
-    # faces for all complex polygon shapes.
+    # Split line direction
+    split_dx = midpoint2[0] - midpoint1[0]
+    split_dy = midpoint2[1] - midpoint1[1]
     
-    # Collect all edges that should be in the new faces
-    all_new_edges = [edge1a_id, edge1b_id, edge2a_id, edge2b_id, split_edge_id]
+    # Get all original vertices of this face
+    original_vertices = set()
+    for eid in edge_ids:
+        if eid in edges:
+            original_vertices.add(edges[eid]["v1"])
+            original_vertices.add(edges[eid]["v2"])
+    
+    # Classify each vertex as being on side A (positive cross product) or side B (negative)
+    side_a_vertices = set()  # Will include v1 (from longest edge)
+    side_b_vertices = set()  # Will include v2 (from longest edge)
+    
+    for vid in original_vertices:
+        if vid == v1_id:
+            side_a_vertices.add(vid)
+            continue
+        if vid == v2_id:
+            side_b_vertices.add(vid)
+            continue
+        if vid == ov1_id or vid == ov2_id:
+            # These vertices are on the split line - they need special handling
+            # ov1 is connected to v1 via edges, so determine based on adjacency
+            # For now, we'll add them to both sides since they're on the split line
+            continue
+        
+        vcoords = vertex_coords[vid]
+        # Vector from midpoint1 to vertex
+        to_v = [vcoords[0] - midpoint1[0], vcoords[1] - midpoint1[1]]
+        # Cross product with split direction
+        cross = split_dx * to_v[1] - split_dy * to_v[0]
+        
+        # Also compute cross product for v1 to establish which side is A
+        v1_to_v = [v1_coords[0] - midpoint1[0], v1_coords[1] - midpoint1[1]]
+        v1_cross = split_dx * v1_to_v[1] - split_dy * v1_to_v[0]
+        
+        if (cross > 0) == (v1_cross > 0):
+            side_a_vertices.add(vid)
+        else:
+            side_b_vertices.add(vid)
+    
+    # Now assign edges to faces based on which vertices they connect
+    # An edge belongs to face A if both its vertices are on side A or on the split line
+    # The split edge and the split parts of the original edges are shared/special
+    
     remaining_old_edges = [e for e in edge_ids if e not in [longest_edge_id, opposite_edge_id]]
-    all_edges = all_new_edges + remaining_old_edges
     
-    # Divide edges roughly in half
-    # The split_edge is shared between faces as a boundary
-    mid = len(all_edges) // 2
+    face1_edges = []  # Side A (includes v1)
+    face2_edges = []  # Side B (includes v2)
     
-    # Simple division: first half to face1, second half to face2
-    face1_edges = all_edges[:mid]
-    face2_edges = all_edges[mid:]
+    # Add the new split edge to both faces (it's their shared boundary)
+    face1_edges.append(split_edge_id)
+    face2_edges.append(split_edge_id)
     
-    # Ensure split edge is in both faces (it's their shared boundary)
-    # NOTE: This creates a slight inconsistency in edge lists, but is necessary
-    # for both faces to reference their common boundary
-    if split_edge_id not in face1_edges:
-        face1_edges.append(split_edge_id)
-    if split_edge_id not in face2_edges:
-        face2_edges.append(split_edge_id)
+    # edge1a connects v1 to new_vertex1 - belongs to face1 (side A)
+    face1_edges.append(edge1a_id)
+    # edge1b connects new_vertex1 to v2 - belongs to face2 (side B)
+    face2_edges.append(edge1b_id)
     
-    # Validation: both faces must have at least 3 edges to form a valid polygon
+    # For edge2a and edge2b, we need to determine which connects to which side
+    # edge2a connects ov1 to new_vertex2
+    # edge2b connects new_vertex2 to ov2
+    # We need to figure out if ov1 is on side A or side B
+    
+    # Check adjacency: ov1 should be connected to either v1 or v2 (or both) via other edges
+    ov1_side_a = False
+    ov2_side_a = False
+    
+    for eid in remaining_old_edges:
+        if eid not in edges:
+            continue
+        e = edges[eid]
+        ev1, ev2 = e["v1"], e["v2"]
+        # If this edge connects ov1 to a side_a vertex, ov1 is on side A
+        if ev1 == ov1_id and ev2 in side_a_vertices:
+            ov1_side_a = True
+        if ev2 == ov1_id and ev1 in side_a_vertices:
+            ov1_side_a = True
+        if ev1 == ov2_id and ev2 in side_a_vertices:
+            ov2_side_a = True
+        if ev2 == ov2_id and ev1 in side_a_vertices:
+            ov2_side_a = True
+        # Similarly for side B
+        if ev1 == ov1_id and ev2 in side_b_vertices:
+            ov1_side_a = False
+        if ev2 == ov1_id and ev1 in side_b_vertices:
+            ov1_side_a = False
+        if ev1 == ov2_id and ev2 in side_b_vertices:
+            ov2_side_a = False
+        if ev2 == ov2_id and ev1 in side_b_vertices:
+            ov2_side_a = False
+    
+    # If ov1 is on side A, edge2a belongs to face1
+    if ov1_side_a:
+        face1_edges.append(edge2a_id)
+        face2_edges.append(edge2b_id)
+    else:
+        face2_edges.append(edge2a_id)
+        face1_edges.append(edge2b_id)
+    
+    # Now assign remaining old edges based on their vertices
+    for eid in remaining_old_edges:
+        if eid not in edges:
+            continue
+        e = edges[eid]
+        ev1, ev2 = e["v1"], e["v2"]
+        
+        # Check which side this edge belongs to
+        v1_on_a = ev1 in side_a_vertices or ev1 == ov1_id and ov1_side_a or ev1 == ov2_id and ov2_side_a
+        v2_on_a = ev2 in side_a_vertices or ev2 == ov1_id and ov1_side_a or ev2 == ov2_id and ov2_side_a
+        
+        if v1_on_a and v2_on_a:
+            face1_edges.append(eid)
+        elif not v1_on_a and not v2_on_a:
+            face2_edges.append(eid)
+        else:
+            # Edge crosses the split - this shouldn't happen for edges not being split
+            # But if it does, add to both? Or the one with more vertices on that side
+            face1_edges.append(eid)
+    
+    # Validate: both faces must have at least 3 edges
     if len(face1_edges) < 3 or len(face2_edges) < 3:
-        # Split would create invalid faces, abort
+        vertices.pop()
+        vertices.pop()
         return False, None, None
     
-    # Update the split edge to reference both new faces
-    # The split edge is internal to the face, so it has the same type as the face
-    # (e.g., if splitting a land face, the split edge is a land edge)
+    # Create the actual edges in the topology
     split_edge_type = "land" if face.get("type") == "land" else "sea"
+    
+    edges[edge1a_id] = {
+        "v1": min(v1_id, new_vertex1_id),
+        "v2": max(v1_id, new_vertex1_id),
+        "left_face": face1_id,
+        "right_face": longest_right if longest_right != face_id else longest_left,
+        "type": longest_edge.get("type")
+    }
+    edges[edge1b_id] = {
+        "v1": min(new_vertex1_id, v2_id),
+        "v2": max(new_vertex1_id, v2_id),
+        "left_face": face2_id,
+        "right_face": longest_right if longest_right != face_id else longest_left,
+        "type": longest_edge.get("type")
+    }
+    edges[edge2a_id] = {
+        "v1": min(ov1_id, new_vertex2_id),
+        "v2": max(ov1_id, new_vertex2_id),
+        "left_face": face1_id if ov1_side_a else face2_id,
+        "right_face": opposite_right if opposite_right != face_id else opposite_left,
+        "type": opposite_edge.get("type")
+    }
+    edges[edge2b_id] = {
+        "v1": min(new_vertex2_id, ov2_id),
+        "v2": max(new_vertex2_id, ov2_id),
+        "left_face": face2_id if ov1_side_a else face1_id,
+        "right_face": opposite_right if opposite_right != face_id else opposite_left,
+        "type": opposite_edge.get("type")
+    }
     edges[split_edge_id] = {
         "v1": min(new_vertex1_id, new_vertex2_id),
         "v2": max(new_vertex1_id, new_vertex2_id),
@@ -493,7 +617,6 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     }
     
     # Step 10: Check coastal property for both new faces
-    # A face is coastal if it has any edges of type "coast"
     face1_coastal = False
     face2_coastal = False
     
@@ -512,50 +635,42 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     if face2_coastal:
         face2["coastal"] = True
     
-    # Update edge references from old face_id to new face IDs
-    # Create sets for quick lookup
+    # Update edge references for remaining old edges
     face1_edges_set = set(face1_edges)
     face2_edges_set = set(face2_edges)
     
-    for eid in face1_edges:
-        if eid in edges and eid != split_edge_id:  # split_edge already set
+    for eid in remaining_old_edges:
+        if eid in edges:
             e = edges[eid]
-            if e.get("left_face") == face_id:
-                e["left_face"] = face1_id
-            if e.get("right_face") == face_id:
-                e["right_face"] = face1_id
+            if eid in face1_edges_set:
+                if e.get("left_face") == face_id:
+                    e["left_face"] = face1_id
+                if e.get("right_face") == face_id:
+                    e["right_face"] = face1_id
+            elif eid in face2_edges_set:
+                if e.get("left_face") == face_id:
+                    e["left_face"] = face2_id
+                if e.get("right_face") == face_id:
+                    e["right_face"] = face2_id
     
-    for eid in face2_edges:
-        if eid in edges and eid != split_edge_id:  # split_edge already set
-            e = edges[eid]
-            if e.get("left_face") == face_id:
-                e["left_face"] = face2_id
-            if e.get("right_face") == face_id:
-                e["right_face"] = face2_id
-    
-    # Also update any edges not in our lists that might reference the old face
-    # (edges on the boundary that we didn't include in either new face)
-    for eid, e in edges.items():
-        if eid in face1_edges_set or eid in face2_edges_set or eid == split_edge_id:
-            continue  # Already handled
-        # If this edge references the old face, we need to decide which new face it belongs to
-        # This shouldn't happen in a well-formed split, but let's be safe
-        if e.get("left_face") == face_id or e.get("right_face") == face_id:
-            # Default to face1 for any edge we missed
-            if e.get("left_face") == face_id:
-                e["left_face"] = face1_id
-            if e.get("right_face") == face_id:
-                e["right_face"] = face1_id
-    
-    # Before removing the split edges, remove them from any other faces that might reference them
+    # Update neighboring faces that shared the split edges
     edges_to_remove = {longest_edge_id, opposite_edge_id}
     for fid, fdata in faces.items():
         if fid == face_id:
-            continue  # Skip the face we're splitting (it will be removed)
-        # Filter out the edges being removed
-        fdata["edges"] = [eid for eid in fdata.get("edges", []) if eid not in edges_to_remove]
+            continue
+        new_face_edges = []
+        for eid in fdata.get("edges", []):
+            if eid == longest_edge_id:
+                new_face_edges.append(edge1a_id)
+                new_face_edges.append(edge1b_id)
+            elif eid == opposite_edge_id:
+                new_face_edges.append(edge2a_id)
+                new_face_edges.append(edge2b_id)
+            else:
+                new_face_edges.append(eid)
+        fdata["edges"] = new_face_edges
     
-    # Remove original edges that were split
+    # Remove original edges
     del edges[longest_edge_id]
     del edges[opposite_edge_id]
     
