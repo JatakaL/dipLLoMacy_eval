@@ -31,10 +31,11 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase
-from topology import convert_cells_to_topology, reconstruct_cells_from_topology, get_adjacency_from_topology
 
-# Import topology utilities for merging and splitting
+# Add parent directory to path for topology imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from topology import convert_cells_to_topology, reconstruct_cells_from_topology, get_adjacency_from_topology
 from topology_utils import (
     merge_faces,
     split_face,

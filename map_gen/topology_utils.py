@@ -2,10 +2,17 @@
 Topology Utilities Module
 
 This module implements utility functions for topology manipulation including:
-- Calculating edge lengths
-- Calculating face sizes (areas)
-- Merging faces
-- Splitting faces
+- Calculating edge lengths using Euclidean distance
+- Calculating face sizes (areas) using the shoelace formula
+- Merging adjacent faces (removes shared edges, fully implemented)
+- Splitting faces (simplified implementation for demonstration/tracking)
+
+Note on split_face():
+    The split_face() function is a simplified implementation intended for
+    demonstration and statistical tracking purposes. It divides a face's edges
+    between two faces but does NOT create proper geometric splits with new
+    vertices and connecting edges. For production use in complex scenarios,
+    a full geometric splitting algorithm would be needed.
 """
 
 import math
@@ -228,28 +235,34 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     """
     Split a face into two faces along a specified axis.
     
-    This is a simplified implementation that splits a face by:
-    1. Finding the face's bounding box
-    2. Creating a splitting line (horizontal or vertical)
-    3. Dividing vertices and edges accordingly
-    4. Creating a new face for one half
+    **IMPORTANT: This is a simplified implementation for demonstration purposes.**
     
-    Note: This is a simplified version. A full implementation would need to:
-    - Actually create new vertices where the split line crosses edges
-    - Properly handle edge topology
-    - Ensure valid Voronoi properties are maintained
+    This implementation divides a face's edges into two groups and creates two new faces.
+    It does NOT:
+    - Create new vertices at split points
+    - Create proper connecting edges between the split halves
+    - Maintain valid Voronoi properties
+    - Ensure geometric validity of the resulting faces
     
-    For the purposes of this implementation, we'll use a simpler approach:
-    - Mark the face as "split" by duplicating it
-    - This creates two separate faces with the same geometry but different IDs
+    **Limitations:**
+    - The resulting faces share the original edges but are not properly connected
+    - The topology may become invalid for certain operations
+    - This should primarily be used for statistical tracking (e.g., territory size tracking)
+    - For production use, a proper geometric splitting algorithm is needed
+    
+    **Use Cases:**
+    - Demonstrating the concept of face splitting
+    - Tracking territory modifications in map generation
+    - Testing topology manipulation logic
     
     Args:
         face_id: ID of the face to split
         topology: Dictionary with topology data (vertices, edges, faces)
-        split_axis: "horizontal" or "vertical" split direction
+        split_axis: "horizontal" or "vertical" split direction (currently unused)
         
     Returns:
         Tuple of (success: bool, face1_id: Optional[str], face2_id: Optional[str])
+        Returns (False, None, None) if the split cannot be performed.
     """
     faces = topology.get("faces", {})
     edges = topology.get("edges", {})
@@ -260,44 +273,34 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     
     face = faces[face_id]
     
-    # For a simplified implementation, we'll create a "virtual" split by:
-    # 1. Creating a new face with a modified ID
-    # 2. Copying half of the edges to the new face
-    # 3. Creating new edges to separate them
-    
-    # This is a placeholder implementation that demonstrates the concept
-    # A full implementation would need proper geometric splitting
-    
     edge_ids = face.get("edges", [])
     if len(edge_ids) < 4:
         # Need at least 4 edges to split meaningfully
         return False, None, None
     
-    # Simple approach: divide edges roughly in half
+    # Simple approach: divide edges roughly in half to create two sub-faces
+    # This creates a "virtual" split for statistical tracking purposes
     split_point = len(edge_ids) // 2
     
     # Create new face ID
     new_face_id = f"{face_id}_split"
     
-    # Create copies of the face
+    # Create new face with second half of edges
     new_face = {
         "type": face["type"],
         "edges": edge_ids[split_point:],
         "center": face.get("center", [0.5, 0.5])
     }
     
+    # Copy face properties if present
+    if "coastal" in face:
+        new_face["coastal"] = face["coastal"]
+    
     # Update original face to only use first half of edges
     faces[face_id]["edges"] = edge_ids[:split_point]
     
     # Add new face to topology
     faces[new_face_id] = new_face
-    
-    # Note: This is a simplified implementation
-    # A full implementation would need to:
-    # 1. Create new vertices at split points
-    # 2. Create new edges to separate the faces
-    # 3. Update edge references properly
-    # 4. Maintain valid topology
     
     return True, face_id, new_face_id
 
