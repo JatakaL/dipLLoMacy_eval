@@ -16,6 +16,7 @@ Note on split_face():
 """
 
 import math
+import time
 from typing import Dict, List, Tuple, Optional
 from topology import get_adjacency_from_topology
 
@@ -283,12 +284,16 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     # This creates a "virtual" split for statistical tracking purposes
     split_point = len(edge_ids) // 2
     
-    # Create new face ID with a counter to handle multiple splits
+    # Create new face ID using timestamp to ensure uniqueness
+    # This avoids O(n) loops when many splits exist
+    timestamp = int(time.time() * 1000000) % 1000000  # Use microseconds modulo for short IDs
+    new_face_id = f"{face_id}_split{timestamp}"
+    
+    # Fallback to counter if timestamp ID already exists (very unlikely)
     counter = 1
-    new_face_id = f"{face_id}_split"
     while new_face_id in faces:
         counter += 1
-        new_face_id = f"{face_id}_split{counter}"
+        new_face_id = f"{face_id}_split{timestamp}_{counter}"
     
     # Create new face with second half of edges
     new_face = {

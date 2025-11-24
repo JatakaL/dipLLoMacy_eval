@@ -9,6 +9,7 @@ and splits large land territories.
 import sys
 import os
 import json
+import traceback
 
 # Add the map_gen directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen'))
@@ -271,12 +272,10 @@ def run_all_tests():
         return True
     except AssertionError as e:
         print(f"\n✗ Test failed: {e}")
-        import traceback
         traceback.print_exc()
         return False
     except Exception as e:
         print(f"\n✗ Unexpected error: {e}")
-        import traceback
         traceback.print_exc()
         return False
 
