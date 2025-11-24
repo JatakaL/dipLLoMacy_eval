@@ -27,14 +27,10 @@ from collections import deque
 import sys
 import os
 
-# Add parent directory to path for topology import
+# Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase
-
-# Add parent directory to path for topology imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
 from topology import convert_cells_to_topology, reconstruct_cells_from_topology, get_adjacency_from_topology
 from topology_utils import (
     merge_faces,

@@ -17,6 +17,7 @@ Note on split_face():
 
 import math
 from typing import Dict, List, Tuple, Optional
+from topology import get_adjacency_from_topology
 
 
 def calculate_edge_length(edge_id: str, topology: dict) -> float:
@@ -282,8 +283,12 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     # This creates a "virtual" split for statistical tracking purposes
     split_point = len(edge_ids) // 2
     
-    # Create new face ID
+    # Create new face ID with a counter to handle multiple splits
+    counter = 1
     new_face_id = f"{face_id}_split"
+    while new_face_id in faces:
+        counter += 1
+        new_face_id = f"{face_id}_split{counter}"
     
     # Create new face with second half of edges
     new_face = {
@@ -368,8 +373,6 @@ def find_smallest_neighbor(face_id: str, topology: dict) -> Optional[Tuple[str, 
     Returns:
         Tuple of (neighbor_face_id, size) or None if no neighbors found
     """
-    from topology import get_adjacency_from_topology
-    
     faces = topology.get("faces", {})
     edges = topology.get("edges", {})
     
