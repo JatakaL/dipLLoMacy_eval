@@ -367,6 +367,7 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     # Step 5: Create new vertices at the two midpoints
     # Get next vertex ID
     if not vertices:
+        # No vertices exist, cannot proceed with split
         return False, None, None
     max_vertex_id = max(v["id"] for v in vertices)
     new_vertex1_id = max_vertex_id + 1
@@ -432,21 +433,29 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     # We need to determine which edges belong to which side
     # Build a graph of edges and trace two separate polygons
     
-    # Simpler approach: divide all edges (new and old) between the two faces
+    # Simplified edge distribution approach
+    # NOTE: A complete geometric split would require determining which side of the 
+    # split line each edge/vertex belongs to and ensuring proper polygon closure.
+    # This simplified version divides edges evenly, which works for the Phase 2
+    # use case (territory size tracking) but may not create geometrically valid
+    # faces for all complex polygon shapes.
+    
     # Collect all edges that should be in the new faces
     all_new_edges = [edge1a_id, edge1b_id, edge2a_id, edge2b_id, split_edge_id]
     remaining_old_edges = [e for e in edge_ids if e not in [longest_edge_id, opposite_edge_id]]
     all_edges = all_new_edges + remaining_old_edges
     
     # Divide edges roughly in half
-    # Try to keep split_edge in both (it's shared between the faces)
+    # The split_edge is shared between faces as a boundary
     mid = len(all_edges) // 2
     
     # Simple division: first half to face1, second half to face2
     face1_edges = all_edges[:mid]
     face2_edges = all_edges[mid:]
     
-    # Ensure split edge is in both faces
+    # Ensure split edge is in both faces (it's their shared boundary)
+    # NOTE: This creates a slight inconsistency in edge lists, but is necessary
+    # for both faces to reference their common boundary
     if split_edge_id not in face1_edges:
         face1_edges.append(split_edge_id)
     if split_edge_id not in face2_edges:
