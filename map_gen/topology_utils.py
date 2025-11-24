@@ -21,7 +21,8 @@ Note on split_face():
 import math
 import time
 from typing import Dict, List, Tuple, Optional
-from shapely.geometry import Polygon, LineString, Point
+from shapely.geometry import Polygon, LineString
+from shapely.errors import GEOSException
 from topology import get_adjacency_from_topology
 
 
@@ -132,7 +133,7 @@ def _get_face_polygon(face_id: str, topology: dict) -> Optional[Polygon]:
     
     try:
         return Polygon(vertices)
-    except Exception:
+    except (ValueError, GEOSException):
         return None
 
 
