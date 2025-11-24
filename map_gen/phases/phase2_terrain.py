@@ -27,11 +27,18 @@ from collections import deque
 import sys
 import os
 
-# Add parent directory to path for topology import
+# Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase
 from topology import convert_cells_to_topology, reconstruct_cells_from_topology, get_adjacency_from_topology
+from topology_utils import (
+    merge_faces,
+    split_face,
+    find_smallest_faces,
+    find_largest_faces,
+    find_smallest_neighbor
+)
 
 
 def generate_perlin_noise_2d(shape, res, seed=None):
@@ -581,6 +588,70 @@ def run_phase2(phase1_output, config):
     for edge_type, count in edge_types.items():
         print(f"    - {edge_type}: {count}")
     
+    # Step 7: Merge smallest water territories
+    print(f"\nStep 7: Merging smallest water territories...")
+    smallest_water = find_smallest_faces(topology, "sea", count=5)
+    print(f"  Found {len(smallest_water)} water territories to consider for merging")
+    
+    merged_faces = set()
+    merge_count = 0
+    
+    for face_id, size in smallest_water:
+        # Skip if already merged
+        if face_id in merged_faces or face_id not in topology["faces"]:
+            continue
+        
+        # Find smallest neighbor
+        neighbor_info = find_smallest_neighbor(face_id, topology)
+        if neighbor_info is None:
+            print(f"    {face_id} (size {size:.4f}): no neighbors to merge with")
+            continue
+        
+        neighbor_id, neighbor_size = neighbor_info
+        
+        # Skip if neighbor was already merged
+        if neighbor_id in merged_faces:
+            continue
+        
+        # Merge the two faces
+        success, merged_id = merge_faces(face_id, neighbor_id, topology)
+        if success:
+            print(f"    Merged {face_id} (size {size:.4f}) with {neighbor_id} (size {neighbor_size:.4f}) → {merged_id}")
+            merged_faces.add(face_id)
+            merged_faces.add(neighbor_id)
+            merge_count += 1
+        else:
+            print(f"    Failed to merge {face_id} with {neighbor_id}")
+    
+    print(f"  Merged {merge_count} pairs of water territories")
+    
+    # Step 8: Split largest land territories
+    print(f"\nStep 8: Splitting largest land territories...")
+    largest_land = find_largest_faces(topology, "land", count=5)
+    print(f"  Found {len(largest_land)} land territories to split")
+    
+    split_count = 0
+    
+    for face_id, size in largest_land:
+        # Check if face still exists (might have been modified)
+        if face_id not in topology["faces"]:
+            continue
+        
+        # Split the face
+        success, face1_id, face2_id = split_face(face_id, topology)
+        if success:
+            print(f"    Split {face_id} (size {size:.4f}) → {face1_id} and {face2_id}")
+            split_count += 1
+        else:
+            print(f"    Failed to split {face_id}")
+    
+    print(f"  Split {split_count} land territories")
+    
+    # Recalculate statistics after merging and splitting
+    land_count = sum(1 for f in topology['faces'].values() if f['type'] == 'land')
+    sea_count = sum(1 for f in topology['faces'].values() if f['type'] == 'sea')
+    land_ratio = land_count / (land_count + sea_count) if (land_count + sea_count) > 0 else 0
+    
     # Check sea connectivity using topology for output statistics
     # Get sea connectivity info for statistics
     sea_faces = [f_id for f_id, f in topology['faces'].items() if f['type'] == 'sea']
@@ -615,7 +686,9 @@ def run_phase2(phase1_output, config):
             "sea_connectivity": sea_connectivity_topology,
             "topology_vertices": len(topology['vertices']),
             "topology_edges": len(topology['edges']),
-            "edge_types": edge_types
+            "edge_types": edge_types,
+            "water_merges": merge_count,
+            "land_splits": split_count
         }
     }
     
