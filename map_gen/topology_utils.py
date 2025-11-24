@@ -545,8 +545,13 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
         ev1, ev2 = e["v1"], e["v2"]
         
         # Check which side this edge belongs to
-        v1_on_a = ev1 in side_a_vertices or ev1 == ov1_id and ov1_side_a or ev1 == ov2_id and ov2_side_a
-        v2_on_a = ev2 in side_a_vertices or ev2 == ov1_id and ov1_side_a or ev2 == ov2_id and ov2_side_a
+        # Use parentheses for clarity of precedence
+        v1_on_a = (ev1 in side_a_vertices or 
+                   (ev1 == ov1_id and ov1_side_a) or 
+                   (ev1 == ov2_id and ov2_side_a))
+        v2_on_a = (ev2 in side_a_vertices or 
+                   (ev2 == ov1_id and ov1_side_a) or 
+                   (ev2 == ov2_id and ov2_side_a))
         
         if v1_on_a and v2_on_a:
             face1_edges.append(eid)
@@ -554,13 +559,15 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
             face2_edges.append(eid)
         else:
             # Edge crosses the split - this shouldn't happen for edges not being split
-            # But if it does, add to both? Or the one with more vertices on that side
+            # Add to face1 as a fallback (should be rare)
             face1_edges.append(eid)
     
     # Validate: both faces must have at least 3 edges
+    # Store original vertex count for proper cleanup if validation fails
+    original_vertex_count = len(vertices) - 2  # We added 2 vertices
     if len(face1_edges) < 3 or len(face2_edges) < 3:
-        vertices.pop()
-        vertices.pop()
+        # Remove the vertices we added
+        del vertices[original_vertex_count:]
         return False, None, None
     
     # Create the actual edges in the topology
