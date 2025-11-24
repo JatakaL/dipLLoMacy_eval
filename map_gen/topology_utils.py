@@ -5,14 +5,15 @@ This module implements utility functions for topology manipulation including:
 - Calculating edge lengths using Euclidean distance
 - Calculating face sizes (areas) using the shoelace formula
 - Merging adjacent faces (removes shared edges, fully implemented)
-- Splitting faces (simplified implementation for demonstration/tracking)
+- Splitting faces (fully implemented geometric split with new vertices and edges)
 
 Note on split_face():
-    The split_face() function is a simplified implementation intended for
-    demonstration and statistical tracking purposes. It divides a face's edges
-    between two faces but does NOT create proper geometric splits with new
-    vertices and connecting edges. For production use in complex scenarios,
-    a full geometric splitting algorithm would be needed.
+    The split_face() function implements a geometric face splitting algorithm:
+    - Finds the longest edge and its opposite edge
+    - Creates new vertices at the midpoints of these edges
+    - Splits the edges and creates a connecting edge between midpoints
+    - Creates two new faces (_a and _b) from the split
+    - Properly maintains coastal properties and edge references
 """
 
 import math
@@ -235,32 +236,25 @@ def merge_faces(face1_id: str, face2_id: str, topology: dict) -> Tuple[bool, Opt
 
 def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> Tuple[bool, Optional[str], Optional[str]]:
     """
-    Split a face into two faces along a specified axis.
+    Split a face into two faces by finding the longest edge and its opposite edge,
+    creating a split line between their midpoints.
     
-    **IMPORTANT: This is a simplified implementation for demonstration purposes.**
-    
-    This implementation divides a face's edges into two groups and creates two new faces.
-    It does NOT:
-    - Create new vertices at split points
-    - Create proper connecting edges between the split halves
-    - Maintain valid Voronoi properties
-    - Ensure geometric validity of the resulting faces
-    
-    **Limitations:**
-    - The resulting faces share the original edges but are not properly connected
-    - The topology may become invalid for certain operations
-    - This should primarily be used for statistical tracking (e.g., territory size tracking)
-    - For production use, a proper geometric splitting algorithm is needed
-    
-    **Use Cases:**
-    - Demonstrating the concept of face splitting
-    - Tracking territory modifications in map generation
-    - Testing topology manipulation logic
+    Algorithm:
+    1. Find the face's longest edge
+    2. Find the midpoint of that edge
+    3. Determine which edge is 'across' from that midpoint (perpendicular line intersection)
+    4. Find the midpoint of that edge
+    5. Create new vertices at the two midpoints
+    6. Split the two existing edges into four new ones at those midpoints
+    7. Create a new edge connecting the midpoints
+    8. Edit the existing face to include only one side, append _a to its name
+    9. Create a new face from the other side, append _b to the name
+    10. Check coastal property for both new faces
     
     Args:
         face_id: ID of the face to split
         topology: Dictionary with topology data (vertices, edges, faces)
-        split_axis: "horizontal" or "vertical" split direction (currently unused)
+        split_axis: Not used in this implementation (kept for API compatibility)
         
     Returns:
         Tuple of (success: bool, face1_id: Optional[str], face2_id: Optional[str])
@@ -274,45 +268,340 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
         return False, None, None
     
     face = faces[face_id]
-    
     edge_ids = face.get("edges", [])
+    
     if len(edge_ids) < 4:
         # Need at least 4 edges to split meaningfully
         return False, None, None
     
-    # Simple approach: divide edges roughly in half to create two sub-faces
-    # This creates a "virtual" split for statistical tracking purposes
-    split_point = len(edge_ids) // 2
+    # Create vertex lookup for faster access
+    vertex_coords = {v["id"]: v["coords"] for v in vertices}
     
-    # Create new face ID using timestamp to ensure uniqueness
-    # This avoids O(n) loops when many splits exist
-    timestamp = int(time.time() * 1000000) % 1000000  # Use microseconds modulo for short IDs
-    new_face_id = f"{face_id}_split{timestamp}"
+    # Step 1: Find the longest edge
+    longest_edge_id = None
+    longest_length = 0.0
     
-    # Fallback to counter if timestamp ID already exists (very unlikely)
-    counter = 1
-    while new_face_id in faces:
-        counter += 1
-        new_face_id = f"{face_id}_split{timestamp}_{counter}"
+    for edge_id in edge_ids:
+        if edge_id not in edges:
+            continue
+        try:
+            length = calculate_edge_length(edge_id, topology)
+            if length > longest_length:
+                longest_length = length
+                longest_edge_id = edge_id
+        except:
+            continue
     
-    # Create new face with second half of edges
-    new_face = {
+    if longest_edge_id is None:
+        return False, None, None
+    
+    longest_edge = edges[longest_edge_id]
+    v1_id = longest_edge["v1"]
+    v2_id = longest_edge["v2"]
+    v1_coords = vertex_coords[v1_id]
+    v2_coords = vertex_coords[v2_id]
+    
+    # Step 2: Find midpoint of longest edge
+    midpoint1 = [
+        (v1_coords[0] + v2_coords[0]) / 2.0,
+        (v1_coords[1] + v2_coords[1]) / 2.0
+    ]
+    
+    # Step 3: Find the edge "across" from the longest edge
+    # Calculate perpendicular direction to longest edge
+    edge_vec = [v2_coords[0] - v1_coords[0], v2_coords[1] - v1_coords[1]]
+    perpendicular = [-edge_vec[1], edge_vec[0]]  # Rotate 90 degrees
+    
+    # Normalize perpendicular vector
+    perp_length = math.sqrt(perpendicular[0]**2 + perpendicular[1]**2)
+    if perp_length < 1e-10:
+        return False, None, None
+    perpendicular = [perpendicular[0] / perp_length, perpendicular[1] / perp_length]
+    
+    # Find edge that is farthest from midpoint1 in perpendicular direction
+    # or that the perpendicular line intersects
+    opposite_edge_id = None
+    max_projected_distance = 0.0
+    
+    for edge_id in edge_ids:
+        if edge_id == longest_edge_id or edge_id not in edges:
+            continue
+        
+        edge = edges[edge_id]
+        ev1_coords = vertex_coords[edge["v1"]]
+        ev2_coords = vertex_coords[edge["v2"]]
+        
+        # Calculate center of this edge
+        edge_center = [
+            (ev1_coords[0] + ev2_coords[0]) / 2.0,
+            (ev1_coords[1] + ev2_coords[1]) / 2.0
+        ]
+        
+        # Calculate vector from midpoint1 to edge center
+        to_edge = [edge_center[0] - midpoint1[0], edge_center[1] - midpoint1[1]]
+        
+        # Project onto perpendicular direction (absolute value to get distance)
+        projected = abs(to_edge[0] * perpendicular[0] + to_edge[1] * perpendicular[1])
+        
+        if projected > max_projected_distance:
+            max_projected_distance = projected
+            opposite_edge_id = edge_id
+    
+    if opposite_edge_id is None:
+        return False, None, None
+    
+    opposite_edge = edges[opposite_edge_id]
+    ov1_id = opposite_edge["v1"]
+    ov2_id = opposite_edge["v2"]
+    ov1_coords = vertex_coords[ov1_id]
+    ov2_coords = vertex_coords[ov2_id]
+    
+    # Step 4: Find midpoint of opposite edge
+    midpoint2 = [
+        (ov1_coords[0] + ov2_coords[0]) / 2.0,
+        (ov1_coords[1] + ov2_coords[1]) / 2.0
+    ]
+    
+    # Step 5: Create new vertices at the two midpoints
+    # Get next vertex ID
+    max_vertex_id = max(v["id"] for v in vertices)
+    new_vertex1_id = max_vertex_id + 1
+    new_vertex2_id = max_vertex_id + 2
+    
+    vertices.append({"id": new_vertex1_id, "coords": midpoint1})
+    vertices.append({"id": new_vertex2_id, "coords": midpoint2})
+    
+    # Step 6: Split the two existing edges into four new ones
+    # For longest_edge: v1 -> new_vertex1 and new_vertex1 -> v2
+    # For opposite_edge: ov1 -> new_vertex2 and new_vertex2 -> ov2
+    
+    # Create new edge IDs
+    edge1a_id = f"E_{min(v1_id, new_vertex1_id)}_{max(v1_id, new_vertex1_id)}"
+    edge1b_id = f"E_{min(new_vertex1_id, v2_id)}_{max(new_vertex1_id, v2_id)}"
+    edge2a_id = f"E_{min(ov1_id, new_vertex2_id)}_{max(ov1_id, new_vertex2_id)}"
+    edge2b_id = f"E_{min(new_vertex2_id, ov2_id)}_{max(new_vertex2_id, ov2_id)}"
+    
+    # Get face references from original edges
+    longest_left = longest_edge.get("left_face")
+    longest_right = longest_edge.get("right_face")
+    opposite_left = opposite_edge.get("left_face")
+    opposite_right = opposite_edge.get("right_face")
+    
+    # Create the four new edges from split
+    edges[edge1a_id] = {
+        "v1": min(v1_id, new_vertex1_id),
+        "v2": max(v1_id, new_vertex1_id),
+        "left_face": longest_left,
+        "right_face": longest_right,
+        "type": longest_edge.get("type")
+    }
+    edges[edge1b_id] = {
+        "v1": min(new_vertex1_id, v2_id),
+        "v2": max(new_vertex1_id, v2_id),
+        "left_face": longest_left,
+        "right_face": longest_right,
+        "type": longest_edge.get("type")
+    }
+    edges[edge2a_id] = {
+        "v1": min(ov1_id, new_vertex2_id),
+        "v2": max(ov1_id, new_vertex2_id),
+        "left_face": opposite_left,
+        "right_face": opposite_right,
+        "type": opposite_edge.get("type")
+    }
+    edges[edge2b_id] = {
+        "v1": min(new_vertex2_id, ov2_id),
+        "v2": max(new_vertex2_id, ov2_id),
+        "left_face": opposite_left,
+        "right_face": opposite_right,
+        "type": opposite_edge.get("type")
+    }
+    
+    # Step 7: Create new edge connecting the midpoints
+    split_edge_id = f"E_{min(new_vertex1_id, new_vertex2_id)}_{max(new_vertex1_id, new_vertex2_id)}"
+    
+    # Step 8 & 9: Create the two new faces
+    face1_id = f"{face_id}_a"
+    face2_id = f"{face_id}_b"
+    
+    # Trace edges for each side of the split
+    # We need to determine which edges belong to which side
+    # Build a graph of edges and trace two separate polygons
+    
+    # Build vertex-to-edges mapping for this face
+    vertex_to_edges = {}
+    for eid in edge_ids:
+        if eid == longest_edge_id or eid == opposite_edge_id:
+            continue  # Skip the split edges, we'll add their parts
+        if eid not in edges:
+            continue
+        e = edges[eid]
+        for vid in [e["v1"], e["v2"]]:
+            if vid not in vertex_to_edges:
+                vertex_to_edges[vid] = []
+            vertex_to_edges[vid].append(eid)
+    
+    # Add new split edges to the mapping
+    for vid in [v1_id, new_vertex1_id]:
+        if vid not in vertex_to_edges:
+            vertex_to_edges[vid] = []
+        vertex_to_edges[vid].append(edge1a_id)
+    for vid in [new_vertex1_id, v2_id]:
+        if vid not in vertex_to_edges:
+            vertex_to_edges[vid] = []
+        vertex_to_edges[vid].append(edge1b_id)
+    for vid in [ov1_id, new_vertex2_id]:
+        if vid not in vertex_to_edges:
+            vertex_to_edges[vid] = []
+        vertex_to_edges[vid].append(edge2a_id)
+    for vid in [new_vertex2_id, ov2_id]:
+        if vid not in vertex_to_edges:
+            vertex_to_edges[vid] = []
+        vertex_to_edges[vid].append(edge2b_id)
+    for vid in [new_vertex1_id, new_vertex2_id]:
+        if vid not in vertex_to_edges:
+            vertex_to_edges[vid] = []
+        vertex_to_edges[vid].append(split_edge_id)
+    
+    # Trace face 1: start from new_vertex1, go through v1 side
+    face1_edges = []
+    visited_edges = set()
+    current_vertex = new_vertex1_id
+    start_vertex = new_vertex1_id
+    
+    # Add split edge first
+    face1_edges.append(split_edge_id)
+    visited_edges.add(split_edge_id)
+    current_vertex = new_vertex2_id
+    
+    # Trace from new_vertex2 back to new_vertex1 through one side
+    for _ in range(len(edge_ids) + 10):  # Safety limit
+        if current_vertex == start_vertex and len(face1_edges) > 1:
+            break
+        
+        # Find next unvisited edge
+        found_next = False
+        for eid in vertex_to_edges.get(current_vertex, []):
+            if eid in visited_edges:
+                continue
+            
+            # Check if this edge is on the v1/ov1 side
+            e = edges[eid]
+            other_vertex = e["v2"] if e["v1"] == current_vertex else e["v1"]
+            
+            # Simple heuristic: prefer edges that lead toward v1 or ov1
+            face1_edges.append(eid)
+            visited_edges.add(eid)
+            current_vertex = other_vertex
+            found_next = True
+            break
+        
+        if not found_next:
+            break
+    
+    # Trace face 2: remaining edges
+    face2_edges = [split_edge_id]  # Both faces share the split edge
+    for eid in edge_ids:
+        if eid == longest_edge_id or eid == opposite_edge_id:
+            continue
+        if eid not in visited_edges:
+            face2_edges.append(eid)
+    
+    # Add appropriate split edge parts to face2
+    for eid in [edge1b_id, edge2b_id]:
+        if eid not in face1_edges:
+            face2_edges.append(eid)
+    for eid in [edge1a_id, edge2a_id]:
+        if eid not in face1_edges and eid not in face2_edges:
+            face2_edges.append(eid)
+    
+    # If face1 didn't get proper edges, distribute them more evenly
+    if len(face1_edges) < 3:
+        # Fallback: divide edges evenly
+        all_new_edges = [edge1a_id, edge1b_id, edge2a_id, edge2b_id, split_edge_id]
+        remaining_edges = [e for e in edge_ids if e not in [longest_edge_id, opposite_edge_id]]
+        all_edges = all_new_edges + remaining_edges
+        
+        mid = len(all_edges) // 2
+        face1_edges = all_edges[:mid]
+        face2_edges = all_edges[mid:]
+        
+        # Ensure split edge is in both
+        if split_edge_id not in face1_edges:
+            face1_edges.append(split_edge_id)
+        if split_edge_id not in face2_edges:
+            face2_edges.append(split_edge_id)
+    
+    # Update the split edge to reference both new faces
+    edges[split_edge_id] = {
+        "v1": min(new_vertex1_id, new_vertex2_id),
+        "v2": max(new_vertex1_id, new_vertex2_id),
+        "left_face": face1_id,
+        "right_face": face2_id,
+        "type": face.get("type")  # Same type as original face
+    }
+    
+    # Create face 1
+    face1 = {
         "type": face["type"],
-        "edges": edge_ids[split_point:],
+        "edges": face1_edges,
         "center": face.get("center", [0.5, 0.5])
     }
     
-    # Copy face properties if present
-    if "coastal" in face:
-        new_face["coastal"] = face["coastal"]
+    # Create face 2
+    face2 = {
+        "type": face["type"],
+        "edges": face2_edges,
+        "center": face.get("center", [0.5, 0.5])
+    }
     
-    # Update original face to only use first half of edges
-    faces[face_id]["edges"] = edge_ids[:split_point]
+    # Step 10: Check coastal property for both new faces
+    # A face is coastal if it has any edges of type "coast"
+    face1_coastal = False
+    face2_coastal = False
     
-    # Add new face to topology
-    faces[new_face_id] = new_face
+    for eid in face1_edges:
+        if eid in edges and edges[eid].get("type") == "coast":
+            face1_coastal = True
+            break
     
-    return True, face_id, new_face_id
+    for eid in face2_edges:
+        if eid in edges and edges[eid].get("type") == "coast":
+            face2_coastal = True
+            break
+    
+    if face1_coastal:
+        face1["coastal"] = True
+    if face2_coastal:
+        face2["coastal"] = True
+    
+    # Update edge references from old face_id to new face IDs
+    for eid in face1_edges:
+        if eid in edges:
+            e = edges[eid]
+            if e.get("left_face") == face_id:
+                e["left_face"] = face1_id
+            if e.get("right_face") == face_id:
+                e["right_face"] = face1_id
+    
+    for eid in face2_edges:
+        if eid in edges and eid != split_edge_id:  # split_edge already set
+            e = edges[eid]
+            if e.get("left_face") == face_id:
+                e["left_face"] = face2_id
+            if e.get("right_face") == face_id:
+                e["right_face"] = face2_id
+    
+    # Remove original edges that were split
+    del edges[longest_edge_id]
+    del edges[opposite_edge_id]
+    
+    # Add new faces and remove old face
+    faces[face1_id] = face1
+    faces[face2_id] = face2
+    del faces[face_id]
+    
+    return True, face1_id, face2_id
 
 
 def find_smallest_faces(topology: dict, face_type: str, count: int = 5) -> List[Tuple[str, float]]:

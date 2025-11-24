@@ -182,10 +182,15 @@ def test_split_face():
     success, face1_id, face2_id = split_face("C1", topology)
     
     assert success, "Split should succeed"
-    assert face1_id == "C1", "First face should be C1"
+    assert face1_id is not None, "First face should have an ID"
     assert face2_id is not None, "Second face should have an ID"
+    assert face1_id in topology["faces"], "First face should exist"
     assert face2_id in topology["faces"], "Second face should exist"
-    assert len(topology["faces"]) == initial_face_count + 1, "Should have one more face"
+    assert "C1" not in topology["faces"], "Original face C1 should be removed"
+    assert face1_id.startswith("C1"), "First face should be based on C1"
+    assert face2_id.startswith("C1"), "Second face should be based on C1"
+    # The original implementation creates faces C1_a and C1_b
+    assert len(topology["faces"]) == initial_face_count + 1, "Should have one more face (original replaced by two)"
     
     print(f"  ✓ Successfully split C1 into {face1_id} and {face2_id}")
     print(f"  ✓ Face count: {initial_face_count} → {len(topology['faces'])}")
