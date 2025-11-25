@@ -606,6 +606,10 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     if len(face1_edges) < 3 or len(face2_edges) < 3:
         # Remove the vertices we added
         del vertices[original_vertex_count:]
+        # Remove the edges we added
+        for edge_id in [edge1a_id, edge1b_id, edge2a_id, edge2b_id]:
+            if edge_id in edges:
+                del edges[edge_id]
         return False, None, None
     
     # Create the actual edges in the topology
