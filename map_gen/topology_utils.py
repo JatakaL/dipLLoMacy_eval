@@ -619,28 +619,28 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
         "v1": min(v1_id, new_vertex1_id),
         "v2": max(v1_id, new_vertex1_id),
         "left_face": face1_id,
-        "right_face": longest_right if longest_right != face_id else longest_left,
+        "right_face": longest_right if longest_right != face_id else (longest_left if longest_left != face_id else None),
         "type": longest_edge.get("type")
     }
     edges[edge1b_id] = {
         "v1": min(new_vertex1_id, v2_id),
         "v2": max(new_vertex1_id, v2_id),
         "left_face": face2_id,
-        "right_face": longest_right if longest_right != face_id else longest_left,
+        "right_face": longest_right if longest_right != face_id else (longest_left if longest_left != face_id else None),
         "type": longest_edge.get("type")
     }
     edges[edge2a_id] = {
         "v1": min(ov1_id, new_vertex2_id),
         "v2": max(ov1_id, new_vertex2_id),
         "left_face": face1_id if ov1_side_a else face2_id,
-        "right_face": opposite_right if opposite_right != face_id else opposite_left,
+        "right_face": opposite_right if opposite_right != face_id else (opposite_left if opposite_left != face_id else None),
         "type": opposite_edge.get("type")
     }
     edges[edge2b_id] = {
         "v1": min(new_vertex2_id, ov2_id),
         "v2": max(new_vertex2_id, ov2_id),
         "left_face": face2_id if ov1_side_a else face1_id,
-        "right_face": opposite_right if opposite_right != face_id else opposite_left,
+        "right_face": opposite_right if opposite_right != face_id else (opposite_left if opposite_left != face_id else None),
         "type": opposite_edge.get("type")
     }
     edges[split_edge_id] = {
