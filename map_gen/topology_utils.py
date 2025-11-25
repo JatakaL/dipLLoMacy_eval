@@ -2,8 +2,8 @@
 Topology Utilities Module
 
 This module implements utility functions for topology manipulation including:
-- Calculating edge lengths using Euclidean distance
-- Calculating face sizes (areas) using the shoelace formula
+- Calculating edge lengths using shapely LineString
+- Calculating face sizes (areas) using shapely Polygon
 - Merging adjacent faces (removes shared edges, fully implemented)
 - Splitting faces (geometric split with proper polygon tracing)
 
@@ -21,76 +21,50 @@ Note on split_face():
 import math
 import time
 from typing import Dict, List, Tuple, Optional
+from shapely.geometry import Polygon, LineString
+from shapely.errors import GEOSException
 from topology import get_adjacency_from_topology
 
 
-def calculate_edge_length(edge_id: str, topology: dict) -> float:
+def _get_vertex_coords_lookup(topology: dict) -> Dict[int, List[float]]:
     """
-    Calculate the Euclidean length of an edge.
+    Create a lookup dictionary for vertex coordinates.
     
     Args:
-        edge_id: ID of the edge (e.g., "E_0_1")
         topology: Dictionary with topology data (vertices, edges, faces)
         
     Returns:
-        Length of the edge in map units
+        Dictionary mapping vertex ID to coordinates [x, y]
     """
-    edges = topology.get("edges", {})
-    vertices = topology.get("vertices", [])
-    
-    if edge_id not in edges:
-        raise ValueError(f"Edge {edge_id} not found in topology")
-    
-    edge = edges[edge_id]
-    v1_id = edge["v1"]
-    v2_id = edge["v2"]
-    
-    # Find vertex coordinates
-    v1_coords = None
-    v2_coords = None
-    for vertex in vertices:
-        if vertex["id"] == v1_id:
-            v1_coords = vertex["coords"]
-        if vertex["id"] == v2_id:
-            v2_coords = vertex["coords"]
-    
-    if v1_coords is None or v2_coords is None:
-        raise ValueError(f"Vertices for edge {edge_id} not found")
-    
-    # Calculate Euclidean distance
-    dx = v2_coords[0] - v1_coords[0]
-    dy = v2_coords[1] - v1_coords[1]
-    length = math.sqrt(dx * dx + dy * dy)
-    
-    return length
+    return {v["id"]: v["coords"] for v in topology.get("vertices", [])}
 
 
-def calculate_face_size(face_id: str, topology: dict) -> float:
+def _trace_face_polygon_vertices(face_id: str, topology: dict) -> List[List[float]]:
     """
-    Calculate the area of a face using the shoelace formula.
+    Trace the polygon boundary of a face and return ordered vertices.
+    
+    This function builds a graph from the face's edges and traces the boundary
+    to get an ordered list of vertex coordinates forming the polygon.
     
     Args:
         face_id: ID of the face
         topology: Dictionary with topology data (vertices, edges, faces)
         
     Returns:
-        Area of the face in square map units
+        List of [x, y] coordinates forming the polygon boundary
     """
     faces = topology.get("faces", {})
     edges = topology.get("edges", {})
-    vertices = topology.get("vertices", [])
+    vertex_coords = _get_vertex_coords_lookup(topology)
     
     if face_id not in faces:
-        raise ValueError(f"Face {face_id} not found in topology")
+        return []
     
     face = faces[face_id]
     edge_ids = face.get("edges", [])
     
     if not edge_ids:
-        return 0.0
-    
-    # Create vertex lookup for faster access
-    vertex_coords = {v["id"]: v["coords"] for v in vertices}
+        return []
     
     # Build a graph of vertex connections from the face's edges
     vertex_graph = {}
@@ -108,7 +82,7 @@ def calculate_face_size(face_id: str, topology: dict) -> float:
         vertex_graph[v2].append(v1)
     
     if not vertex_graph:
-        return 0.0
+        return []
     
     # Trace the polygon boundary to get ordered vertices
     polygon_vertices = []
@@ -138,18 +112,85 @@ def calculate_face_size(face_id: str, topology: dict) -> float:
             break
         current = next_vertex
     
-    # Calculate area using shoelace formula
-    if len(polygon_vertices) < 3:
+    return polygon_vertices
+
+
+def _get_face_polygon(face_id: str, topology: dict) -> Optional[Polygon]:
+    """
+    Get a shapely Polygon object for a face.
+    
+    Args:
+        face_id: ID of the face
+        topology: Dictionary with topology data (vertices, edges, faces)
+        
+    Returns:
+        Shapely Polygon object, or None if the polygon cannot be created
+    """
+    vertices = _trace_face_polygon_vertices(face_id, topology)
+    
+    if len(vertices) < 3:
+        return None
+    
+    try:
+        return Polygon(vertices)
+    except (ValueError, GEOSException):
+        return None
+
+
+def calculate_edge_length(edge_id: str, topology: dict) -> float:
+    """
+    Calculate the length of an edge using shapely LineString.
+    
+    Args:
+        edge_id: ID of the edge (e.g., "E_0_1")
+        topology: Dictionary with topology data (vertices, edges, faces)
+        
+    Returns:
+        Length of the edge in map units
+    """
+    edges = topology.get("edges", {})
+    vertex_coords = _get_vertex_coords_lookup(topology)
+    
+    if edge_id not in edges:
+        raise ValueError(f"Edge {edge_id} not found in topology")
+    
+    edge = edges[edge_id]
+    v1_id = edge["v1"]
+    v2_id = edge["v2"]
+    
+    v1_coords = vertex_coords.get(v1_id)
+    v2_coords = vertex_coords.get(v2_id)
+    
+    if v1_coords is None or v2_coords is None:
+        raise ValueError(f"Vertices for edge {edge_id} not found")
+    
+    # Use shapely LineString for length calculation
+    line = LineString([v1_coords, v2_coords])
+    return line.length
+
+
+def calculate_face_size(face_id: str, topology: dict) -> float:
+    """
+    Calculate the area of a face using shapely Polygon.
+    
+    Args:
+        face_id: ID of the face
+        topology: Dictionary with topology data (vertices, edges, faces)
+        
+    Returns:
+        Area of the face in square map units
+    """
+    faces = topology.get("faces", {})
+    
+    if face_id not in faces:
+        raise ValueError(f"Face {face_id} not found in topology")
+    
+    polygon = _get_face_polygon(face_id, topology)
+    
+    if polygon is None:
         return 0.0
     
-    area = 0.0
-    n = len(polygon_vertices)
-    for i in range(n):
-        j = (i + 1) % n
-        area += polygon_vertices[i][0] * polygon_vertices[j][1]
-        area -= polygon_vertices[j][0] * polygon_vertices[i][1]
-    
-    return abs(area) / 2.0
+    return polygon.area
 
 
 def merge_faces(face1_id: str, face2_id: str, topology: dict) -> Tuple[bool, Optional[str]]:
@@ -278,7 +319,7 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
         return False, None, None
     
     # Create vertex lookup for faster access
-    vertex_coords = {v["id"]: v["coords"] for v in vertices}
+    vertex_coords = _get_vertex_coords_lookup(topology)
     
     # Step 1: Find the longest edge
     longest_edge_id = None
@@ -305,11 +346,10 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     v1_coords = vertex_coords[v1_id]
     v2_coords = vertex_coords[v2_id]
     
-    # Step 2: Find midpoint of longest edge
-    midpoint1 = [
-        (v1_coords[0] + v2_coords[0]) / 2.0,
-        (v1_coords[1] + v2_coords[1]) / 2.0
-    ]
+    # Step 2: Find midpoint of longest edge using shapely
+    longest_line = LineString([v1_coords, v2_coords])
+    midpoint1_point = longest_line.interpolate(0.5, normalized=True)
+    midpoint1 = [midpoint1_point.x, midpoint1_point.y]
     
     # Step 3: Find the edge "across" from the longest edge
     # Calculate perpendicular direction to longest edge
@@ -335,11 +375,10 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
         ev1_coords = vertex_coords[edge["v1"]]
         ev2_coords = vertex_coords[edge["v2"]]
         
-        # Calculate center of this edge
-        edge_center = [
-            (ev1_coords[0] + ev2_coords[0]) / 2.0,
-            (ev1_coords[1] + ev2_coords[1]) / 2.0
-        ]
+        # Calculate center of this edge using shapely
+        edge_line = LineString([ev1_coords, ev2_coords])
+        edge_center_point = edge_line.interpolate(0.5, normalized=True)
+        edge_center = [edge_center_point.x, edge_center_point.y]
         
         # Calculate vector from midpoint1 to edge center
         to_edge = [edge_center[0] - midpoint1[0], edge_center[1] - midpoint1[1]]
@@ -360,11 +399,10 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     ov1_coords = vertex_coords[ov1_id]
     ov2_coords = vertex_coords[ov2_id]
     
-    # Step 4: Find midpoint of opposite edge
-    midpoint2 = [
-        (ov1_coords[0] + ov2_coords[0]) / 2.0,
-        (ov1_coords[1] + ov2_coords[1]) / 2.0
-    ]
+    # Step 4: Find midpoint of opposite edge using shapely
+    opposite_line = LineString([ov1_coords, ov2_coords])
+    midpoint2_point = opposite_line.interpolate(0.5, normalized=True)
+    midpoint2 = [midpoint2_point.x, midpoint2_point.y]
     
     # Step 5: Create new vertices at the two midpoints
     # Get next vertex ID
