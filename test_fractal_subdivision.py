@@ -7,7 +7,6 @@ This script tests the fractal edge subdivision functionality.
 
 import sys
 import os
-import math
 
 # Add the map_gen directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen'))
