@@ -22,6 +22,9 @@ import math
 import random
 from typing import Dict, List, Tuple, Optional
 
+# Tolerance for detecting degenerate edges (near-zero length)
+EDGE_LENGTH_EPSILON = 1e-9
+
 
 def midpoint_displacement(
     point_a: Tuple[float, float],
@@ -59,7 +62,7 @@ def midpoint_displacement(
     dy = point_b[1] - point_a[1]
     length = math.sqrt(dx * dx + dy * dy)
     
-    if length < 1e-9:
+    if length < EDGE_LENGTH_EPSILON:
         return [point_a, point_b]
     
     # Perpendicular unit vector (rotate 90 degrees)
@@ -203,7 +206,8 @@ def generate_all_visual_paths(
         
         # Create edge-specific seed for reproducibility
         # Use edge vertex IDs to make seed deterministic per edge
-        edge_seed = seed + hash((v1_id, v2_id)) % 10000
+        # Use bitwise AND with 0x7FFFFFFF to ensure positive value
+        edge_seed = seed + (hash((v1_id, v2_id)) & 0x7FFFFFFF) % 10000
         
         # Generate visual path
         visual_path = generate_visual_path(

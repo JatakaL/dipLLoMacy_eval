@@ -93,20 +93,20 @@ def test_generate_visual_path():
     """Test visual path generation for different edge types."""
     print("\nTest 4: Visual path generation")
     
-    v1 = (0.1, 0.1)
-    v2 = (0.5, 0.5)
+    start_coords = (0.1, 0.1)
+    end_coords = (0.5, 0.5)
     seed = 42
     
     # Coast path should be more complex
-    coast_path = generate_visual_path(v1, v2, "coast", seed)
-    land_path = generate_visual_path(v1, v2, "land", seed)
-    map_edge_path = generate_visual_path(v1, v2, "map-edge", seed)
+    coast_path = generate_visual_path(start_coords, end_coords, "coast", seed)
+    land_path = generate_visual_path(start_coords, end_coords, "land", seed)
+    map_edge_path = generate_visual_path(start_coords, end_coords, "map-edge", seed)
     
     # All paths should start and end at the same points
-    assert coast_path[0] == list(v1), "Coast path should start at v1"
-    assert coast_path[-1] == list(v2), "Coast path should end at v2"
-    assert land_path[0] == list(v1), "Land path should start at v1"
-    assert land_path[-1] == list(v2), "Land path should end at v2"
+    assert coast_path[0] == list(start_coords), "Coast path should start at start_coords"
+    assert coast_path[-1] == list(end_coords), "Coast path should end at end_coords"
+    assert land_path[0] == list(start_coords), "Land path should start at start_coords"
+    assert land_path[-1] == list(end_coords), "Land path should end at end_coords"
     
     # Map edge should be straight (only 2 points)
     assert len(map_edge_path) == 2, f"Map edge should have 2 points, got {len(map_edge_path)}"
@@ -123,17 +123,17 @@ def test_generate_visual_path_reproducibility():
     """Test that visual path generation is reproducible with same seed."""
     print("\nTest 5: Visual path reproducibility")
     
-    v1 = (0.2, 0.3)
-    v2 = (0.8, 0.7)
+    start_coords = (0.2, 0.3)
+    end_coords = (0.8, 0.7)
     seed = 123
     
-    path1 = generate_visual_path(v1, v2, "coast", seed)
-    path2 = generate_visual_path(v1, v2, "coast", seed)
+    path1 = generate_visual_path(start_coords, end_coords, "coast", seed)
+    path2 = generate_visual_path(start_coords, end_coords, "coast", seed)
     
     assert path1 == path2, "Same seed should produce identical paths"
     
     # Different seed should produce different path
-    path3 = generate_visual_path(v1, v2, "coast", seed + 1)
+    path3 = generate_visual_path(start_coords, end_coords, "coast", seed + 1)
     assert path1 != path3, "Different seeds should produce different paths"
     
     print(f"  ✓ Same seed produces identical paths")
