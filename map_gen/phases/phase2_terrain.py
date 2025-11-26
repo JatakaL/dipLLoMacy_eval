@@ -597,7 +597,7 @@ def run_phase2(phase1_output, config):
     merge_count = 0
     
     for face_id, size in smallest_water:
-        # Skip if already merged
+        # Skip if face was already merged or no longer exists in topology
         if face_id in merged_faces or face_id not in topology["faces"]:
             continue
         
@@ -609,8 +609,8 @@ def run_phase2(phase1_output, config):
         
         neighbor_id, neighbor_size = neighbor_info
         
-        # Skip if neighbor was already merged
-        if neighbor_id in merged_faces:
+        # Skip if neighbor was already merged or no longer exists in topology
+        if neighbor_id in merged_faces or neighbor_id not in topology["faces"]:
             continue
         
         # Merge the two faces
