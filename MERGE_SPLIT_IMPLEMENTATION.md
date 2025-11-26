@@ -12,7 +12,7 @@ This document describes the implementation of face merging and splitting functio
 ```python
 calculate_edge_length(edge_id, topology) -> float
 ```
-- Calculates the Euclidean distance between two vertices
+- Uses Shapely's `LineString.length` method to compute the length between two vertices (for straight edges, this is equivalent to the Euclidean distance)
 - Used to measure the physical length of edges in the map
 
 #### Face Size Calculation
