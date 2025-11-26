@@ -22,7 +22,9 @@ import numpy as np
 
 from map_gen.fractal_viz_utils import (
     draw_fractal_edges as _draw_fractal_edges_impl,
-    get_fractal_face_polygon as _get_fractal_face_polygon_impl
+    get_fractal_face_polygon as _get_fractal_face_polygon_impl,
+    EDGE_COLORS,
+    EDGE_WIDTHS
 )
 
 
@@ -231,21 +233,6 @@ def visualize_with_topology(ax, map_data, show_labels=False):
     # Create vertex lookup
     vertex_coords = {v['id']: v['coords'] for v in vertices_list}
     
-    # Define edge colors by type
-    edge_colors = {
-        'land': '#4A7C59',
-        'sea': '#5B9BD5',
-        'coast': '#C55A11',
-        'map-edge': '#2F2F2F'
-    }
-    
-    edge_widths = {
-        'land': 1.0,
-        'sea': 0.8,
-        'coast': 1.8,
-        'map-edge': 2.0
-    }
-    
     # First pass: Draw filled faces
     for face_id, face_data in faces.items():
         face_type = face_data.get('type', 'land')
@@ -269,8 +256,8 @@ def visualize_with_topology(ax, map_data, show_labels=False):
         v1_coords = vertex_coords[v1_id]
         v2_coords = vertex_coords[v2_id]
         
-        color = edge_colors.get(edge_type, '#000000')
-        linewidth = edge_widths.get(edge_type, 1.0)
+        color = EDGE_COLORS.get(edge_type, '#000000')
+        linewidth = EDGE_WIDTHS.get(edge_type, 1.0)
         
         # Check if visual_path is available (fractal subdivision)
         visual_path = edge_data.get('visual_path')
@@ -295,13 +282,13 @@ def visualize_with_topology(ax, map_data, show_labels=False):
     
     # Legend for edge types
     legend_elements = [
-        plt.Line2D([0], [0], color=edge_colors['land'], linewidth=edge_widths['land'], 
+        plt.Line2D([0], [0], color=EDGE_COLORS['land'], linewidth=EDGE_WIDTHS['land'], 
                    label='Land border'),
-        plt.Line2D([0], [0], color=edge_colors['coast'], linewidth=edge_widths['coast'], 
+        plt.Line2D([0], [0], color=EDGE_COLORS['coast'], linewidth=EDGE_WIDTHS['coast'], 
                    label='Coastline'),
-        plt.Line2D([0], [0], color=edge_colors['sea'], linewidth=edge_widths['sea'], 
+        plt.Line2D([0], [0], color=EDGE_COLORS['sea'], linewidth=EDGE_WIDTHS['sea'], 
                    label='Sea border'),
-        plt.Line2D([0], [0], color=edge_colors['map-edge'], linewidth=edge_widths['map-edge'], 
+        plt.Line2D([0], [0], color=EDGE_COLORS['map-edge'], linewidth=EDGE_WIDTHS['map-edge'], 
                    label='Map boundary')
     ]
     ax.legend(handles=legend_elements, loc='upper right', fontsize=8, framealpha=0.9)
