@@ -1,9 +1,20 @@
 """
 Shared utilities for fractal edge visualization.
 
-This module provides common functions for drawing fractal edges and
-reconstructing face polygons using visual_path data from the topology.
-These utilities are shared between map_viewer.py and map_viewer_cli.py.
+This module provides common functions for drawing edges and
+reconstructing face polygons from the topology.
+
+Two Visualization Approaches:
+1. Legacy (visual_path): Each edge stores a visual_path array with
+   displaced coordinates for display purposes only.
+   
+2. New (subdivided topology): Edges are actually subdivided in the
+   topology, creating new vertices and edges. The visual appearance
+   comes from drawing the many small edges that form a border.
+
+These utilities support both approaches for backward compatibility.
+The draw_fractal_edges function will use visual_path if present,
+otherwise it draws the actual edge vertices (which may be subdivided).
 """
 
 import numpy as np
@@ -43,7 +54,12 @@ def _points_are_close(point1, point2, tolerance=DEFAULT_POINT_TOLERANCE):
 
 
 def draw_fractal_edges(ax, topology, edge_colors=None, edge_widths=None):
-    """Draw edges using visual_path from topology for fractal appearance.
+    """Draw edges from topology with type-based styling.
+    
+    This function supports two modes:
+    1. If edges have visual_path data, it draws the path (legacy mode)
+    2. Otherwise, it draws straight lines between edge vertices
+       (works with subdivided topology where many small edges create fractal appearance)
     
     Args:
         ax: Matplotlib axis
@@ -96,14 +112,18 @@ def draw_fractal_edges(ax, topology, edge_colors=None, edge_widths=None):
 
 
 def get_fractal_face_polygon(topology, face_id):
-    """Reconstruct a face polygon using visual_path from its edges.
+    """Reconstruct a face polygon from its edges.
+    
+    This function works with both:
+    1. Legacy mode: Uses visual_path arrays from edges
+    2. Subdivided mode: Uses actual edge vertices (many small edges)
     
     Args:
         topology: Topology dictionary with vertices, edges, and faces
         face_id: ID of the face to reconstruct
         
     Returns:
-        List of [x, y] points forming the polygon with fractal edges, or None if not available
+        List of [x, y] points forming the polygon, or None if not available
     """
     if not topology:
         return None

@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase, get_input_directory, get_datetime_filename
 from topology import get_adjacency_from_topology
-from fractal_subdivision import generate_all_visual_paths
+from fractal_subdivision import generate_all_visual_paths, subdivide_all_edges
 
 
 class RegionNamer:
@@ -411,14 +411,31 @@ def run_phase7(phase6_output, config):
     print(f"  Listed {len(sc_list['neutral'])} neutral SCs")
     
     # Step 5: Generate fractal edge subdivision for visual rendering
+    # Use the new topological subdivision approach that creates actual edges
+    # instead of just visual paths
     print("\nStep 5: Generating fractal edge subdivision...")
-    topology = generate_all_visual_paths(topology, seed)
+    
+    # Ensure borders exist in topology (for backward compatibility with older data)
+    if "borders" not in topology:
+        topology["borders"] = {}
+    
+    original_edge_count = len(topology["edges"])
+    original_vertex_count = len(topology["vertices"])
+    
+    # Subdivide edges topologically (creates new vertices and edges)
+    topology = subdivide_all_edges(topology, seed)
+    
+    new_edge_count = len(topology["edges"])
+    new_vertex_count = len(topology["vertices"])
+    
     # Count edges by type
     edge_type_counts = {}
     for edge_data in topology["edges"].values():
         edge_type = edge_data.get("type", "unknown")
         edge_type_counts[edge_type] = edge_type_counts.get(edge_type, 0) + 1
-    print(f"  Generated visual paths for {len(topology['edges'])} edges")
+    
+    print(f"  Subdivided edges: {original_edge_count} -> {new_edge_count}")
+    print(f"  Added vertices: {original_vertex_count} -> {new_vertex_count}")
     for edge_type, count in sorted(edge_type_counts.items()):
         print(f"    - {edge_type}: {count} edges")
     

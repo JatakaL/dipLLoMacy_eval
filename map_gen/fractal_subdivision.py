@@ -9,7 +9,15 @@ The Algorithm:
 2. Find the midpoint M
 3. Move M slightly perpendicular to the direction of the edge by a random amount
 4. Recursively repeat for segments A -> M and M -> B
-5. Store these new points in a visual_path array inside the Edge
+5. Create new vertices and edges in the topology (topological subdivision)
+6. Update borders to contain the new edges
+
+Two Approaches:
+1. generate_all_visual_paths(): Legacy approach - stores visual coordinates in visual_path
+   array on each edge. Simple but creates inconsistency between visual and topological data.
+   
+2. subdivide_all_edges(): New approach - actually modifies the topology by creating new
+   vertices and edges. This ensures visual representation matches topological data.
 
 Refinement Strategy:
 - Coastlines (land-sea boundaries): Heavy displacement for jagged coastlines
@@ -170,6 +178,197 @@ def generate_visual_path(
     
     # Convert to list format
     return [list(point) for point in path]
+
+
+def subdivide_edge_topology(
+    topology: Dict,
+    edge_id: str,
+    seed: Optional[int] = None
+) -> Tuple[List[str], List[int]]:
+    """
+    Subdivide a single edge in the topology, creating new vertices and edges.
+    
+    This function:
+    1. Uses the fractal midpoint displacement algorithm
+    2. Creates new vertices at each displaced point
+    3. Creates new edges connecting consecutive vertices
+    4. Updates the border to contain the new edges
+    5. Removes the original edge
+    
+    Args:
+        topology: Topology dictionary (modified in place)
+        edge_id: ID of the edge to subdivide
+        seed: Random seed for reproducibility
+        
+    Returns:
+        Tuple of (new_edge_ids, new_vertex_ids)
+    """
+    vertices = topology.get("vertices", [])
+    edges = topology.get("edges", {})
+    borders = topology.get("borders", {})
+    faces = topology.get("faces", {})
+    
+    if edge_id not in edges:
+        return [], []
+    
+    edge = edges[edge_id]
+    v1_id = edge.get("v1")
+    v2_id = edge.get("v2")
+    edge_type = edge.get("type", "land")
+    left_face = edge.get("left_face")
+    right_face = edge.get("right_face")
+    
+    # Create vertex coordinate lookup
+    vertex_coords = {v["id"]: tuple(v["coords"]) for v in vertices}
+    
+    if v1_id not in vertex_coords or v2_id not in vertex_coords:
+        return [], []
+    
+    v1_coords = vertex_coords[v1_id]
+    v2_coords = vertex_coords[v2_id]
+    
+    # Get displacement parameters for this edge type
+    initial_displacement, roughness, max_depth = get_edge_displacement_params(edge_type)
+    
+    # If no subdivision needed, return unchanged
+    if initial_displacement == 0.0 or max_depth == 0:
+        return [edge_id], []
+    
+    # Generate the subdivided path using midpoint displacement
+    dx = v2_coords[0] - v1_coords[0]
+    dy = v2_coords[1] - v1_coords[1]
+    edge_length = math.sqrt(dx * dx + dy * dy)
+    displacement = initial_displacement * edge_length
+    
+    rng = random.Random(seed)
+    path = midpoint_displacement(
+        v1_coords, v2_coords,
+        displacement, roughness,
+        0, max_depth, rng
+    )
+    
+    # If path has only 2 points (start and end), no subdivision needed
+    if len(path) <= 2:
+        return [edge_id], []
+    
+    # Find the maximum vertex ID
+    max_vertex_id = max(v["id"] for v in vertices) if vertices else -1
+    
+    # Create new vertices for intermediate points (skip first and last which are v1 and v2)
+    new_vertex_ids = []
+    for i, point in enumerate(path):
+        if i == 0 or i == len(path) - 1:
+            continue  # Skip start and end points
+        
+        max_vertex_id += 1
+        new_vertex = {
+            "id": max_vertex_id,
+            "coords": list(point)
+        }
+        vertices.append(new_vertex)
+        new_vertex_ids.append(max_vertex_id)
+    
+    # Create new edges connecting consecutive vertices
+    new_edge_ids = []
+    all_vertex_ids = [v1_id] + new_vertex_ids + [v2_id]
+    
+    for i in range(len(all_vertex_ids) - 1):
+        from_v = all_vertex_ids[i]
+        to_v = all_vertex_ids[i + 1]
+        
+        # Create canonical edge ID (smaller vertex ID first)
+        min_v = min(from_v, to_v)
+        max_v = max(from_v, to_v)
+        new_edge_id = f"E_{min_v}_{max_v}"
+        
+        # Create the new edge with same properties as original
+        new_edge = {
+            "v1": min_v,
+            "v2": max_v,
+            "type": edge_type
+        }
+        if left_face:
+            new_edge["left_face"] = left_face
+        if right_face:
+            new_edge["right_face"] = right_face
+        
+        edges[new_edge_id] = new_edge
+        new_edge_ids.append(new_edge_id)
+    
+    # Find and update the border that contains this edge
+    border_id = f"B_{min(v1_id, v2_id)}_{max(v1_id, v2_id)}"
+    if border_id in borders:
+        border = borders[border_id]
+        # Replace the single edge with the new edges
+        if edge_id in border["edges"]:
+            idx = border["edges"].index(edge_id)
+            border["edges"] = border["edges"][:idx] + new_edge_ids + border["edges"][idx+1:]
+        else:
+            # Edge wasn't in the border's list, add new edges
+            border["edges"] = new_edge_ids
+    
+    # Update faces to replace the old edge with new edges
+    for face_id, face in faces.items():
+        if "edges" in face and edge_id in face["edges"]:
+            idx = face["edges"].index(edge_id)
+            face["edges"] = face["edges"][:idx] + new_edge_ids + face["edges"][idx+1:]
+    
+    # Remove the original edge
+    del edges[edge_id]
+    
+    return new_edge_ids, new_vertex_ids
+
+
+def subdivide_all_edges(
+    topology: Dict,
+    seed: int = 42
+) -> Dict:
+    """
+    Subdivide all edges in a topology to create jagged borders.
+    
+    This function modifies the topology in place by:
+    1. Creating new vertices at displaced midpoints
+    2. Replacing each edge with multiple smaller edges
+    3. Updating borders to contain the new edges
+    4. Updating faces to reference the new edges
+    
+    This approach ensures that the visual representation is based
+    on the actual topological data, not a separate visual-only path.
+    
+    Args:
+        topology: Topology dictionary with vertices, edges, faces, and borders
+        seed: Base random seed for reproducibility
+        
+    Returns:
+        Updated topology with subdivided edges
+    """
+    edges = topology.get("edges", {})
+    
+    # Get list of original edge IDs (copy since we'll modify the dict)
+    original_edge_ids = list(edges.keys())
+    
+    total_new_edges = 0
+    total_new_vertices = 0
+    
+    for edge_id in original_edge_ids:
+        if edge_id not in edges:
+            continue  # Edge may have been removed in a previous iteration
+        
+        # Create edge-specific seed for reproducibility
+        edge = edges[edge_id]
+        v1_id = edge.get("v1", 0)
+        v2_id = edge.get("v2", 0)
+        edge_seed = seed + (hash((v1_id, v2_id)) & 0x7FFFFFFF) % 10000
+        
+        new_edge_ids, new_vertex_ids = subdivide_edge_topology(
+            topology, edge_id, edge_seed
+        )
+        
+        if new_edge_ids and new_edge_ids != [edge_id]:
+            total_new_edges += len(new_edge_ids)
+            total_new_vertices += len(new_vertex_ids)
+    
+    return topology
 
 
 def generate_all_visual_paths(
