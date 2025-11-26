@@ -24,6 +24,13 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import numpy as np
 
+from map_gen.fractal_viz_utils import (
+    draw_fractal_edges as _draw_fractal_edges_impl,
+    get_fractal_face_polygon as _get_fractal_face_polygon_impl,
+    EDGE_COLORS,
+    EDGE_WIDTHS
+)
+
 
 class MapData:
     """Holds parsed map data from a JSON file."""
@@ -386,10 +393,22 @@ class MapVisualizer:
                 # Neutral supply center
                 color = '#FFE699' if cell_type == 'land' else '#9BC2E6'
             
-            # Draw cell polygon
+            # Try to get fractal polygon from topology
             alpha = 0.9 if owner or is_sc else 0.6
-            self.ax.fill(vertices[:, 0], vertices[:, 1], 
-                        color=color, alpha=alpha, edgecolor='black', linewidth=0.8)
+            fractal_polygon = self._get_fractal_face_polygon(cell_id)
+            
+            if fractal_polygon:
+                # Draw using fractal polygon (no edge, will draw edges separately)
+                poly_array = np.array(fractal_polygon)
+                self.ax.fill(poly_array[:, 0], poly_array[:, 1], 
+                            color=color, alpha=alpha, edgecolor='none', linewidth=0.8)
+            else:
+                # Fallback to original vertices
+                has_fractal_edges = (self.map_data.topology and 
+                                    any(e.get('visual_path') for e in self.map_data.topology.get('edges', {}).values()))
+                edge_color = 'none' if has_fractal_edges else 'black'
+                self.ax.fill(vertices[:, 0], vertices[:, 1], 
+                            color=color, alpha=alpha, edgecolor=edge_color, linewidth=0.8)
             
             # Draw supply center marker
             if is_sc:
@@ -416,6 +435,10 @@ class MapVisualizer:
                 self.ax.text(center[0], center[1], label, 
                            ha='center', va='center', fontsize=5, alpha=0.8)
         
+        # Draw fractal edges if topology with visual_path is available
+        if self.map_data.topology:
+            self._draw_fractal_edges()
+        
         # Add legend for powers
         if power_list:
             legend_elements = []
@@ -426,6 +449,21 @@ class MapVisualizer:
             if legend_elements:
                 self.ax.legend(handles=legend_elements, loc='upper left', 
                              bbox_to_anchor=(0, 1), fontsize=8)
+    
+    def _draw_fractal_edges(self):
+        """Draw edges using visual_path from topology for fractal appearance."""
+        _draw_fractal_edges_impl(self.ax, self.map_data.topology)
+    
+    def _get_fractal_face_polygon(self, face_id):
+        """Reconstruct a face polygon using visual_path from its edges.
+        
+        Args:
+            face_id: ID of the face to reconstruct
+            
+        Returns:
+            List of [x, y] points forming the polygon with fractal edges, or None if not available
+        """
+        return _get_fractal_face_polygon_impl(self.map_data.topology, face_id)
     
     def _visualize_with_topology(self, show_labels=False):
         """Visualize using topology data structure (Face-Edge-Vertex).
@@ -441,21 +479,6 @@ class MapVisualizer:
         
         # Create vertex lookup
         vertex_coords = {v['id']: v['coords'] for v in vertices_list}
-        
-        # Define edge colors by type
-        edge_colors = {
-            'land': '#4A7C59',      # Dark green for land-land borders
-            'sea': '#5B9BD5',       # Blue for sea-sea borders
-            'coast': '#C55A11',     # Orange for coastlines
-            'map-edge': '#2F2F2F'   # Dark gray for map boundaries
-        }
-        
-        edge_widths = {
-            'land': 1.0,
-            'sea': 0.8,
-            'coast': 1.8,
-            'map-edge': 2.0
-        }
         
         # First pass: Draw filled faces
         for face_id, face_data in faces.items():
@@ -481,13 +504,21 @@ class MapVisualizer:
             v2_coords = vertex_coords[v2_id]
             
             # Get color and width based on edge type
-            color = edge_colors.get(edge_type, '#000000')
-            linewidth = edge_widths.get(edge_type, 1.0)
+            color = EDGE_COLORS.get(edge_type, '#000000')
+            linewidth = EDGE_WIDTHS.get(edge_type, 1.0)
             
-            # Draw the edge
-            self.ax.plot([v1_coords[0], v2_coords[0]], 
-                        [v1_coords[1], v2_coords[1]], 
-                        color=color, linewidth=linewidth, alpha=0.9, solid_capstyle='round')
+            # Check if visual_path is available (fractal subdivision)
+            visual_path = edge_data.get('visual_path')
+            if visual_path and len(visual_path) >= 2:
+                # Draw the fractal edge using visual_path
+                path_array = np.array(visual_path)
+                self.ax.plot(path_array[:, 0], path_array[:, 1], 
+                            color=color, linewidth=linewidth, alpha=0.9, solid_capstyle='round')
+            else:
+                # Draw simple straight line
+                self.ax.plot([v1_coords[0], v2_coords[0]], 
+                            [v1_coords[1], v2_coords[1]], 
+                            color=color, linewidth=linewidth, alpha=0.9, solid_capstyle='round')
         
         # Optional: Add labels
         if show_labels:
@@ -499,13 +530,13 @@ class MapVisualizer:
         
         # Add simple legend for edge types
         legend_elements = [
-            plt.Line2D([0], [0], color=edge_colors['land'], linewidth=edge_widths['land'], 
+            plt.Line2D([0], [0], color=EDGE_COLORS['land'], linewidth=EDGE_WIDTHS['land'], 
                        label='Land border'),
-            plt.Line2D([0], [0], color=edge_colors['coast'], linewidth=edge_widths['coast'], 
+            plt.Line2D([0], [0], color=EDGE_COLORS['coast'], linewidth=EDGE_WIDTHS['coast'], 
                        label='Coastline'),
-            plt.Line2D([0], [0], color=edge_colors['sea'], linewidth=edge_widths['sea'], 
+            plt.Line2D([0], [0], color=EDGE_COLORS['sea'], linewidth=EDGE_WIDTHS['sea'], 
                        label='Sea border'),
-            plt.Line2D([0], [0], color=edge_colors['map-edge'], linewidth=edge_widths['map-edge'], 
+            plt.Line2D([0], [0], color=EDGE_COLORS['map-edge'], linewidth=EDGE_WIDTHS['map-edge'], 
                        label='Map boundary')
         ]
         self.ax.legend(handles=legend_elements, loc='upper right', fontsize=8, framealpha=0.9)
