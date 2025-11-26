@@ -19,7 +19,6 @@ Note on split_face():
 """
 
 import math
-import time
 from typing import Dict, List, Tuple, Optional
 from shapely.geometry import Polygon, LineString
 from shapely.errors import GEOSException
@@ -703,7 +702,6 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
                     e["right_face"] = face2_id
     
     # Update neighboring faces that shared the split edges
-    edges_to_remove = {longest_edge_id, opposite_edge_id}
     for fid, fdata in faces.items():
         if fid == face_id:
             continue

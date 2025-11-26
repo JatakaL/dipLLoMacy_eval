@@ -8,7 +8,6 @@ and splits large land territories.
 
 import sys
 import os
-import json
 import traceback
 
 # Add the map_gen directory to path
