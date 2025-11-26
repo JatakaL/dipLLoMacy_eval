@@ -23,8 +23,23 @@ EDGE_WIDTHS = {
     'map-edge': 2.0
 }
 
-# Tolerance for point comparison
-POINT_TOLERANCE = 1e-6
+# Default tolerance for point comparison in coordinate space
+DEFAULT_POINT_TOLERANCE = 1e-6
+
+
+def _points_are_close(point1, point2, tolerance=DEFAULT_POINT_TOLERANCE):
+    """Check if two points are within tolerance of each other.
+    
+    Args:
+        point1: First point as [x, y]
+        point2: Second point as [x, y]
+        tolerance: Maximum distance for points to be considered close
+        
+    Returns:
+        True if points are within tolerance, False otherwise
+    """
+    return (abs(point1[0] - point2[0]) < tolerance and 
+            abs(point1[1] - point2[1]) < tolerance)
 
 
 def draw_fractal_edges(ax, topology, edge_colors=None, edge_widths=None):
@@ -162,8 +177,7 @@ def get_fractal_face_polygon(topology, face_id):
                     continue
             
             # Check if this edge connects to current_end (within tolerance)
-            if (abs(start_point[0] - current_end[0]) < POINT_TOLERANCE and 
-                abs(start_point[1] - current_end[1]) < POINT_TOLERANCE):
+            if _points_are_close(start_point, current_end):
                 # Edge connects in forward direction
                 if visual_path and len(visual_path) >= 2:
                     polygon_points.extend(visual_path[:-1])
@@ -174,8 +188,7 @@ def get_fractal_face_polygon(topology, face_id):
                 remaining_edges.pop(i)
                 found = True
                 break
-            elif (abs(end_point[0] - current_end[0]) < POINT_TOLERANCE and 
-                  abs(end_point[1] - current_end[1]) < POINT_TOLERANCE):
+            elif _points_are_close(end_point, current_end):
                 # Edge connects in reverse direction
                 if visual_path and len(visual_path) >= 2:
                     reversed_path = list(reversed(visual_path))

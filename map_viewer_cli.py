@@ -22,9 +22,7 @@ import numpy as np
 
 from map_gen.fractal_viz_utils import (
     draw_fractal_edges as _draw_fractal_edges_impl,
-    get_fractal_face_polygon as _get_fractal_face_polygon_impl,
-    EDGE_COLORS,
-    EDGE_WIDTHS
+    get_fractal_face_polygon as _get_fractal_face_polygon_impl
 )
 
 
