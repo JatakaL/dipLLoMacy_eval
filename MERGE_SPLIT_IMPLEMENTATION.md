@@ -19,7 +19,7 @@ calculate_edge_length(edge_id, topology) -> float
 ```python
 calculate_face_size(face_id, topology) -> float
 ```
-- Uses the shoelace formula to calculate polygon area
+- Uses Shapely's `Polygon.area` property to calculate polygon area
 - Traces the face boundary from its edges
 - Returns area in square map units
 
