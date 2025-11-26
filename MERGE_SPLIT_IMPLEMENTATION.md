@@ -12,7 +12,7 @@ This document describes the implementation of face merging and splitting functio
 ```python
 calculate_edge_length(edge_id, topology) -> float
 ```
-- Uses Shapely's `LineString.length` method to compute the length between two vertices (for straight edges, this is equivalent to the Euclidean distance)
+- Uses Shapely's `LineString.length` method to compute edge length
 - Used to measure the physical length of edges in the map
 
 #### Face Size Calculation
@@ -44,18 +44,18 @@ merge_faces(face1_id, face2_id, topology) -> (bool, Optional[str])
 ```python
 split_face(face_id, topology, split_axis) -> (bool, Optional[str], Optional[str])
 ```
-- **Simplified implementation** - for demonstration/tracking
-- Divides a face's edges between two new faces
-- Uses timestamp-based ID generation for efficiency
-- **Limitations:** Does not create proper geometric splits
+- **Fully implemented geometric split** - production-ready
+- Creates new vertices at edge midpoints
+- Splits edges geometrically and creates a connecting edge
+- Properly assigns edges and vertices using geometric calculations
 
 **How it works:**
-1. Divides the face's edge list roughly in half
-2. Creates a new face with unique timestamp-based ID
-3. Assigns edges to the two faces
-4. Returns both face IDs
-
-**Important Note:** This is a simplified implementation intended for statistical tracking (e.g., counting territory modifications). For full geometric splitting with proper vertices and edges, a more sophisticated algorithm would be needed.
+1. Finds the longest edge of the face
+2. Finds the edge opposite (across) from the longest edge
+3. Creates new vertices at the midpoints of both edges
+4. Splits the original edges and creates a connecting edge
+5. Assigns edges to the resulting faces using cross-product geometry
+6. Returns both new face IDs (`{face_id}_a` and `{face_id}_b`)
 
 #### Helper Functions
 - `find_smallest_faces(topology, face_type, count)` - Find N smallest faces
@@ -170,23 +170,22 @@ The split implementation is simplified because:
 ## Limitations and Future Work
 
 ### Current Limitations
-1. **Split implementation:** Simplified, doesn't create proper geometric splits
-2. **No validation:** Doesn't check if splits create invalid topology
-3. **Fixed counts:** Hardcoded to 5 territories
+1. **No validation:** Doesn't check if splits create invalid topology after the fact
+2. **Fixed counts:** Hardcoded to 5 territories for merge/split operations
+3. **Edge cases:** Complex polygon shapes may not split optimally
 
 ### Future Enhancements
-1. Implement full geometric splitting with new vertices
-2. Add validation to prevent invalid topology
-3. Make merge/split counts configurable
-4. Add support for conditional merging (e.g., minimum size threshold)
-5. Support splitting along specific axes (horizontal/vertical)
+1. Add validation to prevent invalid topology
+2. Make merge/split counts configurable
+3. Add support for conditional merging (e.g., minimum size threshold)
+4. Support splitting along specific axes (horizontal/vertical)
 
 ## Performance
 
-- **Edge length calculation:** O(1) - constant time lookup
+- **Edge length calculation:** O(1) - constant time lookup and Shapely computation
 - **Face size calculation:** O(n) where n = number of vertices in face
 - **Merge operation:** O(e) where e = number of edges in faces
-- **Split operation:** O(1) with timestamp-based ID generation
+- **Split operation:** O(e) where e = number of edges in the face being split
 - **Find operations:** O(n) where n = number of faces
 
 All operations are efficient and suitable for typical map sizes (50-100 faces).
