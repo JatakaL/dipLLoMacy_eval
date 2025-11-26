@@ -364,6 +364,126 @@ def draw_fractal_edges(ax, map_data):
                     color=color, linewidth=linewidth, alpha=0.9, solid_capstyle='round')
 
 
+def get_fractal_face_polygon(map_data, face_id):
+    """Reconstruct a face polygon using visual_path from its edges.
+    
+    Args:
+        map_data: MapData object with topology
+        face_id: ID of the face to reconstruct
+        
+    Returns:
+        List of [x, y] points forming the polygon with fractal edges, or None if not available
+    """
+    topology = map_data.topology
+    if not topology:
+        return None
+    
+    faces = topology.get('faces', {})
+    edges = topology.get('edges', {})
+    vertices_list = topology.get('vertices', [])
+    
+    if face_id not in faces:
+        return None
+    
+    face = faces[face_id]
+    edge_ids = face.get('edges', [])
+    
+    if not edge_ids:
+        return None
+    
+    # Create vertex lookup
+    vertex_coords = {v['id']: v['coords'] for v in vertices_list}
+    
+    # Build ordered polygon from edges using visual_path
+    polygon_points = []
+    
+    # We need to trace the edges in order, connecting end-to-end
+    remaining_edges = list(edge_ids)
+    if not remaining_edges:
+        return None
+    
+    # Start with the first edge
+    first_edge_id = remaining_edges.pop(0)
+    if first_edge_id not in edges:
+        return None
+    
+    first_edge = edges[first_edge_id]
+    visual_path = first_edge.get('visual_path')
+    
+    if visual_path and len(visual_path) >= 2:
+        polygon_points.extend(visual_path[:-1])  # Don't include last point (will be first of next edge)
+        current_end = visual_path[-1]
+    else:
+        v1_id, v2_id = first_edge.get('v1'), first_edge.get('v2')
+        if v1_id in vertex_coords and v2_id in vertex_coords:
+            polygon_points.append(vertex_coords[v1_id])
+            current_end = vertex_coords[v2_id]
+        else:
+            return None
+    
+    # Continue with remaining edges
+    max_iterations = len(edge_ids) + 1
+    for _ in range(max_iterations):
+        if not remaining_edges:
+            break
+        
+        # Find edge that connects to current_end
+        found = False
+        for i, edge_id in enumerate(remaining_edges):
+            if edge_id not in edges:
+                continue
+            edge = edges[edge_id]
+            visual_path = edge.get('visual_path')
+            v1_id, v2_id = edge.get('v1'), edge.get('v2')
+            
+            if visual_path and len(visual_path) >= 2:
+                start_point = visual_path[0]
+                end_point = visual_path[-1]
+            else:
+                if v1_id in vertex_coords and v2_id in vertex_coords:
+                    start_point = vertex_coords[v1_id]
+                    end_point = vertex_coords[v2_id]
+                else:
+                    continue
+            
+            # Check if this edge connects to current_end (within tolerance)
+            tolerance = 1e-6
+            if (abs(start_point[0] - current_end[0]) < tolerance and 
+                abs(start_point[1] - current_end[1]) < tolerance):
+                # Edge connects in forward direction
+                if visual_path and len(visual_path) >= 2:
+                    polygon_points.extend(visual_path[:-1])
+                    current_end = visual_path[-1]
+                else:
+                    polygon_points.append(start_point)
+                    current_end = end_point
+                remaining_edges.pop(i)
+                found = True
+                break
+            elif (abs(end_point[0] - current_end[0]) < tolerance and 
+                  abs(end_point[1] - current_end[1]) < tolerance):
+                # Edge connects in reverse direction
+                if visual_path and len(visual_path) >= 2:
+                    reversed_path = list(reversed(visual_path))
+                    polygon_points.extend(reversed_path[:-1])
+                    current_end = reversed_path[-1]
+                else:
+                    polygon_points.append(end_point)
+                    current_end = start_point
+                remaining_edges.pop(i)
+                found = True
+                break
+        
+        if not found:
+            # Could not find connecting edge, polygon is incomplete
+            break
+    
+    if len(polygon_points) < 3:
+        return None
+    
+    return polygon_points
+
+
 def visualize_map(map_data, output_path=None, dpi=150):
     """Visualize the map and save to file or display."""
     
@@ -630,13 +750,22 @@ def visualize_map(map_data, output_path=None, dpi=150):
                 # Neutral supply center
                 color = '#FFE699' if cell_type == 'land' else '#9BC2E6'
             
-            # Draw cell polygon (without edge if we'll draw fractal edges separately)
+            # Try to get fractal polygon from topology
             alpha = 0.9 if owner or is_sc else 0.6
-            has_fractal_edges = (map_data.topology and 
-                                any(e.get('visual_path') for e in map_data.topology.get('edges', {}).values()))
-            edge_color = 'none' if has_fractal_edges else 'black'
-            ax.fill(vertices[:, 0], vertices[:, 1], 
-                   color=color, alpha=alpha, edgecolor=edge_color, linewidth=0.8)
+            fractal_polygon = get_fractal_face_polygon(map_data, cell_id)
+            
+            if fractal_polygon:
+                # Draw using fractal polygon (no edge, will draw edges separately)
+                poly_array = np.array(fractal_polygon)
+                ax.fill(poly_array[:, 0], poly_array[:, 1], 
+                       color=color, alpha=alpha, edgecolor='none', linewidth=0.8)
+            else:
+                # Fallback to original vertices
+                has_fractal_edges = (map_data.topology and 
+                                    any(e.get('visual_path') for e in map_data.topology.get('edges', {}).values()))
+                edge_color = 'none' if has_fractal_edges else 'black'
+                ax.fill(vertices[:, 0], vertices[:, 1], 
+                       color=color, alpha=alpha, edgecolor=edge_color, linewidth=0.8)
             
             # Draw supply center marker
             if is_sc:
