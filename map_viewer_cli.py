@@ -267,9 +267,18 @@ def visualize_with_topology(ax, map_data, show_labels=False):
         color = edge_colors.get(edge_type, '#000000')
         linewidth = edge_widths.get(edge_type, 1.0)
         
-        ax.plot([v1_coords[0], v2_coords[0]], 
-                [v1_coords[1], v2_coords[1]], 
-                color=color, linewidth=linewidth, alpha=0.9, solid_capstyle='round')
+        # Check if visual_path is available (fractal subdivision)
+        visual_path = edge_data.get('visual_path')
+        if visual_path and len(visual_path) >= 2:
+            # Draw the fractal edge using visual_path
+            path_array = np.array(visual_path)
+            ax.plot(path_array[:, 0], path_array[:, 1], 
+                    color=color, linewidth=linewidth, alpha=0.9, solid_capstyle='round')
+        else:
+            # Draw simple straight line
+            ax.plot([v1_coords[0], v2_coords[0]], 
+                    [v1_coords[1], v2_coords[1]], 
+                    color=color, linewidth=linewidth, alpha=0.9, solid_capstyle='round')
     
     # Optional labels
     if show_labels:

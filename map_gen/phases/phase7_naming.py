@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase, get_input_directory, get_datetime_filename
 from topology import get_adjacency_from_topology
+from fractal_subdivision import generate_all_visual_paths
 
 
 class RegionNamer:
@@ -408,6 +409,18 @@ def run_phase7(phase6_output, config):
     sc_list = create_supply_center_list(faces, edges, supply_centers)
     print(f"  Listed {len(sc_list['home'])} home SCs")
     print(f"  Listed {len(sc_list['neutral'])} neutral SCs")
+    
+    # Step 5: Generate fractal edge subdivision for visual rendering
+    print("\nStep 5: Generating fractal edge subdivision...")
+    topology = generate_all_visual_paths(topology, seed)
+    # Count edges by type
+    edge_type_counts = {}
+    for edge_data in topology["edges"].values():
+        edge_type = edge_data.get("type", "unknown")
+        edge_type_counts[edge_type] = edge_type_counts.get(edge_type, 0) + 1
+    print(f"  Generated visual paths for {len(topology['edges'])} edges")
+    for edge_type, count in sorted(edge_type_counts.items()):
+        print(f"    - {edge_type}: {count} edges")
     
     # Create final output (without cells dictionary)
     output = {
