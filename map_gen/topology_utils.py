@@ -19,7 +19,6 @@ Note on split_face():
 """
 
 import math
-import time
 from typing import Dict, List, Tuple, Optional
 from shapely.geometry import Polygon, LineString
 from shapely.errors import GEOSException
