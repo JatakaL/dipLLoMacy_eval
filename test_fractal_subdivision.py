@@ -423,6 +423,32 @@ def test_border_structure():
     print(f"    Border edges form a proper chain from vertex 0 to vertex 1")
 
 
+def test_empty_vertices_edge_case():
+    """Test that subdivision handles empty vertices list gracefully."""
+    print("\nTest 11: Empty vertices edge case")
+    
+    from fractal_subdivision import subdivide_edge_topology
+    
+    # Create a topology with empty vertices list
+    topology = {
+        "vertices": [],
+        "edges": {
+            "E_0_1": {"v1": 0, "v2": 1, "type": "coast", "left_face": "C1"}
+        },
+        "borders": {},
+        "faces": {}
+    }
+    
+    # Should return unchanged (edge_id in list, empty vertex list)
+    new_edge_ids, new_vertex_ids = subdivide_edge_topology(topology, "E_0_1", seed=42)
+    
+    # Should return the original edge unchanged
+    assert new_edge_ids == ["E_0_1"], f"Should return original edge when vertices is empty"
+    assert new_vertex_ids == [], f"Should return no new vertices"
+    
+    print(f"  ✓ Gracefully handles empty vertices list")
+
+
 def run_all_tests():
     """Run all tests."""
     print("=" * 60)
@@ -440,6 +466,7 @@ def run_all_tests():
         test_subdivide_edge_topology()
         test_subdivide_all_edges()
         test_border_structure()
+        test_empty_vertices_edge_case()
         
         print("\n" + "=" * 60)
         print("ALL TESTS PASSED ✓")

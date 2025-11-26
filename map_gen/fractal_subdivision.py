@@ -221,8 +221,9 @@ def subdivide_edge_topology(
     # Create vertex coordinate lookup
     vertex_coords = {v["id"]: tuple(v["coords"]) for v in vertices}
     
+    # If vertices are missing, return the original edge unchanged
     if v1_id not in vertex_coords or v2_id not in vertex_coords:
-        return [], []
+        return [edge_id], []
     
     v1_coords = vertex_coords[v1_id]
     v2_coords = vertex_coords[v2_id]
@@ -251,8 +252,10 @@ def subdivide_edge_topology(
     if len(path) <= 2:
         return [edge_id], []
     
-    # Find the maximum vertex ID
-    max_vertex_id = max(v["id"] for v in vertices) if vertices else -1
+    # Find the maximum vertex ID - handle empty list case
+    if not vertices:
+        return [edge_id], []  # Cannot subdivide without existing vertices
+    max_vertex_id = max(v["id"] for v in vertices)
     
     # Create new vertices for intermediate points (skip first and last which are v1 and v2)
     new_vertex_ids = []
@@ -299,13 +302,14 @@ def subdivide_edge_topology(
     border_id = f"B_{min(v1_id, v2_id)}_{max(v1_id, v2_id)}"
     if border_id in borders:
         border = borders[border_id]
-        # Replace the single edge with the new edges
+        # Replace the original edge with the new edges in the border's edge list
         if edge_id in border["edges"]:
             idx = border["edges"].index(edge_id)
             border["edges"] = border["edges"][:idx] + new_edge_ids + border["edges"][idx+1:]
         else:
-            # Edge wasn't in the border's list, add new edges
-            border["edges"] = new_edge_ids
+            # Edge wasn't in the border's list - append new edges to preserve existing ones
+            # This handles the case where the border was created with a different initial edge
+            border["edges"].extend(new_edge_ids)
     
     # Update faces to replace the old edge with new edges
     for face_id, face in faces.items():
