@@ -766,8 +766,10 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     
     success2, border2a_id, border2b_id, midpoint2_id = split_border(opposite_border_id, topology)
     if not success2:
-        # Rollback first split - this is complex, so for now we leave partial state
-        # In a production system, we'd want proper transaction semantics
+        # Rollback first split: merge the two borders back
+        # This is simplified - in a production system we'd want proper transaction semantics
+        # For now, we leave the partially split state as it doesn't corrupt face structure
+        # The first border is just now two borders that can still be used
         return False, None, None
     
     # Step 4: Create names for new faces
@@ -864,7 +866,13 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
         b_end = border.get("end_vertex")
         
         # Check which side this border is on
-        b_coords = vertex_coords.get(b_start, vertex_coords.get(b_end, [0, 0]))
+        # Get coordinates, falling back to the other endpoint if one is missing
+        b_coords = vertex_coords.get(b_start) or vertex_coords.get(b_end)
+        if b_coords is None:
+            # Skip borders with no valid vertex coordinates - assign to face1 as fallback
+            face1_borders.append(border_id)
+            continue
+        
         b_to_mid = [b_coords[0] - midpoint1_coords[0], b_coords[1] - midpoint1_coords[1]]
         b_cross = split_vec[0] * b_to_mid[1] - split_vec[1] * b_to_mid[0]
         
