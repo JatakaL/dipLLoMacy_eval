@@ -118,6 +118,7 @@ class MapData:
         vertices_list = self.topology.get('vertices', [])
         edges = self.topology.get('edges', {})
         faces = self.topology.get('faces', {})
+        borders = self.topology.get('borders', {})
         
         # Create vertex lookup
         vertex_coords = {v['id']: v['coords'] for v in vertices_list}
@@ -125,8 +126,8 @@ class MapData:
         # Reconstruct cells from faces
         self.cells = {}
         for face_id, face_data in faces.items():
-            # Get the edges that form this face
-            face_edges = face_data.get('edges', [])
+            # Get the edges that form this face through its borders
+            face_edges = self._get_face_edges(face_data, borders)
             
             # Reconstruct polygon from edges
             polygon_vertices = self._reconstruct_polygon_from_edges(
@@ -148,6 +149,26 @@ class MapData:
             }
             
             self.cells[face_id] = cell
+    
+    def _get_face_edges(self, face_data, borders):
+        """Get the list of edge IDs for a face by looking up its borders.
+        
+        Since faces now only contain borders (not edges directly), this helper
+        function retrieves the edges by iterating through the face's borders.
+        
+        Args:
+            face_data: Face dictionary with 'borders' list
+            borders: Dictionary of border data with 'edges' list
+            
+        Returns:
+            List of edge IDs forming the face perimeter
+        """
+        edge_ids = []
+        for border_id in face_data.get('borders', []):
+            if border_id in borders:
+                border = borders[border_id]
+                edge_ids.extend(border.get('edges', []))
+        return edge_ids
     
     def _reconstruct_polygon_from_edges(self, edge_ids, edges, vertex_coords):
         """Reconstruct an ordered polygon from a list of edge IDs.
