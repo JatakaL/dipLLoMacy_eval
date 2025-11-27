@@ -334,12 +334,13 @@ def split_border(border_id: str, topology: dict) -> Tuple[bool, Optional[str], O
     - Two new borders (each containing one of the new edges)
     
     For multi-edge borders (e.g., after fractal subdivision), this:
-    - Finds the edge containing the midpoint along the chain
-    - Splits that edge at the midpoint
-    - Creates two new borders, each containing a subset of the original edges
-      plus one half of the split edge
+    - Finds the midpoint along the total length of the border chain
+    - If the midpoint falls exactly on an existing vertex between edges (within tolerance),
+      that vertex is reused and no edge is split - edges are simply partitioned
+    - Otherwise, splits the edge containing the midpoint and creates two new borders,
+      each containing a subset of the original edges plus one half of the split edge
     
-    The original border and the split edge are removed.
+    The original border is removed. If an edge was split, it is also removed.
     
     Note: For multi-edge borders, this function assumes that the edges list in the 
     border is ordered correctly from start_vertex to end_vertex. This is the standard
@@ -446,6 +447,12 @@ def split_border(border_id: str, topology: dict) -> Tuple[bool, Optional[str], O
     split_edge_index = -1
     split_edge_id = None
     
+    # Tolerance for detecting when midpoint falls on an existing vertex
+    VERTEX_TOLERANCE = 1e-9
+    
+    # Track the vertex at the start of each edge for potential reuse
+    vertex_at_split = None
+    
     for i, edge_id in enumerate(edge_ids):
         if edge_id not in edges:
             continue
@@ -458,15 +465,95 @@ def split_border(border_id: str, topology: dict) -> Tuple[bool, Optional[str], O
         line = LineString([v1_coords, v2_coords])
         edge_length = line.length
         
+        # Check if midpoint falls exactly at the start of this edge (within tolerance)
+        if abs(accumulated - target_length) < VERTEX_TOLERANCE:
+            # Midpoint falls on the vertex at the start of this edge
+            # We need to find which vertex connects this edge to the previous one
+            if i > 0:
+                prev_edge = edges.get(edge_ids[i - 1])
+                if prev_edge:
+                    # Find the shared vertex between prev_edge and current edge
+                    prev_vertices = {prev_edge["v1"], prev_edge["v2"]}
+                    curr_vertices = {edge["v1"], edge["v2"]}
+                    shared = prev_vertices & curr_vertices
+                    if shared:
+                        vertex_at_split = shared.pop()
+                        split_edge_index = i
+                        break
+        
         if accumulated + edge_length >= target_length:
-            # Midpoint is on this edge
+            # Check if midpoint falls exactly at the end of this edge (within tolerance)
+            remaining = target_length - accumulated
+            if abs(remaining - edge_length) < VERTEX_TOLERANCE:
+                # Midpoint falls on the vertex at the end of this edge
+                if i + 1 < len(edge_ids):
+                    next_edge = edges.get(edge_ids[i + 1])
+                    if next_edge:
+                        # Find the shared vertex between current edge and next edge
+                        curr_vertices = {edge["v1"], edge["v2"]}
+                        next_vertices = {next_edge["v1"], next_edge["v2"]}
+                        shared = curr_vertices & next_vertices
+                        if shared:
+                            vertex_at_split = shared.pop()
+                            split_edge_index = i + 1  # Split happens after this edge
+                            break
+            
+            # Midpoint is somewhere within this edge (not at a vertex)
             split_edge_index = i
             split_edge_id = edge_id
             break
         
         accumulated += edge_length
     
-    if split_edge_index < 0 or split_edge_id is None:
+    if split_edge_index < 0:
+        return False, None, None, None
+    
+    # Get start and end vertices for the border
+    start_vertex = border.get("start_vertex")
+    end_vertex = border.get("end_vertex")
+    
+    # Validate start_vertex and end_vertex exist
+    if start_vertex is None or end_vertex is None:
+        return False, None, None, None
+    
+    # Case 1: Midpoint falls exactly on an existing vertex between edges
+    if vertex_at_split is not None:
+        # Remove the vertex we created earlier since we're reusing an existing one
+        vertices.pop()
+        midpoint_vertex_id = vertex_at_split
+        
+        # Partition edges at the split point - no edge needs to be split
+        border1_edges = list(edge_ids[:split_edge_index])
+        border2_edges = list(edge_ids[split_edge_index:])
+        
+        # Create two new borders
+        border1_id = f"B_{min(start_vertex, midpoint_vertex_id)}_{max(start_vertex, midpoint_vertex_id)}"
+        border2_id = f"B_{min(midpoint_vertex_id, end_vertex)}_{max(midpoint_vertex_id, end_vertex)}"
+        
+        borders[border1_id] = {
+            "edges": border1_edges,
+            "left_face": border.get("left_face"),
+            "right_face": border.get("right_face"),
+            "type": border.get("type"),
+            "start_vertex": start_vertex,
+            "end_vertex": midpoint_vertex_id
+        }
+        borders[border2_id] = {
+            "edges": border2_edges,
+            "left_face": border.get("left_face"),
+            "right_face": border.get("right_face"),
+            "type": border.get("type"),
+            "start_vertex": midpoint_vertex_id,
+            "end_vertex": end_vertex
+        }
+        
+        # Remove original border (no edge to remove since we didn't split one)
+        del borders[border_id]
+        
+        return True, border1_id, border2_id, midpoint_vertex_id
+    
+    # Case 2: Midpoint is within an edge - need to split the edge
+    if split_edge_id is None:
         return False, None, None, None
     
     split_edge = edges[split_edge_id]
@@ -495,12 +582,6 @@ def split_border(border_id: str, topology: dict) -> Tuple[bool, Optional[str], O
     # Partition edges based on the split point. Edges are assumed to be ordered
     # from start_vertex to end_vertex (as created by fractal subdivision).
     # Edges before the split edge go to border1, edges after go to border2.
-    start_vertex = border.get("start_vertex")
-    end_vertex = border.get("end_vertex")
-    
-    # Validate start_vertex and end_vertex exist
-    if start_vertex is None or end_vertex is None:
-        return False, None, None, None
     
     # Edges before the split point (plus the first half of split edge)
     border1_edges = list(edge_ids[:split_edge_index]) + [new_edge1_id]
