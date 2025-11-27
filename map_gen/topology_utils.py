@@ -195,6 +195,26 @@ def calculate_face_size(face_id: str, topology: dict) -> float:
     return polygon.area
 
 
+def calculate_face_center(face_id: str, topology: dict) -> Optional[Tuple[float, float]]:
+    """
+    Calculate the centroid of a face using shapely Polygon.
+    
+    Args:
+        face_id: ID of the face
+        topology: Dictionary with topology data (vertices, edges, faces)
+        
+    Returns:
+        Tuple of (x, y) coordinates of the centroid, or None if cannot be calculated
+    """
+    polygon = _get_face_polygon(face_id, topology)
+    
+    if polygon is None:
+        return None
+    
+    centroid = polygon.centroid
+    return (centroid.x, centroid.y)
+
+
 # =============================================================================
 # BORDER-LEVEL OPERATIONS
 # =============================================================================
@@ -1073,17 +1093,17 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
         else:
             face2_borders.append(border_id)
     
-    # Step 7: Create the two new faces
+    # Step 7: Create the two new faces (with placeholder centers)
     face1 = {
         "type": face.get("type"),
         "borders": face1_borders,
-        "center": face.get("center", [0.5, 0.5])
+        "center": [0.0, 0.0]  # Placeholder, will be recalculated
     }
     
     face2 = {
         "type": face.get("type"),
         "borders": face2_borders,
-        "center": face.get("center", [0.5, 0.5])
+        "center": [0.0, 0.0]  # Placeholder, will be recalculated
     }
     
     # Step 8: Check coastal property
@@ -1137,6 +1157,21 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     faces[face1_id] = face1
     faces[face2_id] = face2
     del faces[face_id]
+    
+    # Step 12: Recalculate centers for the new faces based on their actual geometry
+    face1_center = calculate_face_center(face1_id, topology)
+    if face1_center is not None:
+        face1["center"] = list(face1_center)
+    else:
+        # Fallback to original face center if calculation fails
+        face1["center"] = face.get("center", [0.5, 0.5])
+    
+    face2_center = calculate_face_center(face2_id, topology)
+    if face2_center is not None:
+        face2["center"] = list(face2_center)
+    else:
+        # Fallback to original face center if calculation fails
+        face2["center"] = face.get("center", [0.5, 0.5])
     
     return True, face1_id, face2_id
 
