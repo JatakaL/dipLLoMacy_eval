@@ -17,6 +17,7 @@ from topology import convert_cells_to_topology
 from topology_utils import (
     calculate_edge_length,
     calculate_face_size,
+    calculate_face_center,
     merge_faces,
     split_face,
     find_smallest_faces,
@@ -196,6 +197,54 @@ def test_split_face():
     print(f"  ✓ Face count: {initial_face_count} → {len(topology['faces'])}")
 
 
+def test_split_face_centers_recalculated():
+    """Test that split face centers are correctly recalculated."""
+    print("\nTest 4b: Split face centers are recalculated")
+    
+    topology = create_test_topology()
+    
+    # Get original face's center
+    original_center = topology["faces"]["C1"]["center"]
+    
+    # Split C1
+    success, face1_id, face2_id = split_face("C1", topology)
+    
+    assert success, "Split should succeed"
+    
+    face1 = topology["faces"][face1_id]
+    face2 = topology["faces"][face2_id]
+    
+    face1_center = face1["center"]
+    face2_center = face2["center"]
+    
+    # The centers of the split faces should be different from each other
+    assert face1_center != face2_center, \
+        f"Split faces should have different centers, but both are {face1_center}"
+    
+    # The centers should be inside their respective polygons
+    # Calculate the actual centroids using our function and verify they match
+    calculated_face1_center = calculate_face_center(face1_id, topology)
+    calculated_face2_center = calculate_face_center(face2_id, topology)
+    
+    assert calculated_face1_center is not None, "Should be able to calculate face1 center"
+    assert calculated_face2_center is not None, "Should be able to calculate face2 center"
+    
+    # The stored centers should match the calculated centroids (with some tolerance)
+    tolerance = 0.001
+    assert abs(face1_center[0] - calculated_face1_center[0]) < tolerance and \
+           abs(face1_center[1] - calculated_face1_center[1]) < tolerance, \
+           f"Face1 center {face1_center} should match calculated {calculated_face1_center}"
+    
+    assert abs(face2_center[0] - calculated_face2_center[0]) < tolerance and \
+           abs(face2_center[1] - calculated_face2_center[1]) < tolerance, \
+           f"Face2 center {face2_center} should match calculated {calculated_face2_center}"
+    
+    print(f"  ✓ Original center: {original_center}")
+    print(f"  ✓ Face1 ({face1_id}) center: {face1_center}")
+    print(f"  ✓ Face2 ({face2_id}) center: {face2_center}")
+    print(f"  ✓ Both centers are correctly recalculated and differ from each other")
+
+
 def test_find_smallest_faces():
     """Test finding smallest faces."""
     print("\nTest 5: Find smallest faces")
@@ -285,6 +334,7 @@ def run_all_tests():
         test_calculate_face_size()
         test_merge_faces()
         test_split_face()
+        test_split_face_centers_recalculated()
         test_find_smallest_faces()
         test_find_largest_faces()
         test_find_smallest_neighbor()
