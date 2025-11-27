@@ -839,38 +839,42 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
             elif any(e in all_face2_edges for e in border_edges):
                 border["right_face"] = face2_id
     
+    # Calculate the new border IDs that will replace the old ones
+    edge1a_border_id = f"B_{edges[edge1a_id]['v1']}_{edges[edge1a_id]['v2']}"
+    edge1b_border_id = f"B_{edges[edge1b_id]['v1']}_{edges[edge1b_id]['v2']}"
+    edge2a_border_id = f"B_{edges[edge2a_id]['v1']}_{edges[edge2a_id]['v2']}"
+    edge2b_border_id = f"B_{edges[edge2b_id]['v1']}_{edges[edge2b_id]['v2']}"
+    
+    # Store old border IDs before we delete them
+    longest_border_id = f"B_{longest_edge['v1']}_{longest_edge['v2']}"
+    opposite_border_id = f"B_{opposite_edge['v1']}_{opposite_edge['v2']}"
+    
     # Update neighboring faces that shared the split edges - update their borders
     for fid, fdata in faces.items():
         if fid == face_id:
             continue
         neighbor_edge_ids = get_face_edges(fdata, borders)
         if longest_edge_id in neighbor_edge_ids or opposite_edge_id in neighbor_edge_ids:
-            # Update the neighbor's borders
+            # Update the neighbor's borders - replace old border IDs with new ones
             new_borders = []
             for bid in fdata.get("borders", []):
-                if bid in borders:
-                    border = borders[bid]
-                    border_edges = border.get("edges", [])
-                    if longest_edge_id in border_edges or opposite_edge_id in border_edges:
-                        # This border needs to be updated with the new edges
-                        new_border_edges = []
-                        for be in border_edges:
-                            if be == longest_edge_id:
-                                new_border_edges.append(edge1a_id)
-                                new_border_edges.append(edge1b_id)
-                            elif be == opposite_edge_id:
-                                new_border_edges.append(edge2a_id)
-                                new_border_edges.append(edge2b_id)
-                            else:
-                                new_border_edges.append(be)
-                        border["edges"] = new_border_edges
-                new_borders.append(bid)
+                if bid == longest_border_id:
+                    # Replace with borders for the new edges
+                    if edge1a_border_id not in new_borders:
+                        new_borders.append(edge1a_border_id)
+                    if edge1b_border_id not in new_borders:
+                        new_borders.append(edge1b_border_id)
+                elif bid == opposite_border_id:
+                    if edge2a_border_id not in new_borders:
+                        new_borders.append(edge2a_border_id)
+                    if edge2b_border_id not in new_borders:
+                        new_borders.append(edge2b_border_id)
+                else:
+                    if bid not in new_borders:
+                        new_borders.append(bid)
             fdata["borders"] = new_borders
     
     # Remove original edges and their borders
-    longest_border_id = f"B_{longest_edge['v1']}_{longest_edge['v2']}"
-    opposite_border_id = f"B_{opposite_edge['v1']}_{opposite_edge['v2']}"
-    
     if longest_border_id in borders:
         del borders[longest_border_id]
     if opposite_border_id in borders:
