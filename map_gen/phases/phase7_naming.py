@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase, get_input_directory, get_datetime_filename
 from topology import get_adjacency_from_topology
-from fractal_subdivision import generate_all_visual_paths, subdivide_all_edges
+from fractal_subdivision import subdivide_all_edges
 
 
 class RegionNamer:
