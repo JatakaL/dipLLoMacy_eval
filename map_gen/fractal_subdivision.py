@@ -21,7 +21,8 @@ Two Approaches:
 
 Refinement Strategy:
 - Coastlines (land-sea boundaries): Heavy displacement for jagged coastlines
-- Land borders (political lines/rivers): Gentle displacement for smoother borders
+- Land borders (political lines/rivers): Moderate displacement for organic-looking borders  
+- Impassable borders: Same as land borders
 - Sea borders: Very gentle displacement
 - Map edges: No displacement (remain straight)
 """
@@ -29,6 +30,9 @@ Refinement Strategy:
 import math
 import random
 from typing import Dict, List, Tuple, Optional
+
+# Import jaggedness configuration at module level to avoid repeated import overhead
+from jaggedness_config import get_edge_displacement_params as _get_params_from_config
 
 # Tolerance for detecting degenerate edges (near-zero length)
 EDGE_LENGTH_EPSILON = 1e-9
@@ -108,7 +112,7 @@ def get_edge_displacement_params(edge_type: str) -> Tuple[float, float, int]:
     Get displacement parameters based on edge type.
     
     Args:
-        edge_type: Type of edge ("coast", "land", "sea", "map-edge")
+        edge_type: Type of edge ("coast", "land", "sea", "impassable", "map-edge")
         
     Returns:
         Tuple of (initial_displacement, roughness, max_depth)
@@ -116,21 +120,7 @@ def get_edge_displacement_params(edge_type: str) -> Tuple[float, float, int]:
         - roughness: How quickly displacement decreases (0.0 - 1.0)
         - max_depth: Maximum recursion depth
     """
-    if edge_type == "coast":
-        # Heavy displacement for coastlines - creates jagged, natural-looking shores
-        return (0.08, 0.65, 4)
-    elif edge_type == "land":
-        # Gentle displacement for land borders - smoother political boundaries
-        return (0.03, 0.5, 3)
-    elif edge_type == "sea":
-        # Very gentle displacement for sea borders
-        return (0.02, 0.5, 2)
-    elif edge_type == "map-edge":
-        # No displacement for map boundaries - stay straight
-        return (0.0, 0.5, 0)
-    else:
-        # Default: gentle displacement
-        return (0.02, 0.5, 2)
+    return _get_params_from_config(edge_type)
 
 
 def generate_visual_path(

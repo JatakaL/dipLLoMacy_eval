@@ -72,11 +72,17 @@ def test_edge_displacement_params():
     coast_params = get_edge_displacement_params("coast")
     land_params = get_edge_displacement_params("land")
     sea_params = get_edge_displacement_params("sea")
+    impassable_params = get_edge_displacement_params("impassable")
     map_edge_params = get_edge_displacement_params("map-edge")
     
     # Coast should have highest initial displacement
     assert coast_params[0] > land_params[0], "Coast should have more displacement than land"
     assert coast_params[0] > sea_params[0], "Coast should have more displacement than sea"
+    
+    # Impassable should have same displacement as land
+    assert impassable_params[0] == land_params[0], "Impassable should have same displacement as land"
+    assert impassable_params[1] == land_params[1], "Impassable should have same roughness as land"
+    assert impassable_params[2] == land_params[2], "Impassable should have same depth as land"
     
     # Map edge should have zero displacement
     assert map_edge_params[0] == 0.0, "Map edge should have zero displacement"
@@ -85,6 +91,7 @@ def test_edge_displacement_params():
     print(f"  ✓ Coast params: displacement={coast_params[0]}, roughness={coast_params[1]}, depth={coast_params[2]}")
     print(f"  ✓ Land params: displacement={land_params[0]}, roughness={land_params[1]}, depth={land_params[2]}")
     print(f"  ✓ Sea params: displacement={sea_params[0]}, roughness={sea_params[1]}, depth={sea_params[2]}")
+    print(f"  ✓ Impassable params: displacement={impassable_params[0]}, roughness={impassable_params[1]}, depth={impassable_params[2]}")
     print(f"  ✓ Map-edge params: displacement={map_edge_params[0]}, roughness={map_edge_params[1]}, depth={map_edge_params[2]}")
 
 

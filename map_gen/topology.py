@@ -418,24 +418,36 @@ class TopologyConverter:
         
         Edge types:
         - "map-edge": Only one face (boundary of the map)
-        - "coast": Adjacent faces have different types (land-sea boundary)
+        - "coast": Adjacent faces are land and sea (land-sea boundary)
+        - "impassable": Adjacent faces involve impassable terrain (land-impassable or sea-impassable)
         - "land": Both adjacent faces are land
-        - "sea": Both adjacent faces are sea (though we might not distinguish this)
+        - "sea": Both adjacent faces are sea
         """
         for edge_id, edge in self.edges.items():
             if edge.right_face is None:
                 # Only one face - this is a map boundary
                 edge.type = "map-edge"
             else:
-                # Two faces - check if they're the same type
+                # Two faces - check their types
                 left_face = self.faces.get(edge.left_face)
                 right_face = self.faces.get(edge.right_face)
                 
                 if left_face and right_face:
-                    if left_face.type != right_face.type:
+                    left_type = left_face.type
+                    right_type = right_face.type
+                    
+                    if left_type == right_type:
+                        # Same type - use that type (land, sea, or impassable)
+                        edge.type = left_type
+                    elif "impassable" in (left_type, right_type):
+                        # One side is impassable - this is an impassable border
+                        edge.type = "impassable"
+                    elif set([left_type, right_type]) == {"land", "sea"}:
+                        # Land-sea boundary - this is a coastline
                         edge.type = "coast"
                     else:
-                        edge.type = left_face.type  # "land" or "sea"
+                        # Fallback for any other combination
+                        edge.type = "land"
                 else:
                     print(f"WARNING: Edge {edge_id} references non-existent face")
     
