@@ -493,9 +493,13 @@ def split_border(border_id: str, topology: dict) -> Tuple[bool, Optional[str], O
     start_vertex = border.get("start_vertex")
     end_vertex = border.get("end_vertex")
     
+    # Validate start_vertex and end_vertex exist
+    if start_vertex is None or end_vertex is None:
+        return False, None, None, None
+    
     # Edges before the split point (plus the first half of split edge)
     border1_edges = list(edge_ids[:split_edge_index]) + [new_edge1_id]
-    # Edges after the split point (plus the second half of split edge) 
+    # Edges after the split point (plus the second half of split edge)
     border2_edges = [new_edge2_id] + list(edge_ids[split_edge_index + 1:])
     
     # Create two new borders
