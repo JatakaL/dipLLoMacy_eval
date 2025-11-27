@@ -341,6 +341,10 @@ def split_border(border_id: str, topology: dict) -> Tuple[bool, Optional[str], O
     
     The original border and the split edge are removed.
     
+    Note: For multi-edge borders, this function assumes that the edges list in the 
+    border is ordered correctly from start_vertex to end_vertex. This is the standard
+    format used by fractal subdivision and other topology operations.
+    
     Args:
         border_id: ID of the border to split
         topology: Dictionary with topology data (vertices, edges, faces, borders)
@@ -488,8 +492,9 @@ def split_border(border_id: str, topology: dict) -> Tuple[bool, Optional[str], O
         "type": split_edge.get("type")
     }
     
-    # Determine edge ordering - need to trace from start_vertex to midpoint to end_vertex
-    # The edges before the split edge go to border1, after go to border2
+    # Partition edges based on the split point. Edges are assumed to be ordered
+    # from start_vertex to end_vertex (as created by fractal subdivision).
+    # Edges before the split edge go to border1, edges after go to border2.
     start_vertex = border.get("start_vertex")
     end_vertex = border.get("end_vertex")
     
