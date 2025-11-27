@@ -122,7 +122,14 @@ class Border:
 
 
 class Face:
-    """Represents a territory/cell defined by its boundary edges."""
+    """Represents a territory/cell defined by its boundary borders.
+    
+    A face references an ordered list of borders, where each border
+    contains one or more edges. This design ensures:
+    - No redundancy: edges are only listed in borders, not directly in faces
+    - Clear hierarchy: face -> borders -> edges
+    - Borders group edges that share the same adjacent faces
+    """
     
     def __init__(self, face_id: str, face_type: str):
         """
@@ -134,7 +141,6 @@ class Face:
         """
         self.id = face_id
         self.type = face_type
-        self.edges: List[str] = []  # Ordered list of edge IDs forming the perimeter
         self.borders: List[str] = []  # Ordered list of border IDs forming the perimeter
         self.center: Optional[Tuple[float, float]] = None
         self.coastal: bool = False  # Whether this land face is coastal
@@ -143,10 +149,8 @@ class Face:
         """Convert to dictionary representation."""
         result = {
             "type": self.type,
-            "edges": self.edges,
+            "borders": self.borders,
         }
-        if self.borders:
-            result["borders"] = self.borders
         if self.center is not None:
             result["center"] = list(self.center)
         # Include coastal property for land faces
@@ -363,8 +367,8 @@ class TopologyConverter:
                 edge_id = self._get_or_create_edge(v1_id, v2_id, cell_id)
                 edge_ids.append(edge_id)
             
-            # Store the ordered edges for this face
-            face.edges = edge_ids
+            # Store edge_ids temporarily for border creation
+            face._temp_edge_ids = edge_ids
             self.faces[cell_id] = face
         
         print(f"Created {len(self.vertices)} vertices, {len(self.edges)} edges, {len(self.faces)} faces")
@@ -383,8 +387,8 @@ class TopologyConverter:
         """
         Create borders for all edges after edge types have been classified.
         
-        Each edge initially gets its own border. Also updates faces to
-        reference borders in addition to edges.
+        Each edge initially gets its own border. Faces are updated to
+        reference borders (not edges directly).
         """
         for edge_id, edge in self.edges.items():
             border_id = self._create_border_for_edge(edge_id)
@@ -394,15 +398,19 @@ class TopologyConverter:
                 self.borders[border_id].left_face = edge.left_face
                 self.borders[border_id].right_face = edge.right_face
         
-        # Update faces to reference their borders
+        # Update faces to reference their borders (not edges)
         for face_id, face in self.faces.items():
             face.borders = []
-            for edge_id in face.edges:
+            temp_edge_ids = getattr(face, '_temp_edge_ids', [])
+            for edge_id in temp_edge_ids:
                 edge = self.edges.get(edge_id)
                 if edge:
                     border_id = f"B_{edge.v1}_{edge.v2}"
                     if border_id in self.borders and border_id not in face.borders:
                         face.borders.append(border_id)
+            # Clean up temporary attribute
+            if hasattr(face, '_temp_edge_ids'):
+                delattr(face, '_temp_edge_ids')
     
     def _classify_edge_types(self):
         """
@@ -496,6 +504,28 @@ def convert_cells_to_topology(cells: Dict[str, dict]) -> dict:
     }
 
 
+def get_face_edges(face_data: dict, borders: Dict[str, dict]) -> List[str]:
+    """
+    Get the list of edge IDs for a face by looking up its borders.
+    
+    Since faces now only contain borders (not edges directly), this helper
+    function retrieves the edges by iterating through the face's borders.
+    
+    Args:
+        face_data: Face dictionary with 'borders' list
+        borders: Dictionary of border data with 'edges' list
+        
+    Returns:
+        List of edge IDs forming the face perimeter
+    """
+    edge_ids = []
+    for border_id in face_data.get('borders', []):
+        if border_id in borders:
+            border = borders[border_id]
+            edge_ids.extend(border.get('edges', []))
+    return edge_ids
+
+
 def get_adjacency_from_topology(edges: Dict[str, dict]) -> Dict[str, List[str]]:
     """
     Derive face adjacency from edges.
@@ -536,7 +566,7 @@ def reconstruct_cells_from_topology(topology: dict) -> Dict[str, dict]:
     temporarily during processing (e.g., for terrain assignment or connectivity checks).
     
     Args:
-        topology: Topology dictionary with vertices, edges, and faces
+        topology: Topology dictionary with vertices, edges, borders, and faces
         
     Returns:
         Dictionary of cells with id, type, center, vertices, and neighbors
@@ -544,11 +574,12 @@ def reconstruct_cells_from_topology(topology: dict) -> Dict[str, dict]:
     # Create vertex lookup
     vertex_coords = {v['id']: v['coords'] for v in topology['vertices']}
     adjacency = get_adjacency_from_topology(topology['edges'])
+    borders = topology.get('borders', {})
     
     cells = {}
     for face_id, face_data in topology['faces'].items():
-        # Reconstruct polygon vertices from edges
-        edge_ids = face_data.get('edges', [])
+        # Get edge IDs through borders
+        edge_ids = get_face_edges(face_data, borders)
         vertices = []
         
         # Build vertex graph from edges

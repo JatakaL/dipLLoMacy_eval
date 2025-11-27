@@ -254,8 +254,8 @@ def test_subdivide_edge_topology():
             }
         },
         "faces": {
-            "C1": {"type": "land", "edges": ["E_0_1"]},
-            "C2": {"type": "sea", "edges": ["E_0_1"]}
+            "C1": {"type": "land", "borders": ["B_0_1"]},
+            "C2": {"type": "sea", "borders": ["B_0_1"]}
         }
     }
     
@@ -284,10 +284,10 @@ def test_subdivide_edge_topology():
     border = topology["borders"]["B_0_1"]
     assert border["edges"] == new_edge_ids, f"Border should contain new edges: {border['edges']} != {new_edge_ids}"
     
-    # Faces should reference the new edges
+    # Faces should reference the border (not edges directly)
     for face_id in ["C1", "C2"]:
         face = topology["faces"][face_id]
-        assert face["edges"] == new_edge_ids, f"Face {face_id} should reference new edges"
+        assert "B_0_1" in face["borders"], f"Face {face_id} should reference border B_0_1"
     
     print(f"  ✓ Subdivided edge into {len(new_edge_ids)} edges with {len(new_vertex_ids)} new vertices")
     print(f"    New edges: {new_edge_ids}")
@@ -328,8 +328,8 @@ def test_subdivide_all_edges():
             "B_3_4": {"edges": ["E_3_4"], "type": "map-edge", "left_face": "C2"}
         },
         "faces": {
-            "C1": {"type": "land", "edges": ["E_0_1", "E_1_4", "E_4_5", "E_0_5"], "center": [0.25, 0.5]},
-            "C2": {"type": "sea", "edges": ["E_1_2", "E_2_3", "E_3_4", "E_1_4"], "center": [0.75, 0.5]}
+            "C1": {"type": "land", "borders": ["B_0_1", "B_1_4", "B_4_5", "B_0_5"], "center": [0.25, 0.5]},
+            "C2": {"type": "sea", "borders": ["B_1_2", "B_2_3", "B_3_4", "B_1_4"], "center": [0.75, 0.5]}
         }
     }
     
@@ -390,8 +390,8 @@ def test_border_structure():
             }
         },
         "faces": {
-            "C1": {"type": "land", "edges": ["E_0_1"]},
-            "C2": {"type": "sea", "edges": ["E_0_1"]}
+            "C1": {"type": "land", "borders": ["B_0_1"]},
+            "C2": {"type": "sea", "borders": ["B_0_1"]}
         }
     }
     

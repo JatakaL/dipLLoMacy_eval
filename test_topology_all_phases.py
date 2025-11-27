@@ -38,6 +38,7 @@ def verify_topology_integrity(topology, phase_name):
     """Verify topology integrity (edges reference valid faces, etc.)."""
     # Check that all edges reference valid faces
     faces = set(topology["faces"].keys())
+    borders = topology.get("borders", {})
     
     for edge_id, edge_data in topology["edges"].items():
         left_face = edge_data.get("left_face")
@@ -49,15 +50,23 @@ def verify_topology_integrity(topology, phase_name):
         if right_face and right_face not in faces:
             raise AssertionError(f"{phase_name}: Edge {edge_id} references non-existent right_face: {right_face}")
     
-    # Check that all faces reference valid edges
+    # Check that all faces reference valid borders
+    border_ids = set(borders.keys())
     edge_ids = set(topology["edges"].keys())
     
     for face_id, face_data in topology["faces"].items():
-        face_edges = face_data.get("edges", [])
+        face_borders = face_data.get("borders", [])
         
-        for edge_id in face_edges:
-            if edge_id not in edge_ids:
-                raise AssertionError(f"{phase_name}: Face {face_id} references non-existent edge: {edge_id}")
+        for border_id in face_borders:
+            if border_id not in border_ids:
+                raise AssertionError(f"{phase_name}: Face {face_id} references non-existent border: {border_id}")
+        
+        # Also check that edges referenced in borders exist
+        for border_id in face_borders:
+            if border_id in borders:
+                for edge_id in borders[border_id].get("edges", []):
+                    if edge_id not in edge_ids:
+                        raise AssertionError(f"{phase_name}: Border {border_id} references non-existent edge: {edge_id}")
     
     return True
 

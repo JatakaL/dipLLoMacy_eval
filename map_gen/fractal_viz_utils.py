@@ -19,6 +19,26 @@ otherwise it draws the actual edge vertices (which may be subdivided).
 
 import numpy as np
 
+
+def _get_face_edges(face_data, borders):
+    """
+    Get the list of edge IDs for a face by looking up its borders.
+    
+    Args:
+        face_data: Face dictionary with 'borders' list
+        borders: Dictionary of border data with 'edges' list
+        
+    Returns:
+        List of edge IDs forming the face perimeter
+    """
+    edge_ids = []
+    for border_id in face_data.get('borders', []):
+        if border_id in borders:
+            border = borders[border_id]
+            edge_ids.extend(border.get('edges', []))
+    return edge_ids
+
+
 # Default edge styling configurations
 EDGE_COLORS = {
     'land': '#4A7C59',      # Dark green for land-land borders
@@ -119,7 +139,7 @@ def get_fractal_face_polygon(topology, face_id):
     2. Subdivided mode: Uses actual edge vertices (many small edges)
     
     Args:
-        topology: Topology dictionary with vertices, edges, and faces
+        topology: Topology dictionary with vertices, edges, borders, and faces
         face_id: ID of the face to reconstruct
         
     Returns:
@@ -130,13 +150,14 @@ def get_fractal_face_polygon(topology, face_id):
     
     faces = topology.get('faces', {})
     edges = topology.get('edges', {})
+    borders = topology.get('borders', {})
     vertices_list = topology.get('vertices', [])
     
     if face_id not in faces:
         return None
     
     face = faces[face_id]
-    edge_ids = face.get('edges', [])
+    edge_ids = _get_face_edges(face, borders)
     
     if not edge_ids:
         return None

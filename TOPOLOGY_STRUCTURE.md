@@ -84,12 +84,12 @@ The topology is stored in the `topology` key of phase outputs, with three main c
 {
   "C4": {
     "type": "land",
-    "edges": ["E_0_1", "E_1_5", "E_5_9", "E_9_0"],
+    "borders": ["B_0_1", "B_1_5", "B_5_9", "B_9_0"],
     "center": [0.16, 0.35]
   },
   "C5": {
     "type": "sea",
-    "edges": ["E_1_2", "E_2_6", "E_6_1"],
+    "borders": ["B_1_2", "B_2_6", "B_6_1"],
     "center": [0.25, 0.42]
   }
 }
@@ -97,11 +97,10 @@ The topology is stored in the `topology` key of phase outputs, with three main c
 
 **Properties**:
 - `type` (string): Type of face - `"land"`, `"sea"`, or `"impassable"`
-- `edges` (array of strings): Ordered list of edge IDs forming the perimeter of this face
-- `borders` (array of strings, optional): Ordered list of border IDs forming the perimeter
+- `borders` (array of strings): Ordered list of border IDs forming the perimeter
 - `center` (array of 2 floats): Centroid coordinates [x, y]
 
-**No Geometric Data**: Faces do not store vertex coordinates directly - they only reference edges, which in turn reference vertices.
+**No Geometric Data or Direct Edge References**: Faces reference borders, not edges directly. This eliminates redundancy and ensures edges are only referenced in one place (borders).
 
 ### 4. Borders (Edge Groups)
 

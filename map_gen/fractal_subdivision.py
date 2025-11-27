@@ -311,11 +311,9 @@ def subdivide_edge_topology(
             # This handles the case where the border was created with a different initial edge
             border["edges"].extend(new_edge_ids)
     
-    # Update faces to replace the old edge with new edges
-    for face_id, face in faces.items():
-        if "edges" in face and edge_id in face["edges"]:
-            idx = face["edges"].index(edge_id)
-            face["edges"] = face["edges"][:idx] + new_edge_ids + face["edges"][idx+1:]
+    # Note: Faces now only contain borders, not edges directly.
+    # The border update above already handles the edge replacement.
+    # No need to update faces since they reference borders, not edges.
     
     # Remove the original edge
     del edges[edge_id]

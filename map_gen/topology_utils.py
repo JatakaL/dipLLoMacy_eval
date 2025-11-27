@@ -22,7 +22,7 @@ import math
 from typing import Dict, List, Tuple, Optional
 from shapely.geometry import Polygon, LineString
 from shapely.errors import GEOSException
-from topology import get_adjacency_from_topology
+from topology import get_adjacency_from_topology, get_face_edges
 
 
 def _get_vertex_coords_lookup(topology: dict) -> Dict[int, List[float]]:
@@ -54,13 +54,14 @@ def _trace_face_polygon_vertices(face_id: str, topology: dict) -> List[List[floa
     """
     faces = topology.get("faces", {})
     edges = topology.get("edges", {})
+    borders = topology.get("borders", {})
     vertex_coords = _get_vertex_coords_lookup(topology)
     
     if face_id not in faces:
         return []
     
     face = faces[face_id]
-    edge_ids = face.get("edges", [])
+    edge_ids = get_face_edges(face, borders)
     
     if not edge_ids:
         return []
@@ -198,20 +199,21 @@ def merge_faces(face1_id: str, face2_id: str, topology: dict) -> Tuple[bool, Opt
     
     This operation:
     1. Combines the two faces into a single face (keeping face1_id)
-    2. Removes shared edges between the faces
-    3. Updates edge references to point to the merged face
+    2. Removes shared borders between the faces
+    3. Updates edge/border references to point to the merged face
     4. Removes face2 from the topology
     
     Args:
         face1_id: ID of the first face (will be kept)
         face2_id: ID of the second face (will be removed)
-        topology: Dictionary with topology data (vertices, edges, faces)
+        topology: Dictionary with topology data (vertices, edges, faces, borders)
         
     Returns:
         Tuple of (success: bool, merged_face_id: Optional[str])
     """
     faces = topology.get("faces", {})
     edges = topology.get("edges", {})
+    borders = topology.get("borders", {})
     
     if face1_id not in faces or face2_id not in faces:
         return False, None
@@ -219,11 +221,12 @@ def merge_faces(face1_id: str, face2_id: str, topology: dict) -> Tuple[bool, Opt
     face1 = faces[face1_id]
     face2 = faces[face2_id]
     
+    # Get edges for each face through their borders
+    face1_edges = set(get_face_edges(face1, borders))
+    face2_edges = set(get_face_edges(face2, borders))
+    
     # Find shared edges between the two faces
     shared_edges = []
-    face1_edges = set(face1.get("edges", []))
-    face2_edges = set(face2.get("edges", []))
-    
     for edge_id in face1_edges:
         if edge_id not in edges:
             continue
@@ -240,36 +243,54 @@ def merge_faces(face1_id: str, face2_id: str, topology: dict) -> Tuple[bool, Opt
         # Faces are not adjacent, cannot merge
         return False, None
     
-    # Combine edges from both faces, excluding shared edges
-    # Also filter out edges that no longer exist (may have been deleted by previous operations)
-    new_edges = []
-    for edge_id in face1_edges:
-        if edge_id not in shared_edges and edge_id in edges:
-            new_edges.append(edge_id)
+    # Find shared borders
+    shared_borders = []
+    for border_id in face1.get("borders", []):
+        if border_id in borders:
+            border = borders[border_id]
+            if (border.get("left_face") == face1_id and border.get("right_face") == face2_id) or \
+               (border.get("left_face") == face2_id and border.get("right_face") == face1_id):
+                shared_borders.append(border_id)
     
-    for edge_id in face2_edges:
-        if edge_id not in shared_edges and edge_id not in new_edges and edge_id in edges:
-            new_edges.append(edge_id)
+    # Combine borders from both faces, excluding shared borders
+    new_borders = []
+    for border_id in face1.get("borders", []):
+        if border_id not in shared_borders and border_id in borders:
+            new_borders.append(border_id)
     
-    # Update face1 with combined edges
-    face1["edges"] = new_edges
+    for border_id in face2.get("borders", []):
+        if border_id not in shared_borders and border_id not in new_borders and border_id in borders:
+            new_borders.append(border_id)
     
-    # Update face1's properties (use face1's type, but could be customized)
-    # Keep face1's center for now (could be recalculated as average of both)
+    # Update face1 with combined borders
+    face1["borders"] = new_borders
     
-    # Update all edges that referenced face2 to now reference face1
-    for edge_id in new_edges:
-        if edge_id in edges:
-            edge = edges[edge_id]
-            if edge.get("left_face") == face2_id:
-                edge["left_face"] = face1_id
-            if edge.get("right_face") == face2_id:
-                edge["right_face"] = face1_id
+    # Update all edges and borders that referenced face2 to now reference face1
+    for border_id in new_borders:
+        if border_id in borders:
+            border = borders[border_id]
+            if border.get("left_face") == face2_id:
+                border["left_face"] = face1_id
+            if border.get("right_face") == face2_id:
+                border["right_face"] = face1_id
+            # Also update edges in this border
+            for edge_id in border.get("edges", []):
+                if edge_id in edges:
+                    edge = edges[edge_id]
+                    if edge.get("left_face") == face2_id:
+                        edge["left_face"] = face1_id
+                    if edge.get("right_face") == face2_id:
+                        edge["right_face"] = face1_id
     
     # Remove shared edges from topology
     for edge_id in shared_edges:
         if edge_id in edges:
             del edges[edge_id]
+    
+    # Remove shared borders from topology
+    for border_id in shared_borders:
+        if border_id in borders:
+            del borders[border_id]
     
     # Remove face2 from topology
     del faces[face2_id]
@@ -296,7 +317,7 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     
     Args:
         face_id: ID of the face to split
-        topology: Dictionary with topology data (vertices, edges, faces)
+        topology: Dictionary with topology data (vertices, edges, faces, borders)
         split_axis: Not used in this implementation (kept for API compatibility)
         
     Returns:
@@ -305,13 +326,14 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     """
     faces = topology.get("faces", {})
     edges = topology.get("edges", {})
+    borders = topology.get("borders", {})
     vertices = topology.get("vertices", [])
     
     if face_id not in faces:
         return False, None, None
     
     face = faces[face_id]
-    edge_ids = face.get("edges", [])
+    edge_ids = get_face_edges(face, borders)
     
     if len(edge_ids) < 4:
         # Need at least 4 edges to split meaningfully
@@ -650,17 +672,54 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
         "type": split_edge_type
     }
     
+    # Create borders for the new faces
+    # Each edge in face1_edges/face2_edges needs a corresponding border
+    face1_borders = []
+    face2_borders = []
+    
+    for eid in face1_edges:
+        edge = edges.get(eid)
+        if edge:
+            border_id = f"B_{edge['v1']}_{edge['v2']}"
+            if border_id not in borders:
+                borders[border_id] = {
+                    "edges": [eid],
+                    "left_face": edge.get("left_face"),
+                    "right_face": edge.get("right_face"),
+                    "type": edge.get("type"),
+                    "start_vertex": edge["v1"],
+                    "end_vertex": edge["v2"]
+                }
+            if border_id not in face1_borders:
+                face1_borders.append(border_id)
+    
+    for eid in face2_edges:
+        edge = edges.get(eid)
+        if edge:
+            border_id = f"B_{edge['v1']}_{edge['v2']}"
+            if border_id not in borders:
+                borders[border_id] = {
+                    "edges": [eid],
+                    "left_face": edge.get("left_face"),
+                    "right_face": edge.get("right_face"),
+                    "type": edge.get("type"),
+                    "start_vertex": edge["v1"],
+                    "end_vertex": edge["v2"]
+                }
+            if border_id not in face2_borders:
+                face2_borders.append(border_id)
+    
     # Create face 1
     face1 = {
         "type": face["type"],
-        "edges": face1_edges,
+        "borders": face1_borders,
         "center": face.get("center", [0.5, 0.5])
     }
     
     # Create face 2
     face2 = {
         "type": face["type"],
-        "edges": face2_edges,
+        "borders": face2_borders,
         "center": face.get("center", [0.5, 0.5])
     }
     
@@ -683,7 +742,7 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
     if face2_coastal:
         face2["coastal"] = True
     
-    # Update edge references for remaining old edges
+    # Update edge references for remaining old edges in THIS face
     face1_edges_set = set(face1_edges)
     face2_edges_set = set(face2_edges)
     
@@ -701,23 +760,122 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
                 if e.get("right_face") == face_id:
                     e["right_face"] = face2_id
     
-    # Update neighboring faces that shared the split edges
+    # ALSO update any OTHER edges that reference the old face (from neighboring faces)
+    # These are edges shared with neighbors that we need to update
+    all_face1_edges = set(face1_edges)
+    all_face2_edges = set(face2_edges)
+    
+    # For edges belonging to THIS face, update their face references
+    for eid, e in edges.items():
+        if e.get("left_face") == face_id:
+            # Determine which new face this edge belongs to
+            if eid in all_face1_edges:
+                e["left_face"] = face1_id
+            elif eid in all_face2_edges:
+                e["left_face"] = face2_id
+            else:
+                # Edge from neighbor - determine based on shared vertex
+                # This edge shares a vertex with our face; find which part it's adjacent to
+                edge_verts = {e["v1"], e["v2"]}
+                # Check if any vertex of this edge is connected to face1 edges
+                face1_verts = set()
+                for fe in all_face1_edges:
+                    if fe in edges:
+                        face1_verts.add(edges[fe]["v1"])
+                        face1_verts.add(edges[fe]["v2"])
+                if edge_verts & face1_verts:
+                    e["left_face"] = face1_id
+                else:
+                    e["left_face"] = face2_id
+                    
+        if e.get("right_face") == face_id:
+            if eid in all_face1_edges:
+                e["right_face"] = face1_id
+            elif eid in all_face2_edges:
+                e["right_face"] = face2_id
+            else:
+                # Edge from neighbor - determine based on shared vertex
+                edge_verts = {e["v1"], e["v2"]}
+                face1_verts = set()
+                for fe in all_face1_edges:
+                    if fe in edges:
+                        face1_verts.add(edges[fe]["v1"])
+                        face1_verts.add(edges[fe]["v2"])
+                if edge_verts & face1_verts:
+                    e["right_face"] = face1_id
+                else:
+                    e["right_face"] = face2_id
+    
+    # Also update borders' face references for the new faces
+    for bid in face1_borders:
+        if bid in borders:
+            border = borders[bid]
+            if border.get("left_face") == face_id:
+                border["left_face"] = face1_id
+            if border.get("right_face") == face_id:
+                border["right_face"] = face1_id
+    
+    for bid in face2_borders:
+        if bid in borders:
+            border = borders[bid]
+            if border.get("left_face") == face_id:
+                border["left_face"] = face2_id
+            if border.get("right_face") == face_id:
+                border["right_face"] = face2_id
+    
+    # Also update ALL borders that reference the old face
+    for bid, border in borders.items():
+        if border.get("left_face") == face_id:
+            # Determine which new face this border belongs to based on its edges
+            border_edges = border.get("edges", [])
+            if any(e in all_face1_edges for e in border_edges):
+                border["left_face"] = face1_id
+            elif any(e in all_face2_edges for e in border_edges):
+                border["left_face"] = face2_id
+        if border.get("right_face") == face_id:
+            border_edges = border.get("edges", [])
+            if any(e in all_face1_edges for e in border_edges):
+                border["right_face"] = face1_id
+            elif any(e in all_face2_edges for e in border_edges):
+                border["right_face"] = face2_id
+    
+    # Update neighboring faces that shared the split edges - update their borders
     for fid, fdata in faces.items():
         if fid == face_id:
             continue
-        new_face_edges = []
-        for eid in fdata.get("edges", []):
-            if eid == longest_edge_id:
-                new_face_edges.append(edge1a_id)
-                new_face_edges.append(edge1b_id)
-            elif eid == opposite_edge_id:
-                new_face_edges.append(edge2a_id)
-                new_face_edges.append(edge2b_id)
-            else:
-                new_face_edges.append(eid)
-        fdata["edges"] = new_face_edges
+        neighbor_edge_ids = get_face_edges(fdata, borders)
+        if longest_edge_id in neighbor_edge_ids or opposite_edge_id in neighbor_edge_ids:
+            # Update the neighbor's borders
+            new_borders = []
+            for bid in fdata.get("borders", []):
+                if bid in borders:
+                    border = borders[bid]
+                    border_edges = border.get("edges", [])
+                    if longest_edge_id in border_edges or opposite_edge_id in border_edges:
+                        # This border needs to be updated with the new edges
+                        new_border_edges = []
+                        for be in border_edges:
+                            if be == longest_edge_id:
+                                new_border_edges.append(edge1a_id)
+                                new_border_edges.append(edge1b_id)
+                            elif be == opposite_edge_id:
+                                new_border_edges.append(edge2a_id)
+                                new_border_edges.append(edge2b_id)
+                            else:
+                                new_border_edges.append(be)
+                        border["edges"] = new_border_edges
+                new_borders.append(bid)
+            fdata["borders"] = new_borders
     
-    # Remove original edges
+    # Remove original edges and their borders
+    longest_border_id = f"B_{longest_edge['v1']}_{longest_edge['v2']}"
+    opposite_border_id = f"B_{opposite_edge['v1']}_{opposite_edge['v2']}"
+    
+    if longest_border_id in borders:
+        del borders[longest_border_id]
+    if opposite_border_id in borders:
+        del borders[opposite_border_id]
+    
     del edges[longest_edge_id]
     del edges[opposite_edge_id]
     
