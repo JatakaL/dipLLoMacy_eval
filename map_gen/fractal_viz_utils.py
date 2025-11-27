@@ -19,24 +19,19 @@ otherwise it draws the actual edge vertices (which may be subdivided).
 
 import numpy as np
 
-
-def _get_face_edges(face_data, borders):
-    """
-    Get the list of edge IDs for a face by looking up its borders.
-    
-    Args:
-        face_data: Face dictionary with 'borders' list
-        borders: Dictionary of border data with 'edges' list
-        
-    Returns:
-        List of edge IDs forming the face perimeter
-    """
-    edge_ids = []
-    for border_id in face_data.get('borders', []):
-        if border_id in borders:
-            border = borders[border_id]
-            edge_ids.extend(border.get('edges', []))
-    return edge_ids
+# Import helper from topology module to avoid duplication
+try:
+    from topology import get_face_edges as _get_face_edges
+except ImportError:
+    # Fallback implementation if import fails
+    def _get_face_edges(face_data, borders):
+        """Get edge IDs for a face by looking up its borders."""
+        edge_ids = []
+        for border_id in face_data.get('borders', []):
+            if border_id in borders:
+                border = borders[border_id]
+                edge_ids.extend(border.get('edges', []))
+        return edge_ids
 
 
 # Default edge styling configurations
