@@ -21,7 +21,8 @@ Two Approaches:
 
 Refinement Strategy:
 - Coastlines (land-sea boundaries): Heavy displacement for jagged coastlines
-- Land borders (political lines/rivers): Gentle displacement for smoother borders
+- Land borders (political lines/rivers): Moderate displacement for organic-looking borders  
+- Impassable borders: Same as land borders
 - Sea borders: Very gentle displacement
 - Map edges: No displacement (remain straight)
 """
@@ -29,6 +30,9 @@ Refinement Strategy:
 import math
 import random
 from typing import Dict, List, Tuple, Optional
+
+# Import jaggedness configuration at module level to avoid repeated import overhead
+from jaggedness_config import get_edge_displacement_params as _get_params_from_config
 
 # Tolerance for detecting degenerate edges (near-zero length)
 EDGE_LENGTH_EPSILON = 1e-9
@@ -116,9 +120,7 @@ def get_edge_displacement_params(edge_type: str) -> Tuple[float, float, int]:
         - roughness: How quickly displacement decreases (0.0 - 1.0)
         - max_depth: Maximum recursion depth
     """
-    # Import configuration from the config file
-    from jaggedness_config import get_edge_displacement_params as get_params_from_config
-    return get_params_from_config(edge_type)
+    return _get_params_from_config(edge_type)
 
 
 def generate_visual_path(
