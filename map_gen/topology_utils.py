@@ -4,25 +4,27 @@ Topology Utilities Module
 This module implements utility functions for topology manipulation including:
 - Calculating edge lengths using shapely LineString
 - Calculating face sizes (areas) using shapely Polygon
-- Merging adjacent faces (removes shared edges, fully implemented)
-- Splitting faces (geometric split with proper polygon tracing)
+- Merging adjacent faces (works at border level, then affects edges)
+- Splitting faces (works at border level, then affects edges)
 
-Note on split_face():
-    The split_face() function implements a geometric face splitting algorithm:
-    - Finds the longest edge and its opposite edge
-    - Creates new vertices at the midpoints of these edges
-    - Splits the edges and creates a connecting edge between midpoints
-    - Uses polygon tracing to properly assign edges to each new face
-    - Creates two new faces (_a and _b) with correct closed polygons
-    - Properly maintains coastal properties and edge references
-    - Updates neighboring faces that shared the split edges
+Architecture:
+    All face-level operations work through BORDERS as the intermediary layer.
+    Face → Border → Edge hierarchy is maintained.
+    
+    When splitting a face:
+    1. Find two borders to split between (longest and opposite)
+    2. Split each border at its midpoint using split_border()
+    3. Create a new border connecting the split points
+    4. Assign borders to the two new faces
+    
+    Border operations (split_border, etc.) handle the edge-level details.
 """
 
 import math
 from typing import Dict, List, Tuple, Optional
 from shapely.geometry import Polygon, LineString
 from shapely.errors import GEOSException
-from topology import get_adjacency_from_topology
+from topology import get_adjacency_from_topology, get_face_edges
 
 
 def _get_vertex_coords_lookup(topology: dict) -> Dict[int, List[float]]:
@@ -54,13 +56,14 @@ def _trace_face_polygon_vertices(face_id: str, topology: dict) -> List[List[floa
     """
     faces = topology.get("faces", {})
     edges = topology.get("edges", {})
+    borders = topology.get("borders", {})
     vertex_coords = _get_vertex_coords_lookup(topology)
     
     if face_id not in faces:
         return []
     
     face = faces[face_id]
-    edge_ids = face.get("edges", [])
+    edge_ids = get_face_edges(face, borders)
     
     if not edge_ids:
         return []
@@ -192,26 +195,466 @@ def calculate_face_size(face_id: str, topology: dict) -> float:
     return polygon.area
 
 
+# =============================================================================
+# BORDER-LEVEL OPERATIONS
+# =============================================================================
+# These functions operate at the border level, providing the intermediary
+# layer between faces and edges. Face operations call these functions
+# rather than manipulating edges directly.
+# =============================================================================
+
+def calculate_border_length(border_id: str, topology: dict) -> float:
+    """
+    Calculate the total length of a border (sum of all its edge lengths).
+    
+    Args:
+        border_id: ID of the border
+        topology: Dictionary with topology data
+        
+    Returns:
+        Total length of the border in map units
+    """
+    borders = topology.get("borders", {})
+    
+    if border_id not in borders:
+        raise ValueError(f"Border {border_id} not found in topology")
+    
+    border = borders[border_id]
+    total_length = 0.0
+    
+    for edge_id in border.get("edges", []):
+        try:
+            total_length += calculate_edge_length(edge_id, topology)
+        except ValueError:
+            continue
+    
+    return total_length
+
+
+def get_border_midpoint(border_id: str, topology: dict) -> Optional[Tuple[float, float]]:
+    """
+    Get the midpoint of a border.
+    
+    For a border with a single edge, this is the edge midpoint.
+    For multi-edge borders, this is the point at half the total length.
+    
+    Args:
+        border_id: ID of the border
+        topology: Dictionary with topology data
+        
+    Returns:
+        (x, y) coordinates of the midpoint, or None if cannot be calculated
+    """
+    borders = topology.get("borders", {})
+    edges = topology.get("edges", {})
+    vertex_coords = _get_vertex_coords_lookup(topology)
+    
+    if border_id not in borders:
+        return None
+    
+    border = borders[border_id]
+    edge_ids = border.get("edges", [])
+    
+    if not edge_ids:
+        return None
+    
+    # For single-edge borders (most common case before subdivision)
+    if len(edge_ids) == 1:
+        edge_id = edge_ids[0]
+        if edge_id not in edges:
+            return None
+        edge = edges[edge_id]
+        v1_coords = vertex_coords.get(edge["v1"])
+        v2_coords = vertex_coords.get(edge["v2"])
+        if v1_coords is None or v2_coords is None:
+            return None
+        line = LineString([v1_coords, v2_coords])
+        midpoint = line.interpolate(0.5, normalized=True)
+        return (midpoint.x, midpoint.y)
+    
+    # For multi-edge borders, find point at half total length
+    total_length = calculate_border_length(border_id, topology)
+    if total_length <= 0:
+        return None
+    
+    target_length = total_length / 2.0
+    accumulated = 0.0
+    
+    for edge_id in edge_ids:
+        if edge_id not in edges:
+            continue
+        edge = edges[edge_id]
+        v1_coords = vertex_coords.get(edge["v1"])
+        v2_coords = vertex_coords.get(edge["v2"])
+        if v1_coords is None or v2_coords is None:
+            continue
+        
+        line = LineString([v1_coords, v2_coords])
+        edge_length = line.length
+        
+        if accumulated + edge_length >= target_length:
+            # Midpoint is on this edge
+            remaining = target_length - accumulated
+            fraction = remaining / edge_length if edge_length > 0 else 0.5
+            midpoint = line.interpolate(fraction, normalized=True)
+            return (midpoint.x, midpoint.y)
+        
+        accumulated += edge_length
+    
+    return None
+
+
+def get_border_endpoints(border_id: str, topology: dict) -> Tuple[Optional[int], Optional[int]]:
+    """
+    Get the start and end vertex IDs of a border.
+    
+    Args:
+        border_id: ID of the border
+        topology: Dictionary with topology data
+        
+    Returns:
+        Tuple of (start_vertex_id, end_vertex_id)
+    """
+    borders = topology.get("borders", {})
+    
+    if border_id not in borders:
+        return None, None
+    
+    border = borders[border_id]
+    return border.get("start_vertex"), border.get("end_vertex")
+
+
+def split_border(border_id: str, topology: dict) -> Tuple[bool, Optional[str], Optional[str], Optional[int]]:
+    """
+    Split a border at its midpoint into two borders.
+    
+    This creates:
+    - A new vertex at the border's midpoint
+    - Two new edges (splitting the edge at midpoint)
+    - Two new borders (each containing one of the new edges)
+    
+    The original border and its edge are removed.
+    
+    Args:
+        border_id: ID of the border to split
+        topology: Dictionary with topology data (vertices, edges, faces, borders)
+        
+    Returns:
+        Tuple of (success, border1_id, border2_id, midpoint_vertex_id)
+        border1_id connects to start_vertex, border2_id connects to end_vertex
+    """
+    borders = topology.get("borders", {})
+    edges = topology.get("edges", {})
+    vertices = topology.get("vertices", [])
+    vertex_coords = _get_vertex_coords_lookup(topology)
+    
+    if border_id not in borders:
+        return False, None, None, None
+    
+    border = borders[border_id]
+    edge_ids = border.get("edges", [])
+    
+    # Currently only handle single-edge borders for simplicity
+    # Multi-edge border splitting would require more complex logic
+    if len(edge_ids) != 1:
+        return False, None, None, None
+    
+    edge_id = edge_ids[0]
+    if edge_id not in edges:
+        return False, None, None, None
+    
+    edge = edges[edge_id]
+    v1_id = edge["v1"]
+    v2_id = edge["v2"]
+    
+    # Get midpoint
+    midpoint = get_border_midpoint(border_id, topology)
+    if midpoint is None:
+        return False, None, None, None
+    
+    # Create new vertex at midpoint
+    max_vertex_id = max(v["id"] for v in vertices) if vertices else -1
+    new_vertex_id = max_vertex_id + 1
+    vertices.append({"id": new_vertex_id, "coords": list(midpoint)})
+    
+    # Create two new edges
+    edge1_id = f"E_{min(v1_id, new_vertex_id)}_{max(v1_id, new_vertex_id)}"
+    edge2_id = f"E_{min(new_vertex_id, v2_id)}_{max(new_vertex_id, v2_id)}"
+    
+    edges[edge1_id] = {
+        "v1": min(v1_id, new_vertex_id),
+        "v2": max(v1_id, new_vertex_id),
+        "left_face": edge.get("left_face"),
+        "right_face": edge.get("right_face"),
+        "type": edge.get("type")
+    }
+    edges[edge2_id] = {
+        "v1": min(new_vertex_id, v2_id),
+        "v2": max(new_vertex_id, v2_id),
+        "left_face": edge.get("left_face"),
+        "right_face": edge.get("right_face"),
+        "type": edge.get("type")
+    }
+    
+    # Create two new borders
+    border1_id = f"B_{edges[edge1_id]['v1']}_{edges[edge1_id]['v2']}"
+    border2_id = f"B_{edges[edge2_id]['v1']}_{edges[edge2_id]['v2']}"
+    
+    borders[border1_id] = {
+        "edges": [edge1_id],
+        "left_face": border.get("left_face"),
+        "right_face": border.get("right_face"),
+        "type": border.get("type"),
+        "start_vertex": v1_id,
+        "end_vertex": new_vertex_id
+    }
+    borders[border2_id] = {
+        "edges": [edge2_id],
+        "left_face": border.get("left_face"),
+        "right_face": border.get("right_face"),
+        "type": border.get("type"),
+        "start_vertex": new_vertex_id,
+        "end_vertex": v2_id
+    }
+    
+    # Remove original edge and border
+    del edges[edge_id]
+    del borders[border_id]
+    
+    return True, border1_id, border2_id, new_vertex_id
+
+
+def create_border_between_vertices(v1_id: int, v2_id: int, left_face: str, right_face: str, 
+                                    border_type: str, topology: dict) -> Optional[str]:
+    """
+    Create a new border (and its edge) connecting two vertices.
+    
+    Args:
+        v1_id: First vertex ID
+        v2_id: Second vertex ID
+        left_face: ID of the left face
+        right_face: ID of the right face
+        border_type: Type of the border ("land", "sea", "coast", etc.)
+        topology: Dictionary with topology data
+        
+    Returns:
+        Border ID of the created border, or None on failure
+    """
+    edges = topology.get("edges", {})
+    borders = topology.get("borders", {})
+    
+    # Create edge
+    edge_id = f"E_{min(v1_id, v2_id)}_{max(v1_id, v2_id)}"
+    edges[edge_id] = {
+        "v1": min(v1_id, v2_id),
+        "v2": max(v1_id, v2_id),
+        "left_face": left_face,
+        "right_face": right_face,
+        "type": border_type
+    }
+    
+    # Create border
+    border_id = f"B_{min(v1_id, v2_id)}_{max(v1_id, v2_id)}"
+    borders[border_id] = {
+        "edges": [edge_id],
+        "left_face": left_face,
+        "right_face": right_face,
+        "type": border_type,
+        "start_vertex": v1_id,
+        "end_vertex": v2_id
+    }
+    
+    return border_id
+
+
+def get_face_borders(face_id: str, topology: dict) -> List[str]:
+    """
+    Get all border IDs for a face.
+    
+    Args:
+        face_id: ID of the face
+        topology: Dictionary with topology data
+        
+    Returns:
+        List of border IDs
+    """
+    faces = topology.get("faces", {})
+    
+    if face_id not in faces:
+        return []
+    
+    return faces[face_id].get("borders", [])
+
+
+def find_longest_border(face_id: str, topology: dict) -> Optional[str]:
+    """
+    Find the longest border of a face.
+    
+    Args:
+        face_id: ID of the face
+        topology: Dictionary with topology data
+        
+    Returns:
+        Border ID of the longest border, or None
+    """
+    border_ids = get_face_borders(face_id, topology)
+    
+    if not border_ids:
+        return None
+    
+    longest_id = None
+    longest_length = 0.0
+    
+    for border_id in border_ids:
+        try:
+            length = calculate_border_length(border_id, topology)
+            if length > longest_length:
+                longest_length = length
+                longest_id = border_id
+        except ValueError:
+            continue
+    
+    return longest_id
+
+
+def find_opposite_border(face_id: str, reference_border_id: str, topology: dict) -> Optional[str]:
+    """
+    Find the border most 'opposite' to a reference border.
+    
+    Uses perpendicular distance from the reference border's midpoint.
+    
+    Args:
+        face_id: ID of the face
+        reference_border_id: ID of the reference border
+        topology: Dictionary with topology data
+        
+    Returns:
+        Border ID of the opposite border, or None
+    """
+    borders = topology.get("borders", {})
+    edges = topology.get("edges", {})
+    vertex_coords = _get_vertex_coords_lookup(topology)
+    
+    border_ids = get_face_borders(face_id, topology)
+    
+    if not border_ids or reference_border_id not in borders:
+        return None
+    
+    # Get reference border info
+    ref_border = borders[reference_border_id]
+    ref_midpoint = get_border_midpoint(reference_border_id, topology)
+    if ref_midpoint is None:
+        return None
+    
+    # Get direction perpendicular to reference border
+    ref_edge_ids = ref_border.get("edges", [])
+    if not ref_edge_ids:
+        return None
+    
+    ref_edge = edges.get(ref_edge_ids[0])
+    if not ref_edge:
+        return None
+    
+    v1_coords = vertex_coords.get(ref_edge["v1"])
+    v2_coords = vertex_coords.get(ref_edge["v2"])
+    if v1_coords is None or v2_coords is None:
+        return None
+    
+    # Calculate perpendicular direction
+    edge_vec = [v2_coords[0] - v1_coords[0], v2_coords[1] - v1_coords[1]]
+    perpendicular = [-edge_vec[1], edge_vec[0]]
+    perp_length = math.sqrt(perpendicular[0]**2 + perpendicular[1]**2)
+    if perp_length < 1e-10:
+        return None
+    perpendicular = [perpendicular[0] / perp_length, perpendicular[1] / perp_length]
+    
+    # Find border with maximum projected distance in perpendicular direction
+    opposite_id = None
+    max_distance = 0.0
+    
+    for border_id in border_ids:
+        if border_id == reference_border_id:
+            continue
+        
+        border_midpoint = get_border_midpoint(border_id, topology)
+        if border_midpoint is None:
+            continue
+        
+        # Vector from reference midpoint to this border's midpoint
+        to_border = [border_midpoint[0] - ref_midpoint[0], 
+                     border_midpoint[1] - ref_midpoint[1]]
+        
+        # Project onto perpendicular direction
+        projected = abs(to_border[0] * perpendicular[0] + to_border[1] * perpendicular[1])
+        
+        if projected > max_distance:
+            max_distance = projected
+            opposite_id = border_id
+    
+    return opposite_id
+
+
+def update_border_face_references(border_id: str, old_face_id: str, new_face_id: str, topology: dict):
+    """
+    Update a border's face references and its edges' face references.
+    
+    Args:
+        border_id: ID of the border
+        old_face_id: The face ID to replace
+        new_face_id: The new face ID
+        topology: Dictionary with topology data
+    """
+    borders = topology.get("borders", {})
+    edges = topology.get("edges", {})
+    
+    if border_id not in borders:
+        return
+    
+    border = borders[border_id]
+    
+    # Update border's face references
+    if border.get("left_face") == old_face_id:
+        border["left_face"] = new_face_id
+    if border.get("right_face") == old_face_id:
+        border["right_face"] = new_face_id
+    
+    # Update edges' face references
+    for edge_id in border.get("edges", []):
+        if edge_id in edges:
+            edge = edges[edge_id]
+            if edge.get("left_face") == old_face_id:
+                edge["left_face"] = new_face_id
+            if edge.get("right_face") == old_face_id:
+                edge["right_face"] = new_face_id
+
+
+# =============================================================================
+# END BORDER-LEVEL OPERATIONS
+# =============================================================================
+
+
 def merge_faces(face1_id: str, face2_id: str, topology: dict) -> Tuple[bool, Optional[str]]:
     """
-    Merge two adjacent faces into one.
+    Merge two adjacent faces into one by removing the shared border between them.
     
-    This operation:
-    1. Combines the two faces into a single face (keeping face1_id)
-    2. Removes shared edges between the faces
-    3. Updates edge references to point to the merged face
-    4. Removes face2 from the topology
+    This operation works at the BORDER level:
+    1. Find the shared border(s) between the two faces
+    2. Combine borders from both faces, excluding shared borders
+    3. Update remaining borders' face references
+    4. Remove shared borders (and their edges)
+    5. Remove face2 from topology
     
     Args:
         face1_id: ID of the first face (will be kept)
         face2_id: ID of the second face (will be removed)
-        topology: Dictionary with topology data (vertices, edges, faces)
+        topology: Dictionary with topology data (vertices, edges, faces, borders)
         
     Returns:
         Tuple of (success: bool, merged_face_id: Optional[str])
     """
     faces = topology.get("faces", {})
     edges = topology.get("edges", {})
+    borders = topology.get("borders", {})
     
     if face1_id not in faces or face2_id not in faces:
         return False, None
@@ -219,59 +662,52 @@ def merge_faces(face1_id: str, face2_id: str, topology: dict) -> Tuple[bool, Opt
     face1 = faces[face1_id]
     face2 = faces[face2_id]
     
-    # Find shared edges between the two faces
-    shared_edges = []
-    face1_edges = set(face1.get("edges", []))
-    face2_edges = set(face2.get("edges", []))
+    # Step 1: Find shared borders between the two faces (BORDER-LEVEL operation)
+    shared_borders = []
+    face1_border_ids = get_face_borders(face1_id, topology)
     
-    for edge_id in face1_edges:
-        if edge_id not in edges:
+    for border_id in face1_border_ids:
+        if border_id not in borders:
             continue
-        edge = edges[edge_id]
-        left_face = edge.get("left_face")
-        right_face = edge.get("right_face")
-        
-        # Check if this edge is shared between face1 and face2
-        if (left_face == face1_id and right_face == face2_id) or \
-           (left_face == face2_id and right_face == face1_id):
-            shared_edges.append(edge_id)
+        border = borders[border_id]
+        # Check if this border is shared between face1 and face2
+        if (border.get("left_face") == face1_id and border.get("right_face") == face2_id) or \
+           (border.get("left_face") == face2_id and border.get("right_face") == face1_id):
+            shared_borders.append(border_id)
     
-    if not shared_edges:
+    if not shared_borders:
         # Faces are not adjacent, cannot merge
         return False, None
     
-    # Combine edges from both faces, excluding shared edges
-    # Also filter out edges that no longer exist (may have been deleted by previous operations)
-    new_edges = []
-    for edge_id in face1_edges:
-        if edge_id not in shared_edges and edge_id in edges:
-            new_edges.append(edge_id)
+    # Step 2: Combine borders from both faces, excluding shared borders
+    new_borders = []
+    for border_id in face1.get("borders", []):
+        if border_id not in shared_borders and border_id in borders:
+            new_borders.append(border_id)
     
-    for edge_id in face2_edges:
-        if edge_id not in shared_edges and edge_id not in new_edges and edge_id in edges:
-            new_edges.append(edge_id)
+    for border_id in face2.get("borders", []):
+        if border_id not in shared_borders and border_id not in new_borders and border_id in borders:
+            new_borders.append(border_id)
     
-    # Update face1 with combined edges
-    face1["edges"] = new_edges
+    # Step 3: Update face1 with combined borders
+    face1["borders"] = new_borders
     
-    # Update face1's properties (use face1's type, but could be customized)
-    # Keep face1's center for now (could be recalculated as average of both)
+    # Step 4: Update remaining borders' face references (using border-level function)
+    for border_id in new_borders:
+        update_border_face_references(border_id, face2_id, face1_id, topology)
     
-    # Update all edges that referenced face2 to now reference face1
-    for edge_id in new_edges:
-        if edge_id in edges:
-            edge = edges[edge_id]
-            if edge.get("left_face") == face2_id:
-                edge["left_face"] = face1_id
-            if edge.get("right_face") == face2_id:
-                edge["right_face"] = face1_id
+    # Step 5: Remove shared borders and their edges
+    for border_id in shared_borders:
+        if border_id in borders:
+            border = borders[border_id]
+            # Remove the edges in this border
+            for edge_id in border.get("edges", []):
+                if edge_id in edges:
+                    del edges[edge_id]
+            # Remove the border
+            del borders[border_id]
     
-    # Remove shared edges from topology
-    for edge_id in shared_edges:
-        if edge_id in edges:
-            del edges[edge_id]
-    
-    # Remove face2 from topology
+    # Step 6: Remove face2 from topology
     del faces[face2_id]
     
     return True, face1_id
@@ -279,24 +715,20 @@ def merge_faces(face1_id: str, face2_id: str, topology: dict) -> Tuple[bool, Opt
 
 def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> Tuple[bool, Optional[str], Optional[str]]:
     """
-    Split a face into two faces by finding the longest edge and its opposite edge,
-    creating a split line between their midpoints.
+    Split a face into two faces by finding the longest border and its opposite border,
+    creating a split line (new border) between their midpoints.
     
-    Algorithm:
-    1. Find the face's longest edge
-    2. Find the midpoint of that edge
-    3. Determine which edge is 'across' from that midpoint (perpendicular line intersection)
-    4. Find the midpoint of that edge
-    5. Create new vertices at the two midpoints
-    6. Split the two existing edges into four new ones at those midpoints
-    7. Create a new edge connecting the midpoints
-    8. Edit the existing face to include only one side, append _a to its name
-    9. Create a new face from the other side, append _b to the name
-    10. Check coastal property for both new faces
+    This operation works at the BORDER level:
+    1. Find the face's longest border
+    2. Find the opposite border (most perpendicular to longest)
+    3. Split both borders at their midpoints using split_border()
+    4. Create a new border connecting the two midpoint vertices
+    5. Assign borders to the two new faces
+    6. Update all border face references
     
     Args:
         face_id: ID of the face to split
-        topology: Dictionary with topology data (vertices, edges, faces)
+        topology: Dictionary with topology data (vertices, edges, faces, borders)
         split_axis: Not used in this implementation (kept for API compatibility)
         
     Returns:
@@ -304,424 +736,212 @@ def split_face(face_id: str, topology: dict, split_axis: str = "horizontal") -> 
         Returns (False, None, None) if the split cannot be performed.
     """
     faces = topology.get("faces", {})
-    edges = topology.get("edges", {})
+    borders = topology.get("borders", {})
     vertices = topology.get("vertices", [])
     
     if face_id not in faces:
         return False, None, None
     
     face = faces[face_id]
-    edge_ids = face.get("edges", [])
+    face_border_ids = get_face_borders(face_id, topology)
     
-    if len(edge_ids) < 4:
-        # Need at least 4 edges to split meaningfully
+    if len(face_border_ids) < 4:
+        # Need at least 4 borders to split meaningfully
         return False, None, None
     
-    # Create vertex lookup for faster access
-    vertex_coords = _get_vertex_coords_lookup(topology)
-    
-    # Step 1: Find the longest edge
-    longest_edge_id = None
-    longest_length = 0.0
-    
-    for edge_id in edge_ids:
-        if edge_id not in edges:
-            continue
-        try:
-            length = calculate_edge_length(edge_id, topology)
-            if length > longest_length:
-                longest_length = length
-                longest_edge_id = edge_id
-        except (ValueError, KeyError):
-            # Skip edges with missing vertices
-            continue
-    
-    if longest_edge_id is None:
+    # Step 1: Find the longest border (BORDER-LEVEL operation)
+    longest_border_id = find_longest_border(face_id, topology)
+    if longest_border_id is None:
         return False, None, None
     
-    longest_edge = edges[longest_edge_id]
-    v1_id = longest_edge["v1"]
-    v2_id = longest_edge["v2"]
-    v1_coords = vertex_coords[v1_id]
-    v2_coords = vertex_coords[v2_id]
-    
-    # Step 2: Find midpoint of longest edge using shapely
-    longest_line = LineString([v1_coords, v2_coords])
-    midpoint1_point = longest_line.interpolate(0.5, normalized=True)
-    midpoint1 = [midpoint1_point.x, midpoint1_point.y]
-    
-    # Step 3: Find the edge "across" from the longest edge
-    # Calculate perpendicular direction to longest edge
-    edge_vec = [v2_coords[0] - v1_coords[0], v2_coords[1] - v1_coords[1]]
-    perpendicular = [-edge_vec[1], edge_vec[0]]  # Rotate 90 degrees
-    
-    # Normalize perpendicular vector
-    perp_length = math.sqrt(perpendicular[0]**2 + perpendicular[1]**2)
-    if perp_length < 1e-10:
-        return False, None, None
-    perpendicular = [perpendicular[0] / perp_length, perpendicular[1] / perp_length]
-    
-    # Find edge that is farthest from midpoint1 in perpendicular direction
-    # or that the perpendicular line intersects
-    opposite_edge_id = None
-    max_projected_distance = 0.0
-    
-    for edge_id in edge_ids:
-        if edge_id == longest_edge_id or edge_id not in edges:
-            continue
-        
-        edge = edges[edge_id]
-        ev1_coords = vertex_coords[edge["v1"]]
-        ev2_coords = vertex_coords[edge["v2"]]
-        
-        # Calculate center of this edge using shapely
-        edge_line = LineString([ev1_coords, ev2_coords])
-        edge_center_point = edge_line.interpolate(0.5, normalized=True)
-        edge_center = [edge_center_point.x, edge_center_point.y]
-        
-        # Calculate vector from midpoint1 to edge center
-        to_edge = [edge_center[0] - midpoint1[0], edge_center[1] - midpoint1[1]]
-        
-        # Project onto perpendicular direction (absolute value to get distance)
-        projected = abs(to_edge[0] * perpendicular[0] + to_edge[1] * perpendicular[1])
-        
-        if projected > max_projected_distance:
-            max_projected_distance = projected
-            opposite_edge_id = edge_id
-    
-    if opposite_edge_id is None:
+    # Step 2: Find the opposite border (BORDER-LEVEL operation)
+    opposite_border_id = find_opposite_border(face_id, longest_border_id, topology)
+    if opposite_border_id is None:
         return False, None, None
     
-    opposite_edge = edges[opposite_edge_id]
-    ov1_id = opposite_edge["v1"]
-    ov2_id = opposite_edge["v2"]
-    ov1_coords = vertex_coords[ov1_id]
-    ov2_coords = vertex_coords[ov2_id]
-    
-    # Step 4: Find midpoint of opposite edge using shapely
-    opposite_line = LineString([ov1_coords, ov2_coords])
-    midpoint2_point = opposite_line.interpolate(0.5, normalized=True)
-    midpoint2 = [midpoint2_point.x, midpoint2_point.y]
-    
-    # Step 5: Create new vertices at the two midpoints
-    # Get next vertex ID
-    if not vertices:
-        # No vertices exist, cannot proceed with split
+    # Step 3: Split both borders at their midpoints (BORDER-LEVEL operation)
+    success1, border1a_id, border1b_id, midpoint1_id = split_border(longest_border_id, topology)
+    if not success1:
         return False, None, None
-    max_vertex_id = max(v["id"] for v in vertices)
-    new_vertex1_id = max_vertex_id + 1
-    new_vertex2_id = max_vertex_id + 2
     
-    vertices.append({"id": new_vertex1_id, "coords": midpoint1})
-    vertices.append({"id": new_vertex2_id, "coords": midpoint2})
+    success2, border2a_id, border2b_id, midpoint2_id = split_border(opposite_border_id, topology)
+    if not success2:
+        # Rollback first split: merge the two borders back
+        # This is simplified - in a production system we'd want proper transaction semantics
+        # For now, we leave the partially split state as it doesn't corrupt face structure
+        # The first border is just now two borders that can still be used
+        return False, None, None
     
-    # Step 6: Split the two existing edges into four new ones
-    # For longest_edge: v1 -> new_vertex1 and new_vertex1 -> v2
-    # For opposite_edge: ov1 -> new_vertex2 and new_vertex2 -> ov2
-    
-    # Create new edge IDs
-    edge1a_id = f"E_{min(v1_id, new_vertex1_id)}_{max(v1_id, new_vertex1_id)}"
-    edge1b_id = f"E_{min(new_vertex1_id, v2_id)}_{max(new_vertex1_id, v2_id)}"
-    edge2a_id = f"E_{min(ov1_id, new_vertex2_id)}_{max(ov1_id, new_vertex2_id)}"
-    edge2b_id = f"E_{min(new_vertex2_id, ov2_id)}_{max(new_vertex2_id, ov2_id)}"
-    
-    # Get face references from original edges
-    longest_left = longest_edge.get("left_face")
-    longest_right = longest_edge.get("right_face")
-    opposite_left = opposite_edge.get("left_face")
-    opposite_right = opposite_edge.get("right_face")
-    
-    # Create the four new edges from split
-    edges[edge1a_id] = {
-        "v1": min(v1_id, new_vertex1_id),
-        "v2": max(v1_id, new_vertex1_id),
-        "left_face": longest_left,
-        "right_face": longest_right,
-        "type": longest_edge.get("type")
-    }
-    edges[edge1b_id] = {
-        "v1": min(new_vertex1_id, v2_id),
-        "v2": max(new_vertex1_id, v2_id),
-        "left_face": longest_left,
-        "right_face": longest_right,
-        "type": longest_edge.get("type")
-    }
-    edges[edge2a_id] = {
-        "v1": min(ov1_id, new_vertex2_id),
-        "v2": max(ov1_id, new_vertex2_id),
-        "left_face": opposite_left,
-        "right_face": opposite_right,
-        "type": opposite_edge.get("type")
-    }
-    edges[edge2b_id] = {
-        "v1": min(new_vertex2_id, ov2_id),
-        "v2": max(new_vertex2_id, ov2_id),
-        "left_face": opposite_left,
-        "right_face": opposite_right,
-        "type": opposite_edge.get("type")
-    }
-    
-    # Step 7: Create new edge connecting the midpoints
-    split_edge_id = f"E_{min(new_vertex1_id, new_vertex2_id)}_{max(new_vertex1_id, new_vertex2_id)}"
-    
-    # Step 8 & 9: Create the two new faces
+    # Step 4: Create names for new faces
     face1_id = f"{face_id}_a"
     face2_id = f"{face_id}_b"
     
-    # Determine which vertices belong to which side of the split
-    # The split line goes from midpoint1 to midpoint2
-    # We'll use the cross product to determine which side each vertex is on
-    
-    # Split line direction
-    split_dx = midpoint2[0] - midpoint1[0]
-    split_dy = midpoint2[1] - midpoint1[1]
-    
-    # Get all original vertices of this face
-    original_vertices = set()
-    for eid in edge_ids:
-        if eid in edges:
-            original_vertices.add(edges[eid]["v1"])
-            original_vertices.add(edges[eid]["v2"])
-    
-    # Classify each vertex as being on side A (positive cross product) or side B (negative)
-    side_a_vertices = set()  # Will include v1 (from longest edge)
-    side_b_vertices = set()  # Will include v2 (from longest edge)
-    
-    for vid in original_vertices:
-        if vid == v1_id:
-            side_a_vertices.add(vid)
-            continue
-        if vid == v2_id:
-            side_b_vertices.add(vid)
-            continue
-        if vid == ov1_id or vid == ov2_id:
-            # These vertices are on the split line - they need special handling
-            # ov1 is connected to v1 via edges, so determine based on adjacency
-            # For now, we'll add them to both sides since they're on the split line
-            continue
-        
-        vcoords = vertex_coords[vid]
-        # Vector from midpoint1 to vertex
-        to_v = [vcoords[0] - midpoint1[0], vcoords[1] - midpoint1[1]]
-        # Cross product with split direction
-        cross = split_dx * to_v[1] - split_dy * to_v[0]
-        
-        # Also compute cross product for v1 to establish which side is A
-        v1_to_v = [v1_coords[0] - midpoint1[0], v1_coords[1] - midpoint1[1]]
-        v1_cross = split_dx * v1_to_v[1] - split_dy * v1_to_v[0]
-        
-        if (cross > 0) == (v1_cross > 0):
-            side_a_vertices.add(vid)
-        else:
-            side_b_vertices.add(vid)
-    
-    # Now assign edges to faces based on which vertices they connect
-    # An edge belongs to face A if both its vertices are on side A or on the split line
-    # The split edge and the split parts of the original edges are shared/special
-    
-    remaining_old_edges = [e for e in edge_ids if e not in [longest_edge_id, opposite_edge_id]]
-    
-    face1_edges = []  # Side A (includes v1)
-    face2_edges = []  # Side B (includes v2)
-    
-    # Add the new split edge to both faces (it's their shared boundary)
-    face1_edges.append(split_edge_id)
-    face2_edges.append(split_edge_id)
-    
-    # edge1a connects v1 to new_vertex1 - belongs to face1 (side A)
-    face1_edges.append(edge1a_id)
-    # edge1b connects new_vertex1 to v2 - belongs to face2 (side B)
-    face2_edges.append(edge1b_id)
-    
-    # For edge2a and edge2b, we need to determine which connects to which side
-    # edge2a connects ov1 to new_vertex2
-    # edge2b connects new_vertex2 to ov2
-    # We need to figure out if ov1 is on side A or side B
-    
-    # Check adjacency: ov1 should be connected to either v1 or v2 (or both) via other edges
-    ov1_side_a = False
-    ov2_side_a = False
-    
-    for eid in remaining_old_edges:
-        if eid not in edges:
-            continue
-        e = edges[eid]
-        ev1, ev2 = e["v1"], e["v2"]
-        # If this edge connects ov1 to a side_a vertex, ov1 is on side A
-        if ev1 == ov1_id and ev2 in side_a_vertices:
-            ov1_side_a = True
-        if ev2 == ov1_id and ev1 in side_a_vertices:
-            ov1_side_a = True
-        if ev1 == ov2_id and ev2 in side_a_vertices:
-            ov2_side_a = True
-        if ev2 == ov2_id and ev1 in side_a_vertices:
-            ov2_side_a = True
-        # Similarly for side B
-        if ev1 == ov1_id and ev2 in side_b_vertices:
-            ov1_side_a = False
-        if ev2 == ov1_id and ev1 in side_b_vertices:
-            ov1_side_a = False
-        if ev1 == ov2_id and ev2 in side_b_vertices:
-            ov2_side_a = False
-        if ev2 == ov2_id and ev1 in side_b_vertices:
-            ov2_side_a = False
-    
-    # If ov1 is on side A, edge2a belongs to face1
-    if ov1_side_a:
-        face1_edges.append(edge2a_id)
-        face2_edges.append(edge2b_id)
-    else:
-        face2_edges.append(edge2a_id)
-        face1_edges.append(edge2b_id)
-    
-    # Now assign remaining old edges based on their vertices
-    for eid in remaining_old_edges:
-        if eid not in edges:
-            continue
-        e = edges[eid]
-        ev1, ev2 = e["v1"], e["v2"]
-        
-        # Check which side this edge belongs to
-        # Use parentheses for clarity of precedence
-        v1_on_a = (ev1 in side_a_vertices or 
-                   (ev1 == ov1_id and ov1_side_a) or 
-                   (ev1 == ov2_id and ov2_side_a))
-        v2_on_a = (ev2 in side_a_vertices or 
-                   (ev2 == ov1_id and ov1_side_a) or 
-                   (ev2 == ov2_id and ov2_side_a))
-        
-        if v1_on_a and v2_on_a:
-            face1_edges.append(eid)
-        elif not v1_on_a and not v2_on_a:
-            face2_edges.append(eid)
-        else:
-            # Edge crosses the split - this shouldn't happen for edges not being split
-            # Add to face1 as a fallback (should be rare)
-            face1_edges.append(eid)
-    
-    # Validate: both faces must have at least 3 edges
-    # Store original vertex count for proper cleanup if validation fails
-    original_vertex_count = len(vertices) - 2  # We added 2 vertices
-    if len(face1_edges) < 3 or len(face2_edges) < 3:
-        # Remove the vertices we added
-        del vertices[original_vertex_count:]
-        # Remove the edges we added
-        for edge_id in [edge1a_id, edge1b_id, edge2a_id, edge2b_id]:
-            if edge_id in edges:
-                del edges[edge_id]
+    # Step 5: Create a new border connecting the midpoints
+    split_border_type = "land" if face.get("type") == "land" else "sea"
+    split_border_id = create_border_between_vertices(
+        midpoint1_id, midpoint2_id, 
+        face1_id, face2_id,
+        split_border_type, topology
+    )
+    if split_border_id is None:
         return False, None, None
     
-    # Create the actual edges in the topology
-    split_edge_type = "land" if face.get("type") == "land" else "sea"
+    # Step 6: Determine which borders belong to which new face
+    # We need to partition the face's borders (now with the split ones)
+    # Use vertex connectivity to determine sides
     
-    edges[edge1a_id] = {
-        "v1": min(v1_id, new_vertex1_id),
-        "v2": max(v1_id, new_vertex1_id),
-        "left_face": face1_id,
-        "right_face": longest_right if longest_right != face_id else (longest_left if longest_left != face_id else None),
-        "type": longest_edge.get("type")
-    }
-    edges[edge1b_id] = {
-        "v1": min(new_vertex1_id, v2_id),
-        "v2": max(new_vertex1_id, v2_id),
-        "left_face": face2_id,
-        "right_face": longest_right if longest_right != face_id else (longest_left if longest_left != face_id else None),
-        "type": longest_edge.get("type")
-    }
-    edges[edge2a_id] = {
-        "v1": min(ov1_id, new_vertex2_id),
-        "v2": max(ov1_id, new_vertex2_id),
-        "left_face": face1_id if ov1_side_a else face2_id,
-        "right_face": opposite_right if opposite_right != face_id else (opposite_left if opposite_left != face_id else None),
-        "type": opposite_edge.get("type")
-    }
-    edges[edge2b_id] = {
-        "v1": min(new_vertex2_id, ov2_id),
-        "v2": max(new_vertex2_id, ov2_id),
-        "left_face": face2_id if ov1_side_a else face1_id,
-        "right_face": opposite_right if opposite_right != face_id else (opposite_left if opposite_left != face_id else None),
-        "type": opposite_edge.get("type")
-    }
-    edges[split_edge_id] = {
-        "v1": min(new_vertex1_id, new_vertex2_id),
-        "v2": max(new_vertex1_id, new_vertex2_id),
-        "left_face": face1_id,
-        "right_face": face2_id,
-        "type": split_edge_type
-    }
+    vertex_coords = _get_vertex_coords_lookup(topology)
     
-    # Create face 1
+    # Get the original border endpoints to understand the geometry
+    longest_border = borders.get(longest_border_id)
+    if longest_border is None:
+        # The border was split, get info from the split pieces
+        longest_start = borders[border1a_id].get("start_vertex")
+        longest_end = borders[border1b_id].get("end_vertex")
+    else:
+        longest_start = longest_border.get("start_vertex")
+        longest_end = longest_border.get("end_vertex")
+    
+    # Collect all borders that were part of this face
+    # Replace the original split borders with their halves
+    remaining_border_ids = []
+    for bid in face_border_ids:
+        if bid == longest_border_id:
+            remaining_border_ids.extend([border1a_id, border1b_id])
+        elif bid == opposite_border_id:
+            remaining_border_ids.extend([border2a_id, border2b_id])
+        else:
+            remaining_border_ids.append(bid)
+    
+    # Use the split direction to partition borders
+    midpoint1_coords = vertex_coords.get(midpoint1_id, [0, 0])
+    midpoint2_coords = vertex_coords.get(midpoint2_id, [0, 0])
+    
+    split_vec = [midpoint2_coords[0] - midpoint1_coords[0], 
+                 midpoint2_coords[1] - midpoint1_coords[1]]
+    
+    # Get vertex for border1a (start of original longest border) - this goes to face1
+    border1a_start = borders[border1a_id].get("start_vertex")
+    v1_coords = vertex_coords.get(border1a_start, [0, 0])
+    
+    # Vector from midpoint1 to this vertex
+    v1_to_mid = [v1_coords[0] - midpoint1_coords[0], v1_coords[1] - midpoint1_coords[1]]
+    # Cross product to determine side
+    v1_cross = split_vec[0] * v1_to_mid[1] - split_vec[1] * v1_to_mid[0]
+    v1_side_positive = v1_cross > 0
+    
+    # Partition borders based on which side their vertices are on
+    face1_borders = [split_border_id]  # Split border is shared by both
+    face2_borders = [split_border_id]
+    
+    # border1a connects to the "positive" side vertex
+    face1_borders.append(border1a_id)
+    face2_borders.append(border1b_id)
+    
+    # Determine which side of split the opposite border halves are on
+    border2a_start = borders[border2a_id].get("start_vertex")
+    ov1_coords = vertex_coords.get(border2a_start, [0, 0])
+    ov1_to_mid = [ov1_coords[0] - midpoint1_coords[0], ov1_coords[1] - midpoint1_coords[1]]
+    ov1_cross = split_vec[0] * ov1_to_mid[1] - split_vec[1] * ov1_to_mid[0]
+    
+    if (ov1_cross > 0) == v1_side_positive:
+        face1_borders.append(border2a_id)
+        face2_borders.append(border2b_id)
+    else:
+        face2_borders.append(border2a_id)
+        face1_borders.append(border2b_id)
+    
+    # Assign remaining borders to faces based on their vertex positions
+    assigned_borders = {border1a_id, border1b_id, border2a_id, border2b_id, split_border_id}
+    
+    for border_id in remaining_border_ids:
+        if border_id in assigned_borders:
+            continue
+        
+        if border_id not in borders:
+            continue
+        
+        border = borders[border_id]
+        b_start = border.get("start_vertex")
+        b_end = border.get("end_vertex")
+        
+        # Check which side this border is on
+        # Get coordinates, falling back to the other endpoint if one is missing
+        b_coords = vertex_coords.get(b_start) or vertex_coords.get(b_end)
+        if b_coords is None:
+            # Skip borders with no valid vertex coordinates - assign to face1 as fallback
+            face1_borders.append(border_id)
+            continue
+        
+        b_to_mid = [b_coords[0] - midpoint1_coords[0], b_coords[1] - midpoint1_coords[1]]
+        b_cross = split_vec[0] * b_to_mid[1] - split_vec[1] * b_to_mid[0]
+        
+        if (b_cross > 0) == v1_side_positive:
+            face1_borders.append(border_id)
+        else:
+            face2_borders.append(border_id)
+    
+    # Step 7: Create the two new faces
     face1 = {
-        "type": face["type"],
-        "edges": face1_edges,
+        "type": face.get("type"),
+        "borders": face1_borders,
         "center": face.get("center", [0.5, 0.5])
     }
     
-    # Create face 2
     face2 = {
-        "type": face["type"],
-        "edges": face2_edges,
+        "type": face.get("type"),
+        "borders": face2_borders,
         "center": face.get("center", [0.5, 0.5])
     }
     
-    # Step 10: Check coastal property for both new faces
-    face1_coastal = False
-    face2_coastal = False
+    # Step 8: Check coastal property
+    edges = topology.get("edges", {})
+    for border_id in face1_borders:
+        if border_id in borders:
+            for edge_id in borders[border_id].get("edges", []):
+                if edge_id in edges and edges[edge_id].get("type") == "coast":
+                    face1["coastal"] = True
+                    break
     
-    for eid in face1_edges:
-        if eid in edges and edges[eid].get("type") == "coast":
-            face1_coastal = True
-            break
+    for border_id in face2_borders:
+        if border_id in borders:
+            for edge_id in borders[border_id].get("edges", []):
+                if edge_id in edges and edges[edge_id].get("type") == "coast":
+                    face2["coastal"] = True
+                    break
     
-    for eid in face2_edges:
-        if eid in edges and edges[eid].get("type") == "coast":
-            face2_coastal = True
-            break
+    # Step 9: Update all border face references
+    for border_id in face1_borders:
+        update_border_face_references(border_id, face_id, face1_id, topology)
     
-    if face1_coastal:
-        face1["coastal"] = True
-    if face2_coastal:
-        face2["coastal"] = True
+    for border_id in face2_borders:
+        update_border_face_references(border_id, face_id, face2_id, topology)
     
-    # Update edge references for remaining old edges
-    face1_edges_set = set(face1_edges)
-    face2_edges_set = set(face2_edges)
-    
-    for eid in remaining_old_edges:
-        if eid in edges:
-            e = edges[eid]
-            if eid in face1_edges_set:
-                if e.get("left_face") == face_id:
-                    e["left_face"] = face1_id
-                if e.get("right_face") == face_id:
-                    e["right_face"] = face1_id
-            elif eid in face2_edges_set:
-                if e.get("left_face") == face_id:
-                    e["left_face"] = face2_id
-                if e.get("right_face") == face_id:
-                    e["right_face"] = face2_id
-    
-    # Update neighboring faces that shared the split edges
+    # Step 10: Update neighboring faces that reference the old split borders
     for fid, fdata in faces.items():
         if fid == face_id:
             continue
-        new_face_edges = []
-        for eid in fdata.get("edges", []):
-            if eid == longest_edge_id:
-                new_face_edges.append(edge1a_id)
-                new_face_edges.append(edge1b_id)
-            elif eid == opposite_edge_id:
-                new_face_edges.append(edge2a_id)
-                new_face_edges.append(edge2b_id)
+        
+        new_border_list = []
+        changed = False
+        
+        for bid in fdata.get("borders", []):
+            if bid == longest_border_id:
+                # Replace with both split parts
+                new_border_list.append(border1a_id)
+                new_border_list.append(border1b_id)
+                changed = True
+            elif bid == opposite_border_id:
+                new_border_list.append(border2a_id)
+                new_border_list.append(border2b_id)
+                changed = True
             else:
-                new_face_edges.append(eid)
-        fdata["edges"] = new_face_edges
+                new_border_list.append(bid)
+        
+        if changed:
+            fdata["borders"] = new_border_list
     
-    # Remove original edges
-    del edges[longest_edge_id]
-    del edges[opposite_edge_id]
-    
-    # Add new faces and remove old face
+    # Step 11: Add new faces and remove old face
     faces[face1_id] = face1
     faces[face2_id] = face2
     del faces[face_id]

@@ -228,6 +228,227 @@ def test_visual_path_endpoints():
     print(f"  ✓ All edge visual_paths start and end at correct vertex coordinates")
 
 
+def test_subdivide_edge_topology():
+    """Test that edge subdivision creates proper topology."""
+    print("\nTest 8: Edge topology subdivision")
+    
+    from fractal_subdivision import subdivide_edge_topology
+    
+    # Create a simple topology with 1 coast edge
+    topology = {
+        "vertices": [
+            {"id": 0, "coords": [0.0, 0.0]},
+            {"id": 1, "coords": [0.5, 0.0]},
+        ],
+        "edges": {
+            "E_0_1": {"v1": 0, "v2": 1, "type": "coast", "left_face": "C1", "right_face": "C2"}
+        },
+        "borders": {
+            "B_0_1": {
+                "edges": ["E_0_1"],
+                "left_face": "C1",
+                "right_face": "C2",
+                "type": "coast",
+                "start_vertex": 0,
+                "end_vertex": 1
+            }
+        },
+        "faces": {
+            "C1": {"type": "land", "borders": ["B_0_1"]},
+            "C2": {"type": "sea", "borders": ["B_0_1"]}
+        }
+    }
+    
+    # Subdivide the edge
+    new_edge_ids, new_vertex_ids = subdivide_edge_topology(topology, "E_0_1", seed=42)
+    
+    # Should have multiple new edges (coast edges get subdivided)
+    assert len(new_edge_ids) > 1, f"Expected multiple new edges, got {len(new_edge_ids)}"
+    
+    # Should have new vertices
+    assert len(new_vertex_ids) > 0, f"Expected new vertices, got {len(new_vertex_ids)}"
+    
+    # Original edge should be removed
+    assert "E_0_1" not in topology["edges"], "Original edge should be removed"
+    
+    # New edges should exist
+    for edge_id in new_edge_ids:
+        assert edge_id in topology["edges"], f"New edge {edge_id} should exist"
+    
+    # New vertices should exist in the vertices list
+    vertex_ids = {v["id"] for v in topology["vertices"]}
+    for vid in new_vertex_ids:
+        assert vid in vertex_ids, f"New vertex {vid} should exist"
+    
+    # Border should now contain the new edges
+    border = topology["borders"]["B_0_1"]
+    assert border["edges"] == new_edge_ids, f"Border should contain new edges: {border['edges']} != {new_edge_ids}"
+    
+    # Faces should reference the border (not edges directly)
+    for face_id in ["C1", "C2"]:
+        face = topology["faces"][face_id]
+        assert "B_0_1" in face["borders"], f"Face {face_id} should reference border B_0_1"
+    
+    print(f"  ✓ Subdivided edge into {len(new_edge_ids)} edges with {len(new_vertex_ids)} new vertices")
+    print(f"    New edges: {new_edge_ids}")
+
+
+def test_subdivide_all_edges():
+    """Test that all edges are properly subdivided."""
+    print("\nTest 9: Subdivide all edges")
+    
+    from fractal_subdivision import subdivide_all_edges
+    
+    # Create a topology with different edge types
+    topology = {
+        "vertices": [
+            {"id": 0, "coords": [0.0, 0.0]},
+            {"id": 1, "coords": [0.5, 0.0]},
+            {"id": 2, "coords": [1.0, 0.0]},
+            {"id": 3, "coords": [1.0, 1.0]},
+            {"id": 4, "coords": [0.5, 1.0]},
+            {"id": 5, "coords": [0.0, 1.0]}
+        ],
+        "edges": {
+            "E_0_1": {"v1": 0, "v2": 1, "type": "map-edge", "left_face": "C1"},
+            "E_1_2": {"v1": 1, "v2": 2, "type": "map-edge", "left_face": "C2"},
+            "E_1_4": {"v1": 1, "v2": 4, "type": "coast", "left_face": "C1", "right_face": "C2"},
+            "E_0_5": {"v1": 0, "v2": 5, "type": "map-edge", "left_face": "C1"},
+            "E_4_5": {"v1": 4, "v2": 5, "type": "map-edge", "left_face": "C1"},
+            "E_2_3": {"v1": 2, "v2": 3, "type": "map-edge", "left_face": "C2"},
+            "E_3_4": {"v1": 3, "v2": 4, "type": "map-edge", "left_face": "C2"}
+        },
+        "borders": {
+            "B_0_1": {"edges": ["E_0_1"], "type": "map-edge", "left_face": "C1"},
+            "B_1_2": {"edges": ["E_1_2"], "type": "map-edge", "left_face": "C2"},
+            "B_1_4": {"edges": ["E_1_4"], "type": "coast", "left_face": "C1", "right_face": "C2"},
+            "B_0_5": {"edges": ["E_0_5"], "type": "map-edge", "left_face": "C1"},
+            "B_4_5": {"edges": ["E_4_5"], "type": "map-edge", "left_face": "C1"},
+            "B_2_3": {"edges": ["E_2_3"], "type": "map-edge", "left_face": "C2"},
+            "B_3_4": {"edges": ["E_3_4"], "type": "map-edge", "left_face": "C2"}
+        },
+        "faces": {
+            "C1": {"type": "land", "borders": ["B_0_1", "B_1_4", "B_4_5", "B_0_5"], "center": [0.25, 0.5]},
+            "C2": {"type": "sea", "borders": ["B_1_2", "B_2_3", "B_3_4", "B_1_4"], "center": [0.75, 0.5]}
+        }
+    }
+    
+    original_vertex_count = len(topology["vertices"])
+    original_edge_count = len(topology["edges"])
+    
+    # Subdivide all edges
+    updated_topology = subdivide_all_edges(topology, seed=42)
+    
+    new_vertex_count = len(updated_topology["vertices"])
+    new_edge_count = len(updated_topology["edges"])
+    
+    # Coast edge should be subdivided (more vertices and edges)
+    assert new_vertex_count > original_vertex_count, f"Should have more vertices after subdivision"
+    assert new_edge_count > original_edge_count, f"Should have more edges after subdivision"
+    
+    # Map-edge edges should NOT be subdivided (they stay straight)
+    # After subdivision, the coast edge (E_1_4) should be gone and replaced
+    assert "E_1_4" not in updated_topology["edges"], "Coast edge should be subdivided and replaced"
+    
+    # Map edges should still exist (or be the same since map-edge has no displacement)
+    # Note: map-edge edges might still exist as-is since they have 0 displacement
+    
+    # Verify all new edges have proper face references
+    for edge_id, edge_data in updated_topology["edges"].items():
+        if edge_data.get("type") == "coast":
+            assert "left_face" in edge_data, f"Edge {edge_id} should have left_face"
+            assert "right_face" in edge_data, f"Edge {edge_id} should have right_face"
+    
+    print(f"  ✓ Subdivided topology")
+    print(f"    Vertices: {original_vertex_count} -> {new_vertex_count}")
+    print(f"    Edges: {original_edge_count} -> {new_edge_count}")
+
+
+def test_border_structure():
+    """Test that borders correctly group subdivided edges."""
+    print("\nTest 10: Border structure after subdivision")
+    
+    from fractal_subdivision import subdivide_all_edges
+    
+    # Create a simple topology with one coast edge
+    topology = {
+        "vertices": [
+            {"id": 0, "coords": [0.0, 0.5]},
+            {"id": 1, "coords": [1.0, 0.5]},
+        ],
+        "edges": {
+            "E_0_1": {"v1": 0, "v2": 1, "type": "coast", "left_face": "C1", "right_face": "C2"}
+        },
+        "borders": {
+            "B_0_1": {
+                "edges": ["E_0_1"],
+                "left_face": "C1",
+                "right_face": "C2",
+                "type": "coast",
+                "start_vertex": 0,
+                "end_vertex": 1
+            }
+        },
+        "faces": {
+            "C1": {"type": "land", "borders": ["B_0_1"]},
+            "C2": {"type": "sea", "borders": ["B_0_1"]}
+        }
+    }
+    
+    # Subdivide
+    subdivide_all_edges(topology, seed=42)
+    
+    # The border should now contain multiple edges
+    border = topology["borders"]["B_0_1"]
+    assert len(border["edges"]) > 1, f"Border should have multiple edges after subdivision"
+    
+    # All edges in the border should exist and have the same type
+    for edge_id in border["edges"]:
+        assert edge_id in topology["edges"], f"Edge {edge_id} should exist"
+        edge = topology["edges"][edge_id]
+        assert edge["type"] == "coast", f"Edge {edge_id} should be coast type"
+    
+    # The edges should form a connected path from start to end vertex
+    edges = [topology["edges"][eid] for eid in border["edges"]]
+    
+    # First edge should start at vertex 0
+    first_edge = edges[0]
+    assert 0 in (first_edge["v1"], first_edge["v2"]), "First edge should connect to vertex 0"
+    
+    # Last edge should end at vertex 1
+    last_edge = edges[-1]
+    assert 1 in (last_edge["v1"], last_edge["v2"]), "Last edge should connect to vertex 1"
+    
+    print(f"  ✓ Border contains {len(border['edges'])} connected edges")
+    print(f"    Border edges form a proper chain from vertex 0 to vertex 1")
+
+
+def test_empty_vertices_edge_case():
+    """Test that subdivision handles empty vertices list gracefully."""
+    print("\nTest 11: Empty vertices edge case")
+    
+    from fractal_subdivision import subdivide_edge_topology
+    
+    # Create a topology with empty vertices list
+    topology = {
+        "vertices": [],
+        "edges": {
+            "E_0_1": {"v1": 0, "v2": 1, "type": "coast", "left_face": "C1"}
+        },
+        "borders": {},
+        "faces": {}
+    }
+    
+    # Should return unchanged (edge_id in list, empty vertex list)
+    new_edge_ids, new_vertex_ids = subdivide_edge_topology(topology, "E_0_1", seed=42)
+    
+    # Should return the original edge unchanged
+    assert new_edge_ids == ["E_0_1"], f"Should return original edge when vertices is empty"
+    assert new_vertex_ids == [], f"Should return no new vertices"
+    
+    print(f"  ✓ Gracefully handles empty vertices list")
+
+
 def run_all_tests():
     """Run all tests."""
     print("=" * 60)
@@ -242,6 +463,10 @@ def run_all_tests():
         test_generate_visual_path_reproducibility()
         test_generate_all_visual_paths()
         test_visual_path_endpoints()
+        test_subdivide_edge_topology()
+        test_subdivide_all_edges()
+        test_border_structure()
+        test_empty_vertices_edge_case()
         
         print("\n" + "=" * 60)
         print("ALL TESTS PASSED ✓")
