@@ -239,9 +239,53 @@ def test_map_edge_detection():
     print(f"    Found {len(map_edges)} boundary edges")
 
 
+def test_impassable_edge_detection():
+    """Test that impassable terrain borders are correctly identified."""
+    print("\nTest 6: Impassable edge detection")
+    
+    # Create land, sea, and impassable cells
+    cells = {
+        "L1": {
+            "id": "L1",
+            "type": "land",
+            "center": [0.25, 0.5],
+            "vertices": [[0.0, 0.0], [0.33, 0.0], [0.33, 1.0], [0.0, 1.0]]
+        },
+        "I1": {
+            "id": "I1",
+            "type": "impassable",
+            "center": [0.5, 0.5],
+            "vertices": [[0.33, 0.0], [0.67, 0.0], [0.67, 1.0], [0.33, 1.0]]
+        },
+        "S1": {
+            "id": "S1",
+            "type": "sea",
+            "center": [0.84, 0.5],
+            "vertices": [[0.67, 0.0], [1.0, 0.0], [1.0, 1.0], [0.67, 1.0]]
+        }
+    }
+    
+    converter = TopologyConverter()
+    vertices, edges, faces = converter.convert_cells_to_topology(cells)
+    
+    # Find impassable edges
+    impassable_edges = [e for e in edges.values() if e.get("type") == "impassable"]
+    
+    # Should have 2 impassable edges (land-impassable and sea-impassable)
+    assert len(impassable_edges) == 2, f"Expected 2 impassable edges, got {len(impassable_edges)}"
+    
+    # Verify no false coastlines (there should be none - land and sea don't touch directly)
+    coastline_edges = [e for e in edges.values() if e.get("type") == "coast"]
+    assert len(coastline_edges) == 0, f"Expected 0 coastline edges, got {len(coastline_edges)}"
+    
+    print("  ✓ Impassable terrain edges correctly identified")
+    print(f"    Found {len(impassable_edges)} impassable border edges")
+    print(f"    Found {len(coastline_edges)} coastline edges (correct: 0)")
+
+
 def test_convenience_functions():
     """Test the convenience functions."""
-    print("\nTest 6: Convenience functions")
+    print("\nTest 7: Convenience functions")
     
     cells = {
         "C1": {
@@ -288,6 +332,7 @@ def run_all_tests():
         test_adjacency_derivation()
         test_coastline_detection()
         test_map_edge_detection()
+        test_impassable_edge_detection()
         test_convenience_functions()
         
         print("\n" + "=" * 60)
