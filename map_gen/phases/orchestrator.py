@@ -73,7 +73,10 @@ def run_full_pipeline(config, output_dir=None, save_intermediate=True):
         "height": config.get("height", 1.0),
         "min_distance": config.get("min_distance", 0.05),
         "lloyd_iterations": config.get("lloyd_iterations", 0),
-        "seed": config.get("seed", 42)
+        "seed": config.get("seed", 42),
+        "warp_enabled": config.get("warp_enabled", False),
+        "warp_strength": config.get("warp_strength", 0.1),
+        "warp_frequency": config.get("warp_frequency", 2)
     }
     
     phase1_output = run_phase1(phase1_config)
@@ -213,6 +216,9 @@ Examples:
     parser.add_argument("--height", type=float, default=1.0, help="Map height (Phase 1)")
     parser.add_argument("--min-distance", type=float, default=0.05, help="Min distance for Poisson sampling (Phase 1)")
     parser.add_argument("--lloyd-iterations", type=int, default=0, help="Lloyd relaxation iterations (Phase 1)")
+    parser.add_argument("--warp-enabled", action="store_true", help="Enable domain warping for organic shapes (Phase 1)")
+    parser.add_argument("--warp-strength", type=float, default=0.1, help="Domain warp strength (0-1, as fraction of map dimensions) (Phase 1)")
+    parser.add_argument("--warp-frequency", type=int, default=2, help="Domain warp noise frequency (lower = larger features) (Phase 1)")
     
     # Phase 2 parameters
     parser.add_argument("--threshold", type=float, default=0.25, help="Land/sea threshold (Phase 2)")
@@ -246,6 +252,9 @@ Examples:
         "height": args.height,
         "min_distance": args.min_distance,
         "lloyd_iterations": args.lloyd_iterations,
+        "warp_enabled": args.warp_enabled,
+        "warp_strength": args.warp_strength,
+        "warp_frequency": args.warp_frequency,
         "threshold": args.threshold,
         "land_ratio": args.land_ratio,
         "octaves": args.octaves,
