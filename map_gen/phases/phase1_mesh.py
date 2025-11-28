@@ -181,7 +181,7 @@ def apply_domain_warp(points, width, height, warp_strength=0.1, warp_frequency=2
     
     # Apply warping to each point
     warped_points = []
-    buffer = 0.05  # Keep points within bounds
+    buffer = min(width, height) * 0.05  # Keep points within bounds (5% of smaller dimension)
     
     for point in points:
         x, y = point
