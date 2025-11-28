@@ -1266,3 +1266,197 @@ def find_smallest_neighbor(face_id: str, topology: dict) -> Optional[Tuple[str, 
     # Return the smallest neighbor
     same_type_neighbors.sort(key=lambda x: x[1])
     return same_type_neighbors[0]
+
+
+def is_sea_adjacent_to_land(face_id: str, topology: dict) -> bool:
+    """
+    Check if a sea face is adjacent to any land territory.
+    
+    In the official Diplomacy map, there are no sea regions that are not
+    adjacent to land. This function identifies sea faces that need to be
+    merged with neighboring sea faces that are adjacent to land.
+    
+    Args:
+        face_id: ID of the face to check
+        topology: Dictionary with topology data
+        
+    Returns:
+        True if the sea face is adjacent to at least one land face, False otherwise
+    """
+    faces = topology.get("faces", {})
+    edges = topology.get("edges", {})
+    borders = topology.get("borders", {})
+    
+    if face_id not in faces:
+        return False
+    
+    face = faces[face_id]
+    if face.get("type") != "sea":
+        return True  # Non-sea faces don't need this check
+    
+    # Get adjacency information using borders (proper abstraction layer)
+    adjacency = get_adjacency_from_topology(edges, borders)
+    neighbors = adjacency.get(face_id, [])
+    
+    # Check if any neighbor is land
+    for neighbor_id in neighbors:
+        if neighbor_id in faces and faces[neighbor_id].get("type") == "land":
+            return True
+    
+    return False
+
+
+def find_sea_regions_not_adjacent_to_land(topology: dict) -> List[str]:
+    """
+    Find all sea regions that are not adjacent to any land territory.
+    
+    These are "extra" sea regions that should be merged with adjacent
+    sea regions that are connected to land.
+    
+    Args:
+        topology: Dictionary with topology data
+        
+    Returns:
+        List of face IDs for sea regions not adjacent to land
+    """
+    faces = topology.get("faces", {})
+    
+    extra_sea_regions = []
+    for face_id, face_data in faces.items():
+        if face_data.get("type") == "sea":
+            if not is_sea_adjacent_to_land(face_id, topology):
+                extra_sea_regions.append(face_id)
+    
+    return extra_sea_regions
+
+
+def find_best_sea_neighbor_toward_center(face_id: str, topology: dict, 
+                                          map_center: Tuple[float, float] = (0.5, 0.5)) -> Optional[str]:
+    """
+    Find the best sea neighbor to merge with, preferring neighbors closer to the center.
+    
+    When merging extra sea regions (not adjacent to land), we prefer to merge
+    with neighbors that are in the direction of the center of the map. This
+    helps maintain better geographic distribution of sea regions.
+    
+    Args:
+        face_id: ID of the face to find a neighbor for
+        topology: Dictionary with topology data
+        map_center: Center of the map (default: (0.5, 0.5))
+        
+    Returns:
+        Face ID of the best neighbor to merge with, or None if no neighbors found
+    """
+    faces = topology.get("faces", {})
+    edges = topology.get("edges", {})
+    borders = topology.get("borders", {})
+    
+    if face_id not in faces:
+        return None
+    
+    face = faces[face_id]
+    if face.get("type") != "sea":
+        return None
+    
+    face_center = face.get("center", [0.5, 0.5])
+    
+    # Get adjacency information using borders (proper abstraction layer)
+    adjacency = get_adjacency_from_topology(edges, borders)
+    neighbors = adjacency.get(face_id, [])
+    
+    # Find sea neighbors and calculate their distance/direction metrics
+    sea_neighbors = []
+    for neighbor_id in neighbors:
+        if neighbor_id not in faces:
+            continue
+        neighbor = faces[neighbor_id]
+        if neighbor.get("type") != "sea":
+            continue
+        
+        neighbor_center = neighbor.get("center", [0.5, 0.5])
+        
+        # Calculate direction vector from face to neighbor
+        dir_x = neighbor_center[0] - face_center[0]
+        dir_y = neighbor_center[1] - face_center[1]
+        
+        # Calculate direction vector from face to map center
+        center_dir_x = map_center[0] - face_center[0]
+        center_dir_y = map_center[1] - face_center[1]
+        
+        # Calculate dot product to determine if neighbor is in direction of center
+        # Positive dot product means neighbor is more toward center
+        dot_product = dir_x * center_dir_x + dir_y * center_dir_y
+        
+        # Check if this neighbor is adjacent to land (preferred for merging)
+        is_land_adjacent = is_sea_adjacent_to_land(neighbor_id, topology)
+        
+        sea_neighbors.append((neighbor_id, dot_product, is_land_adjacent))
+    
+    if not sea_neighbors:
+        return None
+    
+    # Sort by:
+    # 1. Land adjacency (True first - we prefer merging with land-adjacent neighbors)
+    # 2. Dot product (higher = more toward center)
+    sea_neighbors.sort(key=lambda x: (-int(x[2]), -x[1]))
+    
+    return sea_neighbors[0][0]
+
+
+def merge_extra_sea_regions(topology: dict, map_center: Tuple[float, float] = (0.5, 0.5)) -> int:
+    """
+    Merge all sea regions that are not adjacent to land into neighboring sea regions.
+    
+    In the official Diplomacy map, there are no sea regions not adjacent to land.
+    This function iteratively identifies and merges such "extra" sea regions
+    until all remaining sea regions are adjacent to at least one land territory.
+    
+    The merging prefers neighbors that are:
+    1. Already adjacent to land (to quickly resolve the issue)
+    2. In the direction of the map center (for better geographic distribution)
+    
+    Args:
+        topology: Dictionary with topology data (modified in place)
+        map_center: Center of the map for directional preference
+        
+    Returns:
+        Number of sea regions that were merged
+    """
+    merged_count = 0
+    max_iterations = 100  # Safety limit to prevent infinite loops
+    
+    for _ in range(max_iterations):
+        # Find sea regions not adjacent to land
+        extra_sea_regions = find_sea_regions_not_adjacent_to_land(topology)
+        
+        if not extra_sea_regions:
+            # All sea regions are now adjacent to land
+            break
+        
+        # Try to merge each extra sea region
+        merged_any = False
+        for face_id in extra_sea_regions:
+            # Skip if face was already merged in this iteration
+            if face_id not in topology.get("faces", {}):
+                continue
+            
+            # Find best neighbor to merge with
+            neighbor_id = find_best_sea_neighbor_toward_center(face_id, topology, map_center)
+            
+            if neighbor_id is None:
+                # No sea neighbors to merge with - this shouldn't happen if ocean is connected
+                continue
+            
+            # Merge the extra sea region into the neighbor
+            # The neighbor is kept, the extra sea region is removed
+            success, merged_id = merge_faces(neighbor_id, face_id, topology)
+            
+            if success:
+                merged_count += 1
+                merged_any = True
+        
+        if not merged_any:
+            # No merges were possible, exit to prevent infinite loop
+            break
+    
+    return merged_count
