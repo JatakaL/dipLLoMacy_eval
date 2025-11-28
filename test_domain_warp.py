@@ -313,18 +313,34 @@ def test_warp_frequency_effect():
     
     # Measure spatial variation in displacement to verify frequency effect
     # Higher frequencies should show more rapid changes in displacement across space
-    def compute_displacement_variation(original, warped):
-        """Compute how much displacement varies across neighboring points."""
+    def compute_displacement_variation(original, warped, grid_size):
+        """Compute how much displacement varies across spatially adjacent points.
+        
+        Points are in row-major order, so we compare horizontally adjacent points
+        within each row and vertically adjacent points across rows.
+        """
         displacements = warped - original
-        # Compute differences between adjacent points' displacements
         variations = []
-        for i in range(len(displacements) - 1):
-            diff = np.linalg.norm(displacements[i+1] - displacements[i])
-            variations.append(diff)
+        n_per_row = grid_size - 1  # Points per row in our grid
+        
+        for row in range(n_per_row):
+            for col in range(n_per_row):
+                idx = row * n_per_row + col
+                # Compare with right neighbor (within same row)
+                if col < n_per_row - 1:
+                    right_idx = idx + 1
+                    diff = np.linalg.norm(displacements[right_idx] - displacements[idx])
+                    variations.append(diff)
+                # Compare with bottom neighbor (next row)
+                if row < n_per_row - 1:
+                    bottom_idx = idx + n_per_row
+                    diff = np.linalg.norm(displacements[bottom_idx] - displacements[idx])
+                    variations.append(diff)
+        
         return np.mean(variations) if variations else 0
     
     variation_by_freq = {
-        freq: compute_displacement_variation(points, warp_results[freq])
+        freq: compute_displacement_variation(points, warp_results[freq], grid_size)
         for freq in frequencies
     }
     
