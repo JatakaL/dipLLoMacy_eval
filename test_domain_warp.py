@@ -202,7 +202,7 @@ def test_phase1_without_warping():
     
     # Check basic output structure
     assert "topology" in result, "Result should contain topology"
-    assert result["config"]["warp_enabled"] == False
+    assert not result["config"]["warp_enabled"]
     
     # Check topology is valid
     topology = result["topology"]
