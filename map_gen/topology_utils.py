@@ -1276,6 +1276,10 @@ def is_sea_adjacent_to_land(face_id: str, topology: dict) -> bool:
     adjacent to land. This function identifies sea faces that need to be
     merged with neighboring sea faces that are adjacent to land.
     
+    Uses the border 'type' field - a border with type 'coast' indicates
+    a boundary between land and sea, so any sea face with a coastal border
+    is adjacent to land.
+    
     Args:
         face_id: ID of the face to check
         topology: Dictionary with topology data
@@ -1284,7 +1288,6 @@ def is_sea_adjacent_to_land(face_id: str, topology: dict) -> bool:
         True if the sea face is adjacent to at least one land face, False otherwise
     """
     faces = topology.get("faces", {})
-    edges = topology.get("edges", {})
     borders = topology.get("borders", {})
     
     if face_id not in faces:
@@ -1294,13 +1297,10 @@ def is_sea_adjacent_to_land(face_id: str, topology: dict) -> bool:
     if face.get("type") != "sea":
         return True  # Non-sea faces don't need this check
     
-    # Get adjacency information using borders (proper abstraction layer)
-    adjacency = get_adjacency_from_topology(edges, borders)
-    neighbors = adjacency.get(face_id, [])
-    
-    # Check if any neighbor is land
-    for neighbor_id in neighbors:
-        if neighbor_id in faces and faces[neighbor_id].get("type") == "land":
+    # Check if any of the face's borders is a coastline (type = "coast")
+    # A coastal border indicates adjacency to land
+    for border_id in face.get("borders", []):
+        if border_id in borders and borders[border_id].get("type") == "coast":
             return True
     
     return False
