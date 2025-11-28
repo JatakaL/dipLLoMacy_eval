@@ -165,7 +165,8 @@ def apply_domain_warp(points, width, height, warp_strength=0.1, warp_frequency=2
     
     # Generate low-frequency noise maps for x and y displacement
     # Scale noise resolution with map size for consistent quality
-    noise_resolution = max(2, int(max(width, height) * 1.0))  # Or * 100 for very high-res, but 1.0 is more typical
+    # Using 100 as base multiplier provides good quality for typical map sizes
+    noise_resolution = max(100, int(max(width, height) * 100))
     noise_shape = (noise_resolution, noise_resolution)
     
     # Use different seeds for x and y noise to ensure independence
