@@ -538,6 +538,40 @@ def get_face_edges(face_data: dict, borders: Dict[str, dict]) -> List[str]:
     return edge_ids
 
 
+def _derive_adjacency_from_data(data: Dict[str, dict]) -> Dict[str, List[str]]:
+    """
+    Internal helper to derive adjacency from data with left_face/right_face fields.
+    
+    Works with both edges and borders since they share the same structure.
+    
+    Args:
+        data: Dictionary of edge or border data with left_face and right_face
+        
+    Returns:
+        Dictionary mapping face_id to list of neighbor face_ids
+    """
+    adjacency = {}
+    
+    for item_data in data.values():
+        left_face = item_data.get("left_face")
+        right_face = item_data.get("right_face")
+        
+        if left_face and right_face:
+            # Initialize lists if needed
+            if left_face not in adjacency:
+                adjacency[left_face] = []
+            if right_face not in adjacency:
+                adjacency[right_face] = []
+            
+            # Add mutual adjacency
+            if right_face not in adjacency[left_face]:
+                adjacency[left_face].append(right_face)
+            if left_face not in adjacency[right_face]:
+                adjacency[right_face].append(left_face)
+    
+    return adjacency
+
+
 def get_adjacency_from_borders(borders: Dict[str, dict]) -> Dict[str, List[str]]:
     """
     Derive face adjacency from borders.
@@ -554,26 +588,7 @@ def get_adjacency_from_borders(borders: Dict[str, dict]) -> Dict[str, List[str]]
     Returns:
         Dictionary mapping face_id to list of neighbor face_ids
     """
-    adjacency = {}
-    
-    for border_data in borders.values():
-        left_face = border_data.get("left_face")
-        right_face = border_data.get("right_face")
-        
-        if left_face and right_face:
-            # Initialize lists if needed
-            if left_face not in adjacency:
-                adjacency[left_face] = []
-            if right_face not in adjacency:
-                adjacency[right_face] = []
-            
-            # Add mutual adjacency
-            if right_face not in adjacency[left_face]:
-                adjacency[left_face].append(right_face)
-            if left_face not in adjacency[right_face]:
-                adjacency[right_face].append(left_face)
-    
-    return adjacency
+    return _derive_adjacency_from_data(borders)
 
 
 def get_adjacency_from_topology(edges: Dict[str, dict], borders: Optional[Dict[str, dict]] = None) -> Dict[str, List[str]]:
@@ -592,29 +607,10 @@ def get_adjacency_from_topology(edges: Dict[str, dict], borders: Optional[Dict[s
     """
     # Prefer borders when available - they are the proper abstraction layer
     if borders:
-        return get_adjacency_from_borders(borders)
+        return _derive_adjacency_from_data(borders)
     
     # Fall back to edges for backward compatibility
-    adjacency = {}
-    
-    for edge_data in edges.values():
-        left_face = edge_data.get("left_face")
-        right_face = edge_data.get("right_face")
-        
-        if left_face and right_face:
-            # Initialize lists if needed
-            if left_face not in adjacency:
-                adjacency[left_face] = []
-            if right_face not in adjacency:
-                adjacency[right_face] = []
-            
-            # Add mutual adjacency
-            if right_face not in adjacency[left_face]:
-                adjacency[left_face].append(right_face)
-            if left_face not in adjacency[right_face]:
-                adjacency[right_face].append(left_face)
-    
-    return adjacency
+    return _derive_adjacency_from_data(edges)
 
 
 def get_coastal_faces_from_borders(borders: Dict[str, dict]) -> set:

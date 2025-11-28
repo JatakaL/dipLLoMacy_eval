@@ -11,7 +11,13 @@ import os
 # Add the map_gen directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen'))
 
-from topology import TopologyConverter, convert_cells_to_topology, get_adjacency_from_topology, get_adjacency_from_borders, get_coastal_faces_from_borders
+from topology import (
+    TopologyConverter, 
+    convert_cells_to_topology, 
+    get_adjacency_from_topology, 
+    get_adjacency_from_borders, 
+    get_coastal_faces_from_borders
+)
 
 
 def test_vertex_deduplication():
