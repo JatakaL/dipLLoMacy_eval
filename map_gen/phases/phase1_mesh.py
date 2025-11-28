@@ -46,9 +46,9 @@ def generate_perlin_noise_2d(shape, res, seed=None):
         return t * t * (3.0 - 2.0 * t)
     
     # Create coordinate grids
-    height, width = shape
-    y = np.linspace(0, res[0], height, endpoint=False)
-    x = np.linspace(0, res[1], width, endpoint=False)
+    noise_height, noise_width = shape
+    y = np.linspace(0, res[0], noise_height, endpoint=False)
+    x = np.linspace(0, res[1], noise_width, endpoint=False)
     x_grid, y_grid = np.meshgrid(x, y)
     
     # Integer parts
