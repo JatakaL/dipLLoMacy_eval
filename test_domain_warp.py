@@ -173,7 +173,7 @@ def test_phase1_with_warping():
     assert "statistics" in result, "Result should contain statistics"
     
     # Check config preserved
-    assert result["config"]["warp_enabled"] == True
+    assert result["config"]["warp_enabled"]
     assert result["config"]["warp_strength"] == 0.1
     assert result["config"]["warp_frequency"] == 2
     
