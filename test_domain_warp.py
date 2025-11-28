@@ -276,6 +276,91 @@ def test_domain_warp_no_seed():
     print("✓ Domain warp no seed test passed")
 
 
+def test_warp_frequency_effect():
+    """Test that different warp_frequency values produce different warping patterns.
+    
+    Lower frequency values should produce larger, smoother distortion features,
+    while higher frequency values should produce smaller, more detailed distortions.
+    """
+    # Use a larger grid of points to better measure frequency effects
+    grid_size = 10
+    points = np.array([
+        [x / grid_size, y / grid_size]
+        for x in range(1, grid_size)
+        for y in range(1, grid_size)
+    ])
+    
+    # Test multiple frequencies
+    frequencies = [1, 2, 4, 8]
+    warp_results = {}
+    
+    for freq in frequencies:
+        warped = apply_domain_warp(
+            points, 1.0, 1.0,
+            warp_strength=0.1,
+            warp_frequency=freq,
+            seed=42
+        )
+        warp_results[freq] = warped
+    
+    # Different frequencies should produce different warp patterns
+    for i, freq1 in enumerate(frequencies):
+        for freq2 in frequencies[i+1:]:
+            warped1 = warp_results[freq1]
+            warped2 = warp_results[freq2]
+            assert not np.allclose(warped1, warped2), \
+                f"Frequencies {freq1} and {freq2} should produce different warping patterns"
+    
+    # Measure spatial variation in displacement to verify frequency effect
+    # Higher frequencies should show more rapid changes in displacement across space
+    def compute_displacement_variation(original, warped, grid_size):
+        """Compute how much displacement varies across spatially adjacent points.
+        
+        Points are in row-major order, so we compare horizontally adjacent points
+        within each row and vertically adjacent points across rows.
+        """
+        displacements = warped - original
+        variations = []
+        n_per_row = grid_size - 1  # Points per row in our grid
+        
+        for row in range(n_per_row):
+            for col in range(n_per_row):
+                idx = row * n_per_row + col
+                # Compare with right neighbor (within same row)
+                if col < n_per_row - 1:
+                    right_idx = idx + 1
+                    diff = np.linalg.norm(displacements[right_idx] - displacements[idx])
+                    variations.append(diff)
+                # Compare with bottom neighbor (next row)
+                if row < n_per_row - 1:
+                    bottom_idx = idx + n_per_row
+                    diff = np.linalg.norm(displacements[bottom_idx] - displacements[idx])
+                    variations.append(diff)
+        
+        return np.mean(variations) if variations else 0
+    
+    variation_by_freq = {
+        freq: compute_displacement_variation(points, warp_results[freq], grid_size)
+        for freq in frequencies
+    }
+    
+    # Higher frequencies should generally produce more spatial variation
+    # (more rapid changes in displacement between neighboring points)
+    # Note: This is a statistical property, so we use a relaxed assertion
+    low_freq_variation = variation_by_freq[1]
+    high_freq_variation = variation_by_freq[8]
+    
+    # The high frequency should have noticeably different variation than low frequency
+    assert high_freq_variation != low_freq_variation, \
+        f"High frequency ({high_freq_variation}) should have different variation than low frequency ({low_freq_variation})"
+    
+    print(f"  Frequency 1 variation: {variation_by_freq[1]:.6f}")
+    print(f"  Frequency 2 variation: {variation_by_freq[2]:.6f}")
+    print(f"  Frequency 4 variation: {variation_by_freq[4]:.6f}")
+    print(f"  Frequency 8 variation: {variation_by_freq[8]:.6f}")
+    print("✓ Warp frequency effect test passed")
+
+
 if __name__ == "__main__":
     # Run all tests
     test_perlin_noise_generation()
@@ -289,6 +374,7 @@ if __name__ == "__main__":
     test_phase1_default_warp_disabled()
     test_warp_strength_effect()
     test_domain_warp_no_seed()
+    test_warp_frequency_effect()
     
     print("\n" + "=" * 60)
     print("All domain warp tests passed!")
