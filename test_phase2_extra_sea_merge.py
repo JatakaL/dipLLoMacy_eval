@@ -307,7 +307,7 @@ def test_center_preference():
     print(f"  Isolated sea faces: {isolated}")
     
     # Find best merge target for C4
-    best = find_best_sea_neighbor_for_merge("C4", topology, map_center=(0.5, 0.5))
+    best = find_best_sea_neighbor_for_merge("C4", topology)
     print(f"  Best merge target for C4: {best}")
     
     # The best target should be one that is adjacent to land

@@ -27,6 +27,11 @@ from shapely.errors import GEOSException
 from topology import get_adjacency_from_topology, get_face_edges
 
 
+# Constants for merge_extra_sea_regions
+ADJACENT_TO_LAND_BONUS = 1000.0  # Scoring bonus for sea faces adjacent to land
+MAX_MERGE_ITERATIONS = 100  # Safety limit for merge iterations
+
+
 def _get_vertex_coords_lookup(topology: dict) -> Dict[int, List[float]]:
     """
     Create a lookup dictionary for vertex coordinates.
@@ -1324,9 +1329,14 @@ def find_best_sea_neighbor_for_merge(face_id: str, topology: dict, map_center: T
     """
     Find the best adjacent sea face to merge with.
     
-    Prefers sea faces that:
-    1. Are adjacent to land (so the merged face becomes adjacent to land)
-    2. Are in the direction of the map center
+    Scoring criteria (in order of priority):
+    1. Adjacent to land: Sea faces adjacent to land receive a large bonus
+       (ADJACENT_TO_LAND_BONUS) to ensure they are preferred. This ensures
+       the merged face becomes adjacent to land.
+    2. Direction toward map center: Used as a tiebreaker when multiple 
+       neighbors are adjacent to land, or as the primary criterion when
+       no neighbors are adjacent to land. The dot product of the direction
+       vectors is used to score alignment with the center direction.
     
     Args:
         face_id: ID of the sea face to find a merge partner for
@@ -1380,8 +1390,7 @@ def find_best_sea_neighbor_for_merge(face_id: str, topology: dict, map_center: T
         center_alignment = to_center[0] * to_neighbor[0] + to_center[1] * to_neighbor[1]
         
         # Score: adjacent_to_land is most important, then center alignment
-        # Use a large bonus for adjacent_to_land to ensure it takes priority
-        score = (1000.0 if adjacent_to_land else 0.0) + center_alignment
+        score = (ADJACENT_TO_LAND_BONUS if adjacent_to_land else 0.0) + center_alignment
         
         scored_neighbors.append((neighbor_id, score, adjacent_to_land))
     
@@ -1412,9 +1421,8 @@ def merge_extra_sea_regions(topology: dict, map_center: Tuple[float, float] = (0
         Number of merge operations performed
     """
     merge_count = 0
-    max_iterations = 100  # Safety limit
     
-    for iteration in range(max_iterations):
+    for iteration in range(MAX_MERGE_ITERATIONS):
         # Find sea faces not adjacent to land
         isolated_sea_faces = find_sea_faces_not_adjacent_to_land(topology)
         
