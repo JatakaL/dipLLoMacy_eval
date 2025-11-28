@@ -155,9 +155,10 @@ def verify_contiguity(territory, topology):
     if not territory:
         return False
     
-    # Get adjacency from topology
+    # Get adjacency from topology using borders (proper abstraction layer)
     from topology import get_adjacency_from_topology
-    adjacency = get_adjacency_from_topology(topology["edges"])
+    borders = topology.get("borders", {})
+    adjacency = get_adjacency_from_topology(topology["edges"], borders)
     
     # BFS to check if all faces are reachable from first face
     start = territory[0]
@@ -190,12 +191,13 @@ def run_phase4(phase3_output, config):
     print("PHASE 4: KINGDOM GENERATION (Player Starts)")
     print("=" * 60)
     
-    # Get topology and derive adjacency
+    # Get topology and derive adjacency using borders (proper abstraction layer)
     topology = phase3_output["topology"]
     faces = topology["faces"]
+    borders = topology.get("borders", {})
     
     from topology import get_adjacency_from_topology
-    adjacency = get_adjacency_from_topology(topology["edges"])
+    adjacency = get_adjacency_from_topology(topology["edges"], borders)
     
     # Extract configuration
     num_powers = config.get("num_powers", 7)

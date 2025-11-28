@@ -26,7 +26,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase
-from topology import get_adjacency_from_topology
+from topology import get_adjacency_from_topology, get_coastal_faces_from_borders
 
 # Configuration constants for SC placement
 PREFERRED_NEUTRAL_SC_DISTANCE = 0.2  # Preferred average distance of neutral SCs from powers
@@ -60,7 +60,7 @@ def mark_home_centers(faces, territories):
     return faces, home_sc_count
 
 
-def find_neutral_candidates(faces, edges, territories):
+def find_neutral_candidates(faces, edges, territories, borders=None):
     """
     Find candidate faces for neutral supply centers using topology.
     
@@ -68,6 +68,7 @@ def find_neutral_candidates(faces, edges, territories):
         faces: Dictionary of all faces from topology
         edges: Dictionary of all edges from topology
         territories: Dictionary of power territories
+        borders: Optional dictionary of borders (preferred for coastal detection)
         
     Returns:
         List of candidate face IDs
@@ -77,16 +78,20 @@ def find_neutral_candidates(faces, edges, territories):
     for territory_data in territories.values():
         owned_faces.update(territory_data["faces"])
     
-    # Determine which faces are coastal by checking for coast edges
-    coastal_faces = set()
-    for edge_data in edges.values():
-        if edge_data.get("type") == "coast":
-            left_face = edge_data.get("left_face")
-            right_face = edge_data.get("right_face")
-            if left_face:
-                coastal_faces.add(left_face)
-            if right_face:
-                coastal_faces.add(right_face)
+    # Determine which faces are coastal using borders (proper abstraction layer)
+    if borders:
+        coastal_faces = get_coastal_faces_from_borders(borders)
+    else:
+        # Fall back to edges for backward compatibility
+        coastal_faces = set()
+        for edge_data in edges.values():
+            if edge_data.get("type") == "coast":
+                left_face = edge_data.get("left_face")
+                right_face = edge_data.get("right_face")
+                if left_face:
+                    coastal_faces.add(left_face)
+                if right_face:
+                    coastal_faces.add(right_face)
     
     # Find neutral land faces (not owned, preferably coastal)
     coastal_neutral = []
@@ -143,7 +148,7 @@ def calculate_power_distances(face_id, faces, territories):
     return distances
 
 
-def select_neutral_scs(candidates, faces, edges, territories, num_neutral, seed=None):
+def select_neutral_scs(candidates, faces, edges, territories, num_neutral, seed=None, borders=None):
     """
     Select neutral supply centers from candidates using topology.
     
@@ -159,6 +164,7 @@ def select_neutral_scs(candidates, faces, edges, territories, num_neutral, seed=
         territories: Dictionary of power territories
         num_neutral: Number of neutral SCs to place
         seed: Random seed
+        borders: Optional dictionary of borders (preferred for coastal detection)
         
     Returns:
         List of selected neutral SC face IDs
@@ -172,19 +178,23 @@ def select_neutral_scs(candidates, faces, edges, territories, num_neutral, seed=
     selected = []
     available = set(candidates)
     
-    # Get adjacency from topology
-    adjacency = get_adjacency_from_topology(edges)
+    # Get adjacency from topology using borders (proper abstraction layer)
+    adjacency = get_adjacency_from_topology(edges, borders)
     
-    # Determine which faces are coastal
-    coastal_faces = set()
-    for edge_data in edges.values():
-        if edge_data.get("type") == "coast":
-            left_face = edge_data.get("left_face")
-            right_face = edge_data.get("right_face")
-            if left_face:
-                coastal_faces.add(left_face)
-            if right_face:
-                coastal_faces.add(right_face)
+    # Determine which faces are coastal using borders (proper abstraction layer)
+    if borders:
+        coastal_faces = get_coastal_faces_from_borders(borders)
+    else:
+        # Fall back to edges for backward compatibility
+        coastal_faces = set()
+        for edge_data in edges.values():
+            if edge_data.get("type") == "coast":
+                left_face = edge_data.get("left_face")
+                right_face = edge_data.get("right_face")
+                if left_face:
+                    coastal_faces.add(left_face)
+                if right_face:
+                    coastal_faces.add(right_face)
     
     # Score each candidate
     candidate_scores = []
@@ -264,6 +274,7 @@ def run_phase5(phase4_output, config):
     
     faces = topology["faces"]
     edges = topology["edges"]
+    borders = topology.get("borders", {})
     territories = phase4_output["territories"]
     
     # Extract configuration
@@ -278,14 +289,14 @@ def run_phase5(phase4_output, config):
     faces, home_sc_count = mark_home_centers(faces, territories)
     print(f"  Marked {home_sc_count} home supply centers")
     
-    # Step 2: Find neutral candidates
+    # Step 2: Find neutral candidates using borders (proper abstraction layer)
     print("\nStep 2: Finding neutral supply center candidates...")
-    candidates = find_neutral_candidates(faces, edges, territories)
+    candidates = find_neutral_candidates(faces, edges, territories, borders)
     print(f"  Found {len(candidates)} candidate faces")
     
-    # Step 3: Select neutral SCs
+    # Step 3: Select neutral SCs using borders (proper abstraction layer)
     print("\nStep 3: Selecting neutral supply centers...")
-    neutral_scs = select_neutral_scs(candidates, faces, edges, territories, num_neutral, seed)
+    neutral_scs = select_neutral_scs(candidates, faces, edges, territories, num_neutral, seed, borders)
     print(f"  Selected {len(neutral_scs)} neutral supply centers")
     
     # Mark neutral SCs in faces

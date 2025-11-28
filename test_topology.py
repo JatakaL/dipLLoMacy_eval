@@ -11,7 +11,7 @@ import os
 # Add the map_gen directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen'))
 
-from topology import TopologyConverter, convert_cells_to_topology, get_adjacency_from_topology
+from topology import TopologyConverter, convert_cells_to_topology, get_adjacency_from_topology, get_adjacency_from_borders, get_coastal_faces_from_borders
 
 
 def test_vertex_deduplication():
@@ -308,16 +308,111 @@ def test_convenience_functions():
     assert "vertices" in topology, "Should have vertices key"
     assert "edges" in topology, "Should have edges key"
     assert "faces" in topology, "Should have faces key"
+    assert "borders" in topology, "Should have borders key"
     
-    # Test get_adjacency_from_topology
-    adjacency = get_adjacency_from_topology(topology["edges"])
+    # Test get_adjacency_from_topology (with both edges and borders)
+    adjacency_from_edges = get_adjacency_from_topology(topology["edges"])
+    adjacency_from_borders = get_adjacency_from_topology(topology["edges"], topology["borders"])
     
-    assert "C1" in adjacency, "C1 should be in adjacency"
-    assert "C2" in adjacency, "C2 should be in adjacency"
-    assert "C2" in adjacency["C1"], "C1 should be adjacent to C2"
-    assert "C1" in adjacency["C2"], "C2 should be adjacent to C1"
+    assert "C1" in adjacency_from_edges, "C1 should be in edge-based adjacency"
+    assert "C2" in adjacency_from_edges, "C2 should be in edge-based adjacency"
+    assert "C2" in adjacency_from_edges["C1"], "C1 should be adjacent to C2 (edges)"
+    assert "C1" in adjacency_from_edges["C2"], "C2 should be adjacent to C1 (edges)"
+    
+    assert "C1" in adjacency_from_borders, "C1 should be in border-based adjacency"
+    assert "C2" in adjacency_from_borders, "C2 should be in border-based adjacency"
+    assert "C2" in adjacency_from_borders["C1"], "C1 should be adjacent to C2 (borders)"
+    assert "C1" in adjacency_from_borders["C2"], "C2 should be adjacent to C1 (borders)"
+    
+    # Both methods should give the same result
+    assert adjacency_from_edges == adjacency_from_borders, "Edge-based and border-based adjacency should match"
     
     print("  ✓ Convenience functions work correctly")
+
+
+def test_border_based_adjacency():
+    """Test that adjacency derived from borders matches edges."""
+    print("\nTest 8: Border-based adjacency")
+    
+    # Create a 2x2 grid to test adjacency
+    cells = {
+        "C1": {
+            "id": "C1",
+            "type": "land",
+            "center": [0.25, 0.25],
+            "vertices": [[0.0, 0.0], [0.5, 0.0], [0.5, 0.5], [0.0, 0.5]]
+        },
+        "C2": {
+            "id": "C2",
+            "type": "sea",
+            "center": [0.75, 0.25],
+            "vertices": [[0.5, 0.0], [1.0, 0.0], [1.0, 0.5], [0.5, 0.5]]
+        },
+        "C3": {
+            "id": "C3",
+            "type": "land",
+            "center": [0.25, 0.75],
+            "vertices": [[0.0, 0.5], [0.5, 0.5], [0.5, 1.0], [0.0, 1.0]]
+        },
+        "C4": {
+            "id": "C4",
+            "type": "sea",
+            "center": [0.75, 0.75],
+            "vertices": [[0.5, 0.5], [1.0, 0.5], [1.0, 1.0], [0.5, 1.0]]
+        }
+    }
+    
+    topology = convert_cells_to_topology(cells)
+    
+    # Test get_adjacency_from_borders directly
+    adjacency_from_borders = get_adjacency_from_borders(topology["borders"])
+    
+    # C1 should be adjacent to C2 and C3 (shares edges)
+    assert "C2" in adjacency_from_borders.get("C1", []), "C1 should be adjacent to C2"
+    assert "C3" in adjacency_from_borders.get("C1", []), "C1 should be adjacent to C3"
+    assert len(adjacency_from_borders.get("C1", [])) == 2, "C1 should have exactly 2 neighbors"
+    
+    # C4 should be adjacent to C2 and C3
+    assert "C2" in adjacency_from_borders.get("C4", []), "C4 should be adjacent to C2"
+    assert "C3" in adjacency_from_borders.get("C4", []), "C4 should be adjacent to C3"
+    assert len(adjacency_from_borders.get("C4", [])) == 2, "C4 should have exactly 2 neighbors"
+    
+    print("  ✓ Border-based adjacency correctly derived")
+    print("    All faces have correct neighbor relationships")
+
+
+def test_coastal_faces_from_borders():
+    """Test that coastal faces are correctly detected from borders."""
+    print("\nTest 9: Coastal faces from borders")
+    
+    # Create a simple map with land and sea
+    cells = {
+        "L1": {
+            "id": "L1",
+            "type": "land",
+            "center": [0.25, 0.5],
+            "vertices": [[0.0, 0.0], [0.5, 0.0], [0.5, 1.0], [0.0, 1.0]]
+        },
+        "S1": {
+            "id": "S1",
+            "type": "sea",
+            "center": [0.75, 0.5],
+            "vertices": [[0.5, 0.0], [1.0, 0.0], [1.0, 1.0], [0.5, 1.0]]
+        }
+    }
+    
+    topology = convert_cells_to_topology(cells)
+    
+    # Test get_coastal_faces_from_borders
+    coastal_faces = get_coastal_faces_from_borders(topology["borders"])
+    
+    # Both L1 and S1 should be coastal (they share a coast border)
+    assert "L1" in coastal_faces, "L1 should be coastal"
+    assert "S1" in coastal_faces, "S1 should be coastal"
+    assert len(coastal_faces) == 2, f"Expected 2 coastal faces, got {len(coastal_faces)}"
+    
+    print("  ✓ Coastal faces correctly detected from borders")
+    print(f"    Found {len(coastal_faces)} coastal faces")
 
 
 def run_all_tests():
@@ -334,6 +429,8 @@ def run_all_tests():
         test_map_edge_detection()
         test_impassable_edge_detection()
         test_convenience_functions()
+        test_border_based_adjacency()
+        test_coastal_faces_from_borders()
         
         print("\n" + "=" * 60)
         print("ALL TESTS PASSED ✓")
