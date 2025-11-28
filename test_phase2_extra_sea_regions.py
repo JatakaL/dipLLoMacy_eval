@@ -188,11 +188,12 @@ def test_larger_grid_with_multiple_extra_sea():
     # Border is land, inner 5x5 is sea
     # Center 3x3 of the sea area has no land neighbors
     
+    grid_size = 7
     cells = {}
-    cell_size = 1.0 / 7.0
+    cell_size = 1.0 / grid_size
     
-    for row in range(7):
-        for col in range(7):
+    for row in range(grid_size):
+        for col in range(grid_size):
             x0 = col * cell_size
             y0 = row * cell_size
             x1 = x0 + cell_size
@@ -201,7 +202,7 @@ def test_larger_grid_with_multiple_extra_sea():
             cell_name = f"C_{row}_{col}"
             
             # Border is land, inner 5x5 is sea
-            is_border = row == 0 or row == 6 or col == 0 or col == 6
+            is_border = row == 0 or row == grid_size - 1 or col == 0 or col == grid_size - 1
             cell_type = "land" if is_border else "sea"
             
             cells[cell_name] = {
@@ -218,12 +219,12 @@ def test_larger_grid_with_multiple_extra_sea():
             }
     
     # Set up neighbors
-    for row in range(7):
-        for col in range(7):
+    for row in range(grid_size):
+        for col in range(grid_size):
             cell_name = f"C_{row}_{col}"
             neighbors = []
-            if col < 6: neighbors.append(f"C_{row}_{col + 1}")
-            if row < 6: neighbors.append(f"C_{row + 1}_{col}")
+            if col < grid_size - 1: neighbors.append(f"C_{row}_{col + 1}")
+            if row < grid_size - 1: neighbors.append(f"C_{row + 1}_{col}")
             if col > 0: neighbors.append(f"C_{row}_{col - 1}")
             if row > 0: neighbors.append(f"C_{row - 1}_{col}")
             cells[cell_name]["neighbors"] = neighbors

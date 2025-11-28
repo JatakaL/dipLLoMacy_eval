@@ -1398,7 +1398,11 @@ def find_best_sea_neighbor_toward_center(face_id: str, topology: dict,
     # Sort by:
     # 1. Land adjacency (True first - we prefer merging with land-adjacent neighbors)
     # 2. Dot product (higher = more toward center)
-    sea_neighbors.sort(key=lambda x: (-int(x[2]), -x[1]))
+    # Tuple: (neighbor_id, dot_product, is_land_adjacent)
+    sea_neighbors.sort(key=lambda neighbor_tuple: (
+        -int(neighbor_tuple[2]),  # is_land_adjacent: True (1) before False (0)
+        -neighbor_tuple[1]        # dot_product: higher values first (toward center)
+    ))
     
     return sea_neighbors[0][0]
 
