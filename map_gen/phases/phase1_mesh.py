@@ -37,7 +37,7 @@ def generate_perlin_noise_2d(shape, res, seed=None):
         seed: Random seed
         
     Returns:
-        2D numpy array of noise values approximately in range [-1, 1]
+        2D numpy array of noise values in approximately [-1, 1]
     """
     if seed is not None:
         np.random.seed(seed)
