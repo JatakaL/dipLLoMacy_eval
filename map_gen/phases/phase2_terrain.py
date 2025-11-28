@@ -37,7 +37,9 @@ from topology_utils import (
     split_face,
     find_smallest_faces,
     find_largest_faces,
-    find_smallest_neighbor
+    find_smallest_neighbor,
+    merge_extra_sea_regions,
+    find_sea_faces_not_adjacent_to_land
 )
 from noise_utils import generate_perlin_noise_2d
 
@@ -578,6 +580,17 @@ def run_phase2(phase1_output, config):
     
     print(f"  Split {split_count} land territories")
     
+    # Step 9: Merge extra sea regions (sea regions not adjacent to land)
+    print(f"\nStep 9: Merging sea regions not adjacent to land...")
+    isolated_before = find_sea_faces_not_adjacent_to_land(topology)
+    print(f"  Found {len(isolated_before)} sea regions not adjacent to land")
+    
+    extra_sea_merges = merge_extra_sea_regions(topology, map_center=(0.5, 0.5))
+    
+    isolated_after = find_sea_faces_not_adjacent_to_land(topology)
+    print(f"  Merged {extra_sea_merges} extra sea regions")
+    print(f"  Remaining sea regions not adjacent to land: {len(isolated_after)}")
+    
     # Recalculate statistics after merging and splitting
     land_count = sum(1 for f in topology['faces'].values() if f['type'] == 'land')
     sea_count = sum(1 for f in topology['faces'].values() if f['type'] == 'sea')
@@ -619,7 +632,9 @@ def run_phase2(phase1_output, config):
             "topology_edges": len(topology['edges']),
             "edge_types": edge_types,
             "water_merges": merge_count,
-            "land_splits": split_count
+            "land_splits": split_count,
+            "extra_sea_merges": extra_sea_merges,
+            "isolated_sea_faces_remaining": len(isolated_after)
         }
     }
     
