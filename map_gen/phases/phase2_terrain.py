@@ -593,7 +593,8 @@ def run_phase2(phase1_output, config):
     }
     # Simple check - if we have sea faces, they should be connected after the fix
     if sea_faces:
-        adjacency = get_adjacency_from_topology(topology['edges'])
+        borders = topology.get('borders', {})
+        adjacency = get_adjacency_from_topology(topology['edges'], borders)
         visited = set()
         if sea_faces:
             queue = deque([sea_faces[0]])

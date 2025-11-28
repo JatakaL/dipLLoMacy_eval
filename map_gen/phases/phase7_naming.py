@@ -21,7 +21,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from output_utils import get_output_path_for_phase, get_input_directory, get_datetime_filename
-from topology import get_adjacency_from_topology
+from topology import get_adjacency_from_topology, get_coastal_faces_from_borders
 from fractal_subdivision import subdivide_all_edges
 
 
@@ -116,16 +116,22 @@ class RegionNamer:
         return name
 
 
-def get_coastal_faces(edges):
+def get_coastal_faces(edges, borders=None):
     """
-    Determine which faces are coastal by checking if they have coast edges.
+    Determine which faces are coastal by checking if they have coast borders/edges.
     
     Args:
         edges: Dictionary of edge data from topology
+        borders: Optional dictionary of border data (preferred when available)
         
     Returns:
         Set of face IDs that are coastal
     """
+    # Prefer borders when available - they are the proper abstraction layer
+    if borders:
+        return get_coastal_faces_from_borders(borders)
+    
+    # Fall back to edges for backward compatibility
     coastal_faces = set()
     for edge_data in edges.values():
         if edge_data.get("type") == "coast":
@@ -171,21 +177,22 @@ def assign_names(faces, seed=None):
     return faces, land_count, sea_count, impassable_count
 
 
-def create_adjacency_list(faces, edges):
+def create_adjacency_list(faces, edges, borders=None):
     """
     Create a simple adjacency list representation of the graph using topology.
     
     Args:
         faces: Dictionary of face data from topology
         edges: Dictionary of edge data from topology
+        borders: Optional dictionary of border data (preferred when available)
         
     Returns:
         Dictionary mapping face names to neighbor names
     """
     adjacency = {}
     
-    # Get adjacency by face ID from topology using existing function
-    face_adjacency = get_adjacency_from_topology(edges)
+    # Get adjacency by face ID from topology using borders (proper abstraction layer)
+    face_adjacency = get_adjacency_from_topology(edges, borders)
     
     # Convert to name-based adjacency
     for face_id, face in faces.items():
@@ -378,6 +385,7 @@ def run_phase7(phase6_output, config):
     
     faces = topology["faces"]
     edges = topology["edges"]
+    borders = topology.get("borders", {})
     territories = phase6_output["territories"]
     supply_centers = phase6_output["supply_centers"]
     
@@ -394,9 +402,9 @@ def run_phase7(phase6_output, config):
     print(f"  Named {sea_count} sea regions")
     print(f"  Named {impassable_count} impassable zones")
     
-    # Step 2: Create adjacency representation
+    # Step 2: Create adjacency representation using borders (proper abstraction layer)
     print("\nStep 2: Creating adjacency list...")
-    adjacency_list = create_adjacency_list(faces, edges)
+    adjacency_list = create_adjacency_list(faces, edges, borders)
     print(f"  Created adjacency list with {len(adjacency_list)} nodes")
     
     # Step 3: Create power map

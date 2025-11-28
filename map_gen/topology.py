@@ -538,21 +538,23 @@ def get_face_edges(face_data: dict, borders: Dict[str, dict]) -> List[str]:
     return edge_ids
 
 
-def get_adjacency_from_topology(edges: Dict[str, dict]) -> Dict[str, List[str]]:
+def _derive_adjacency_from_data(data: Dict[str, dict]) -> Dict[str, List[str]]:
     """
-    Derive face adjacency from edges.
+    Internal helper to derive adjacency from data with left_face/right_face fields.
+    
+    Works with both edges and borders since they share the same structure.
     
     Args:
-        edges: Dictionary of edge data with left_face and right_face
+        data: Dictionary of edge or border data with left_face and right_face
         
     Returns:
         Dictionary mapping face_id to list of neighbor face_ids
     """
     adjacency = {}
     
-    for edge_data in edges.values():
-        left_face = edge_data.get("left_face")
-        right_face = edge_data.get("right_face")
+    for item_data in data.values():
+        left_face = item_data.get("left_face")
+        right_face = item_data.get("right_face")
         
         if left_face and right_face:
             # Initialize lists if needed
@@ -570,6 +572,73 @@ def get_adjacency_from_topology(edges: Dict[str, dict]) -> Dict[str, List[str]]:
     return adjacency
 
 
+def get_adjacency_from_borders(borders: Dict[str, dict]) -> Dict[str, List[str]]:
+    """
+    Derive face adjacency from borders.
+    
+    Borders are the proper abstraction layer between faces and edges.
+    Each border represents the boundary between two faces and contains
+    the left_face and right_face references. This is the preferred way
+    to derive adjacency as it works correctly whether edges have been
+    subdivided or not.
+    
+    Args:
+        borders: Dictionary of border data with left_face and right_face
+        
+    Returns:
+        Dictionary mapping face_id to list of neighbor face_ids
+    """
+    return _derive_adjacency_from_data(borders)
+
+
+def get_adjacency_from_topology(edges: Dict[str, dict], borders: Optional[Dict[str, dict]] = None) -> Dict[str, List[str]]:
+    """
+    Derive face adjacency from topology data.
+    
+    This function prefers borders when available (the proper abstraction layer),
+    but falls back to edges for backward compatibility with older topology data.
+    
+    Args:
+        edges: Dictionary of edge data with left_face and right_face
+        borders: Optional dictionary of border data (preferred when available)
+        
+    Returns:
+        Dictionary mapping face_id to list of neighbor face_ids
+    """
+    # Prefer borders when available - they are the proper abstraction layer
+    if borders:
+        return _derive_adjacency_from_data(borders)
+    
+    # Fall back to edges for backward compatibility
+    return _derive_adjacency_from_data(edges)
+
+
+def get_coastal_faces_from_borders(borders: Dict[str, dict]) -> set:
+    """
+    Determine which faces are coastal by checking border types.
+    
+    A face is coastal if it has at least one border of type "coast".
+    This is the preferred method as it uses borders (the proper abstraction
+    layer) rather than iterating over individual edges.
+    
+    Args:
+        borders: Dictionary of border data from topology
+        
+    Returns:
+        Set of face IDs that are coastal
+    """
+    coastal_faces = set()
+    for border_data in borders.values():
+        if border_data.get("type") == "coast":
+            left_face = border_data.get("left_face")
+            right_face = border_data.get("right_face")
+            if left_face:
+                coastal_faces.add(left_face)
+            if right_face:
+                coastal_faces.add(right_face)
+    return coastal_faces
+
+
 def reconstruct_cells_from_topology(topology: dict) -> Dict[str, dict]:
     """
     Reconstruct a cell-centric structure from topology for internal processing.
@@ -585,8 +654,9 @@ def reconstruct_cells_from_topology(topology: dict) -> Dict[str, dict]:
     """
     # Create vertex lookup
     vertex_coords = {v['id']: v['coords'] for v in topology['vertices']}
-    adjacency = get_adjacency_from_topology(topology['edges'])
     borders = topology.get('borders', {})
+    # Use borders for adjacency (proper abstraction layer), with edge fallback
+    adjacency = get_adjacency_from_topology(topology['edges'], borders)
     
     cells = {}
     for face_id, face_data in topology['faces'].items():
