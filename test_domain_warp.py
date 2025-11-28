@@ -173,7 +173,7 @@ def test_phase1_with_warping():
     assert "statistics" in result, "Result should contain statistics"
     
     # Check config preserved
-    assert result["config"]["warp_enabled"]
+    assert result["config"]["warp_enabled"] == True
     assert result["config"]["warp_strength"] == 0.1
     assert result["config"]["warp_frequency"] == 2
     
@@ -202,7 +202,7 @@ def test_phase1_without_warping():
     
     # Check basic output structure
     assert "topology" in result, "Result should contain topology"
-    assert not result["config"]["warp_enabled"]
+    assert result["config"]["warp_enabled"] == False
     
     # Check topology is valid
     topology = result["topology"]
