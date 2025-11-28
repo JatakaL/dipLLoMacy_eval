@@ -255,6 +255,27 @@ def test_warp_strength_effect():
     print("✓ Warp strength effect test passed")
 
 
+def test_domain_warp_no_seed():
+    """Test domain warping works correctly when no seed is provided."""
+    points = np.array([
+        [0.5, 0.5],
+        [0.3, 0.7],
+        [0.7, 0.3]
+    ])
+    
+    # Apply warping without seed - should still produce different x and y noise
+    warped = apply_domain_warp(points, 1.0, 1.0, warp_strength=0.1, warp_frequency=2, seed=None)
+    
+    # Check shape preserved
+    assert warped.shape == points.shape, "Warped points should have same shape"
+    
+    # Check points moved (warping should still work)
+    displacement = np.linalg.norm(warped - points, axis=1)
+    assert np.any(displacement > 0), "Warping without seed should still move points"
+    
+    print("✓ Domain warp no seed test passed")
+
+
 if __name__ == "__main__":
     # Run all tests
     test_perlin_noise_generation()
@@ -267,6 +288,7 @@ if __name__ == "__main__":
     test_phase1_without_warping()
     test_phase1_default_warp_disabled()
     test_warp_strength_effect()
+    test_domain_warp_no_seed()
     
     print("\n" + "=" * 60)
     print("All domain warp tests passed!")

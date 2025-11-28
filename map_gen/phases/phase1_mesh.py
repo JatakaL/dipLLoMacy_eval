@@ -164,14 +164,16 @@ def apply_domain_warp(points, width, height, warp_strength=0.1, warp_frequency=2
         return points.copy()
     
     # Generate low-frequency noise maps for x and y displacement
-    # Using a higher resolution for smoother sampling
+    # Using 100x100 resolution provides good quality for typical map sizes
     noise_resolution = 100
     noise_shape = (noise_resolution, noise_resolution)
     
     # Use different seeds for x and y noise to ensure independence
-    # The offset of 100 ensures different noise patterns for x and y
-    noise_x = generate_perlin_noise_2d(noise_shape, (warp_frequency, warp_frequency), seed=seed)
-    noise_y = generate_perlin_noise_2d(noise_shape, (warp_frequency, warp_frequency), seed=seed + 100 if seed else None)
+    # When seed is None, use explicit different values to ensure different patterns
+    seed_x = seed if seed is not None else 12345
+    seed_y = seed + 100 if seed is not None else 67890
+    noise_x = generate_perlin_noise_2d(noise_shape, (warp_frequency, warp_frequency), seed=seed_x)
+    noise_y = generate_perlin_noise_2d(noise_shape, (warp_frequency, warp_frequency), seed=seed_y)
     
     # Calculate maximum displacement based on strength
     max_displacement_x = width * warp_strength
