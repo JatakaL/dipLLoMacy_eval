@@ -180,29 +180,17 @@ def apply_domain_warp(points, width, height, warp_strength=0.1, warp_frequency=2
     max_displacement_y = height * warp_strength
     
     # Apply warping to each point
-    warped_points = []
-    buffer = min(width, height) * 0.05  # Keep points within bounds (5% of smaller dimension)
-    
-    for point in points:
-        x, y = point
-        
-        # Sample noise at the point's location
-        dx = sample_noise_at_point(noise_x, x, y, width, height) * max_displacement_x
-        dy = sample_noise_at_point(noise_y, x, y, width, height) * max_displacement_y
-        
-        # Apply displacement
-        new_x = x + dx
-        new_y = y + dy
-        
-        # Clamp to valid range (with buffer from edges)
-        new_x = max(buffer, min(width - buffer, new_x))
-        new_y = max(buffer, min(height - buffer, new_y))
-        
-        warped_points.append([new_x, new_y])
-    
-    return np.array(warped_points)
+    buffer = 0.05  # Keep points within bounds
 
+    warped_points = np.array([
+        [
+            max(buffer, min(width - buffer, x + sample_noise_at_point(noise_x, x, y, width, height) * max_displacement_x)),
+            max(buffer, min(height - buffer, y + sample_noise_at_point(noise_y, x, y, width, height) * max_displacement_y))
+        ]
+        for x, y in points
+    ])
 
+    return warped_points
 def poisson_disk_sampling(width, height, min_distance, num_points, seed=None):
     """
     Generate points using Poisson disk sampling.
