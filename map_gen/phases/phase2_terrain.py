@@ -37,7 +37,9 @@ from topology_utils import (
     split_face,
     find_smallest_faces,
     find_largest_faces,
-    find_smallest_neighbor
+    find_smallest_neighbor,
+    merge_extra_sea_regions,
+    find_sea_regions_not_adjacent_to_land
 )
 from noise_utils import generate_perlin_noise_2d
 
@@ -556,6 +558,24 @@ def run_phase2(phase1_output, config):
     
     print(f"  Merged {merge_count} pairs of water territories")
     
+    # Step 7.5: Merge extra sea regions (not adjacent to land)
+    # In official Diplomacy, all sea regions are adjacent to land
+    print(f"\nStep 7.5: Merging extra sea regions (not adjacent to land)...")
+    extra_sea_before = find_sea_regions_not_adjacent_to_land(topology)
+    print(f"  Found {len(extra_sea_before)} sea regions not adjacent to land")
+    
+    extra_sea_merge_count = merge_extra_sea_regions(topology, map_center=(0.5, 0.5))
+    
+    if extra_sea_merge_count > 0:
+        print(f"  Merged {extra_sea_merge_count} extra sea regions")
+    
+    # Verify no extra sea regions remain
+    extra_sea_after = find_sea_regions_not_adjacent_to_land(topology)
+    if extra_sea_after:
+        print(f"  Warning: {len(extra_sea_after)} sea regions still not adjacent to land")
+    else:
+        print(f"  All sea regions are now adjacent to land ✓")
+    
     # Step 8: Split largest land territories
     print(f"\nStep 8: Splitting largest land territories...")
     largest_land = find_largest_faces(topology, "land", count=5)
@@ -620,6 +640,7 @@ def run_phase2(phase1_output, config):
             "topology_edges": len(topology['edges']),
             "edge_types": edge_types,
             "water_merges": merge_count,
+            "extra_sea_merges": extra_sea_merge_count,
             "land_splits": split_count
         }
     }
