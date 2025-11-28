@@ -1241,6 +1241,7 @@ def find_smallest_neighbor(face_id: str, topology: dict) -> Optional[Tuple[str, 
     """
     faces = topology.get("faces", {})
     edges = topology.get("edges", {})
+    borders = topology.get("borders", {})
     
     if face_id not in faces:
         return None
@@ -1248,8 +1249,8 @@ def find_smallest_neighbor(face_id: str, topology: dict) -> Optional[Tuple[str, 
     face = faces[face_id]
     face_type = face.get("type")
     
-    # Get adjacency information
-    adjacency = get_adjacency_from_topology(edges)
+    # Get adjacency information using borders (proper abstraction layer)
+    adjacency = get_adjacency_from_topology(edges, borders)
     neighbors = adjacency.get(face_id, [])
     
     # Find neighbors of the same type

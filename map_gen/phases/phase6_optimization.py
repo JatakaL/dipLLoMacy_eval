@@ -53,8 +53,9 @@ def analyze_node_degrees(topology):
     """
     degrees = {}
     
-    # Get adjacency from topology
-    adjacency = get_adjacency_from_topology(topology["edges"])
+    # Get adjacency from topology using borders (proper abstraction layer)
+    borders = topology.get("borders", {})
+    adjacency = get_adjacency_from_topology(topology["edges"], borders)
     faces = topology["faces"]
     
     for face_id, face_data in faces.items():
@@ -106,8 +107,9 @@ def check_sea_connectivity(topology):
     Returns:
         Dictionary with connectivity information
     """
-    # Get adjacency from topology
-    adjacency = get_adjacency_from_topology(topology["edges"])
+    # Get adjacency from topology using borders (proper abstraction layer)
+    borders = topology.get("borders", {})
+    adjacency = get_adjacency_from_topology(topology["edges"], borders)
     faces = topology["faces"]
     
     # Find all sea faces
@@ -170,8 +172,9 @@ def calculate_triangle_density(topology):
     total_pairs = 0
     connected_pairs = 0
     
-    # Get adjacency from topology
-    adjacency = get_adjacency_from_topology(topology["edges"])
+    # Get adjacency from topology using borders (proper abstraction layer)
+    borders = topology.get("borders", {})
+    adjacency = get_adjacency_from_topology(topology["edges"], borders)
     faces = topology["faces"]
     
     for face_id, face_data in faces.items():
@@ -212,8 +215,9 @@ def identify_corner_powers(topology, territories):
     """
     power_classifications = {}
     
-    # Get adjacency from topology
-    adjacency = get_adjacency_from_topology(topology["edges"])
+    # Get adjacency from topology using borders (proper abstraction layer)
+    borders = topology.get("borders", {})
+    adjacency = get_adjacency_from_topology(topology["edges"], borders)
     faces = topology["faces"]
     
     for power_id, territory_data in territories.items():
@@ -269,8 +273,9 @@ def identify_belgium_factor(topology, territories, supply_centers):
     """
     contested_scs = []
     
-    # Get adjacency from topology
-    adjacency = get_adjacency_from_topology(topology["edges"])
+    # Get adjacency from topology using borders (proper abstraction layer)
+    borders = topology.get("borders", {})
+    adjacency = get_adjacency_from_topology(topology["edges"], borders)
     faces = topology["faces"]
     
     for sc_id in supply_centers.get("neutral", []):
