@@ -52,21 +52,25 @@ This document summarizes the migration from cell-centric to Face-Edge-Vertex top
   "edges": {
     "E_0_1": {"v1": 0, "v2": 1, "left_face": "C1", "type": "map-edge"},
     "E_1_2": {"v1": 1, "v2": 2, "left_face": "C2", "type": "map-edge"},
-    "E_1_4": {"v1": 1, "v2": 4, "left_face": "C1", "right_face": "C2", "type": "land"},  // Shared border!
+    "E_1_4": {"v1": 1, "v2": 4, "left_face": "C1", "right_face": "C2", "type": "land"},
     "E_2_3": {"v1": 2, "v2": 3, "left_face": "C2", "type": "map-edge"},
     "E_3_4": {"v1": 3, "v2": 4, "left_face": "C2", "type": "map-edge"},
     "E_0_5": {"v1": 0, "v2": 5, "left_face": "C1", "type": "map-edge"},
     "E_4_5": {"v1": 4, "v2": 5, "left_face": "C1", "type": "map-edge"}
   },
+  "borders": {
+    "B_0_1": {"edges": ["E_0_1"], "left_face": "C1", "type": "map-edge", "start_vertex": 0, "end_vertex": 1},
+    "B_1_4": {"edges": ["E_1_4"], "left_face": "C1", "right_face": "C2", "type": "land", "start_vertex": 1, "end_vertex": 4}
+  },
   "faces": {
     "C1": {
       "type": "land",
-      "edges": ["E_0_1", "E_1_4", "E_4_5", "E_0_5"],
+      "borders": ["B_0_1", "B_1_4", "B_4_5", "B_0_5"],
       "center": [0.25, 0.5]
     },
     "C2": {
       "type": "land",
-      "edges": ["E_1_2", "E_2_3", "E_3_4", "E_1_4"],
+      "borders": ["B_1_2", "B_2_3", "B_3_4", "B_1_4"],
       "center": [0.75, 0.5]
     }
   }
@@ -74,10 +78,11 @@ This document summarizes the migration from cell-centric to Face-Edge-Vertex top
 ```
 
 **Benefits**:
-1. Shared border (E_1_4) stored exactly once
+1. Shared border (B_1_4) stored exactly once
 2. No vertex duplication (vertex 1 and 4 shared)
-3. Adjacency explicit: C1 and C2 both reference E_1_4
-4. Changing a border only updates one edge
+3. Adjacency explicit: C1 and C2 both reference B_1_4
+4. Changing a border only updates one border object
+5. Borders provide an abstraction layer between faces and edges
 
 ## Implementation Details
 
@@ -129,24 +134,29 @@ else:
 
 ### Deriving Adjacency
 
-```python
-from topology import get_adjacency_from_topology
+The preferred way to derive adjacency is through borders:
 
-adjacency = get_adjacency_from_topology(edges)
+```python
+from topology import get_adjacency_from_borders, get_adjacency_from_topology
+
+# Preferred: Use borders (works correctly with subdivided edges)
+adjacency = get_adjacency_from_borders(borders)
 # Returns: {"C1": ["C2"], "C2": ["C1"]}
 
-# Two faces are neighbors if they share an edge
-neighbors_of_c1 = [
-    e["right_face"] if e["left_face"] == "C1" else e["left_face"]
-    for e in edges.values()
-    if "C1" in [e.get("left_face"), e.get("right_face")]
-    and e.get("right_face") is not None
-]
+# Alternative: get_adjacency_from_topology uses borders when available, falls back to edges
+adjacency = get_adjacency_from_topology(edges, borders)
 ```
 
 ### Finding Coastlines
 
 ```python
+# Find coastal borders (preferred)
+coastal_borders = [
+    border_id for border_id, border in borders.items()
+    if border.get("type") == "coast"
+]
+
+# Or find coastal edges
 coastlines = [
     edge_id for edge_id, edge in edges.items()
     if edge.get("type") == "coast"
@@ -219,7 +229,8 @@ For a map with 100 cells averaging 6 vertices each:
 **After**:
 - ~200 unique vertices (shared) × 2 coords = 400 coordinate pairs stored
 - ~300 edges × 4 references = 1200 references
-- **Total**: Similar memory, but with explicit topology
+- ~300 borders (grouping edges by face adjacency)
+- **Total**: Similar memory, but with explicit topology and the border abstraction layer
 
 ## Visualizations
 

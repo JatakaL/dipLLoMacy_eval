@@ -6,14 +6,15 @@ This document describes the Face-Edge-Vertex topological data structure used in 
 
 ## Benefits
 
-1. **No Data Redundancy**: Shared borders are stored exactly once as edges, not duplicated in both adjacent cells
-2. **Explicit Adjacency**: Two territories are neighbors if and only if they share an edge
-3. **Coastline Detection**: Coastlines are edges where adjacent faces have different types (land vs. sea)
-4. **Easy Geometry Operations**: Splitting or merging territories only requires updating edge and face references
+1. **No Data Redundancy**: Shared boundaries are stored exactly once, not duplicated in both adjacent cells
+2. **Explicit Adjacency**: Two territories are neighbors if and only if they share a border
+3. **Coastline Detection**: Coastlines are borders where adjacent faces have different types (land vs. sea)
+4. **Easy Geometry Operations**: Splitting or merging territories only requires updating border and face references
+5. **Border Abstraction**: Borders group edges that share the same adjacent faces, providing a clean abstraction layer between faces and edges that supports edge subdivision for jagged coastlines
 
 ## Data Structure
 
-The topology is stored in the `topology` key of phase outputs, with three main components:
+The topology is stored in the `topology` key of phase outputs, with four main components:
 
 ### 1. Vertices (Points)
 
@@ -137,20 +138,31 @@ The topology is stored in the `topology` key of phase outputs, with three main c
 
 ### Deriving Adjacency
 
-Two faces are neighbors if they share an edge:
+Two faces are neighbors if they share a border. The recommended approach uses borders (the abstraction layer between faces and edges):
 
 ```python
-from topology import get_adjacency_from_topology
+from topology import get_adjacency_from_borders, get_adjacency_from_topology
 
-adjacency = get_adjacency_from_topology(edges)
+# Preferred: Use borders directly (works correctly with subdivided edges)
+adjacency = get_adjacency_from_borders(borders)
 # Returns: {"C4": ["C5", "C21"], "C5": ["C4", "C6"], ...}
+
+# Alternative: get_adjacency_from_topology uses borders when available
+adjacency = get_adjacency_from_topology(edges, borders)
 ```
 
 ### Finding Coastlines
 
-Coastlines are edges where the adjacent faces have different types:
+Coastlines are borders (or edges) where the adjacent faces have different types. Using borders is preferred:
 
 ```python
+# Preferred: Use borders
+coastal_borders = [
+    border_id for border_id, border_data in borders.items()
+    if border_data.get("type") == "coast"
+]
+
+# Alternative: Use edges directly
 coastline_edges = [
     edge_id for edge_id, edge_data in edges.items()
     if edge_data.get("type") == "coast"
@@ -159,12 +171,15 @@ coastline_edges = [
 
 ### Reconstructing Polygon Geometry
 
-To get the polygon vertices for a face:
+To get the polygon vertices for a face, use the `get_face_edges()` helper to retrieve edges through borders:
 
 ```python
-def get_face_polygon(face_id, faces, edges, vertices):
+from topology import get_face_edges
+
+def get_face_polygon(face_id, faces, edges, borders, vertices):
     face = faces[face_id]
-    edge_ids = face["edges"]
+    # Get edges through borders (the proper abstraction layer)
+    edge_ids = get_face_edges(face, borders)
     
     # Build ordered polygon from edges
     # (Implementation details depend on edge ordering)
@@ -177,7 +192,7 @@ def get_face_polygon(face_id, faces, edges, vertices):
     return vertex_coords
 ```
 
-Note: For visualization, it's often easier to use the legacy `vertices` array stored in the cell data during the transition period.
+Note: Faces reference borders, not edges directly. Use `get_face_edges()` to retrieve the underlying edges when needed.
 
 ## Pipeline Integration
 

@@ -20,7 +20,7 @@ For new developers, we recommend starting with the **Phased Map Generation** gui
 
 | Document | Description |
 |----------|-------------|
-| [Topology Structure](TOPOLOGY_STRUCTURE.md) | Face-Edge-Vertex topological data structure specification |
+| [Topology Structure](TOPOLOGY_STRUCTURE.md) | Face-Edge-Vertex topological data structure specification, including the border abstraction layer between faces and edges |
 | [Topology Migration Summary](TOPOLOGY_MIGRATION_SUMMARY.md) | Summary of the migration from cell-centric to topological data structure |
 | [Merge/Split Implementation](MERGE_SPLIT_IMPLEMENTATION.md) | Face merging and splitting functionality for topology manipulation |
 
