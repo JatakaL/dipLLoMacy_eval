@@ -11,6 +11,13 @@ from typing import Dict, List, Any
 
 
 # Default prompt for getting orders
+# Note: Output format validation expects each line to match:
+#   - LOCATION: HOLD
+#   - LOCATION: MOVE TARGET
+#   - LOCATION: SUPPORT TARGET
+#   - LOCATION: SUPPORT TARGET -> DESTINATION
+#   - LOCATION: CONVOY ARMY -> DESTINATION
+# Invalid formats will be skipped during parsing.
 DEFAULT_ORDER_PROMPT = """You are playing as {power} in a game of Diplomacy.
 
 CURRENT GAME STATE:
@@ -25,17 +32,23 @@ INSTRUCTIONS:
 1. Analyze the current position and threats
 2. Consider which territories to attack, defend, or support
 3. Issue one order per unit you control
+4. Use ONLY the locations shown in your units list
 
 OUTPUT FORMAT:
 Provide each order on a separate line in this format:
 LOCATION: ORDER
 
-Examples:
-Paris: HOLD
-Munich: MOVE Berlin
-London: SUPPORT Paris
-Marseilles: SUPPORT Paris -> Burgundy
-North Sea: CONVOY London -> Norway
+Valid order formats:
+- Paris: HOLD
+- Munich: MOVE Berlin (or Munich -> Berlin)
+- London: SUPPORT Paris (support hold)
+- Marseilles: SUPPORT Paris -> Burgundy (support move)
+- North Sea: CONVOY London -> Norway
+
+IMPORTANT: 
+- Use exact location names from your units list
+- One order per line
+- Do not include explanations on order lines
 
 YOUR ORDERS:"""
 

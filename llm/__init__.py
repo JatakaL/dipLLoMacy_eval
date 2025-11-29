@@ -17,8 +17,8 @@ Usage:
     orders = player.get_orders(game_state, power="Power1")
 """
 
-from .base import LLMInterface, LLMPlayer
-from .prompts import PromptTemplate, GameStateFormatter
+from .base import LLMInterface, LLMPlayer, PromptTemplate
+from .prompts import GameStateFormatter
 from .openai_adapter import OpenAIAdapter
 from .anthropic_adapter import AnthropicAdapter
 

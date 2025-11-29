@@ -7,7 +7,7 @@ complete game execution with LLM or human players.
 
 import sys
 import os
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 # Add parent directory to path for imports

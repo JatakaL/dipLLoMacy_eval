@@ -74,19 +74,39 @@ class GameState:
         
         if topology:
             self.faces = topology.get("faces", {})
-            self.adjacency = self.map_data.get("adjacency", {})
+            raw_adjacency = self.map_data.get("adjacency", {})
         else:
             # Legacy: use cells directly
             self.faces = self.map_data.get("cells", {})
-            self.adjacency = {}
+            raw_adjacency = {}
             for cell_id, cell in self.faces.items():
-                self.adjacency[cell_id] = cell.get("neighbors", [])
+                raw_adjacency[cell_id] = cell.get("neighbors", [])
         
         # Create reverse lookup: name -> cell_id
         self.name_to_id: Dict[str, str] = {}
+        self.id_to_name: Dict[str, str] = {}
         for face_id, face_data in self.faces.items():
             name = face_data.get("name", face_id)
             self.name_to_id[name] = face_id
+            self.id_to_name[face_id] = name
+        
+        # Build adjacency with both name and ID access
+        # The raw adjacency uses names, we need to support cell IDs too
+        self.adjacency = {}
+        for key, neighbors in raw_adjacency.items():
+            # Add entry by name
+            self.adjacency[key] = neighbors
+            # Add entry by cell_id if key is a name
+            if key in self.name_to_id:
+                cell_id = self.name_to_id[key]
+                # Convert neighbor names to cell IDs
+                neighbor_ids = []
+                for n in neighbors:
+                    if n in self.name_to_id:
+                        neighbor_ids.append(self.name_to_id[n])
+                    else:
+                        neighbor_ids.append(n)
+                self.adjacency[cell_id] = neighbor_ids
     
     def _init_supply_centers(self):
         """Initialize supply center ownership from map data."""

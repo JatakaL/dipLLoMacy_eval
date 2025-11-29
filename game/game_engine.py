@@ -337,6 +337,33 @@ class GameEngine:
                     supported.strength += 1
                     self._log(f"{support} gives +1 strength to {supported}")
     
+    def _resolve_head_to_head(self, move: Move, defender_order: Move, 
+                               defender: 'Unit') -> Optional[Move]:
+        """
+        Resolve a head-to-head battle where two units are moving into each other.
+        
+        Args:
+            move: The attacking move
+            defender_order: The defender's move order (moving towards attacker)
+            defender: The defending unit
+            
+        Returns:
+            The winning move or None if both bounce
+        """
+        if move.strength > defender_order.strength:
+            defender.dislodged = True
+            self._find_retreat_options(defender)
+            return move
+        elif defender_order.strength > move.strength:
+            move.result = OrderResult.FAILED
+            return None
+        else:
+            # Equal strength - both bounce
+            move.result = OrderResult.BOUNCED
+            defender_order.result = OrderResult.BOUNCED
+            self._log(f"{move} and {defender_order} BOUNCED")
+            return None
+    
     def _resolve_destination(self, dest: str, moves: List[Move], 
                             order_by_location: Dict[str, Order]) -> Optional[Move]:
         """
@@ -371,19 +398,7 @@ class GameEngine:
                     # Defender is moving out - check if swap
                     if defender_order.destination == move.unit_location:
                         # Head-to-head battle
-                        if move.strength > defender_order.strength:
-                            defender.dislodged = True
-                            self._find_retreat_options(defender)
-                            return move
-                        elif defender_order.strength > move.strength:
-                            move.result = OrderResult.FAILED
-                            return None
-                        else:
-                            # Equal strength - both bounce
-                            move.result = OrderResult.BOUNCED
-                            defender_order.result = OrderResult.BOUNCED
-                            self._log(f"{move} and {defender_order} BOUNCED")
-                            return None
+                        return self._resolve_head_to_head(move, defender_order, defender)
                     else:
                         # Defender moving elsewhere - check if their move succeeds
                         # For simplicity, assume vacant if defender has valid move
