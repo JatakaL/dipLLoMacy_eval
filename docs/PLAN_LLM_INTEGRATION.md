@@ -60,8 +60,8 @@ from abc import ABC, abstractmethod
 
 class BaseLLMAdapter(ABC):
     @abstractmethod
-    def generate_orders(self, game_state, power, valid_orders):
-        """Generate orders for a power given game state"""
+    def generate_orders(self, game_state, power, board_image_path=None):
+        """Generate orders for a power given game state and optional board image"""
         pass
     
     @abstractmethod
@@ -89,8 +89,9 @@ class OpenAIAdapter(BaseLLMAdapter):
         self.model = model
         self.client = OpenAI(api_key=api_key)
     
-    def generate_orders(self, game_state, power, valid_orders):
-        prompt = self._build_order_prompt(game_state, power, valid_orders)
+    def generate_orders(self, game_state, power, board_image_path=None):
+        prompt = self._build_order_prompt(game_state, power)
+        # Attach board_image_path for multimodal models (GPT-4V, etc.)
         response = self.client.chat.completions.create(...)
         return self._parse_orders(response)
 ```
@@ -104,13 +105,15 @@ Design prompts that effectively communicate game state:
 - [ ] **Map Description**: Province names, adjacencies, terrain types
 - [ ] **Unit Positions**: All units on the board with owners
 - [ ] **Supply Centers**: Control status of all SCs
-- [ ] **Valid Orders**: All legal moves for the power's units
+- [ ] **Board Image**: JPEG rendering of current game state
 - [ ] **Game History**: Recent moves and outcomes
+
+**Note**: LLMs must infer valid orders from the game state (JSON or image) - no pre-computed list is provided.
 
 ```python
 # Proposed structure (prompts/state_prompt.py)
-def build_state_prompt(game_state, power):
-    return f"""
+def build_state_prompt(game_state, power, board_image_path=None):
+    prompt = f"""
 You are playing as {power} in a game of Diplomacy.
 
 Current Turn: {game_state.season} {game_state.year}
@@ -124,11 +127,9 @@ All Units on the Board:
 Supply Centers:
 {format_supply_centers(game_state)}
 
-Your Valid Orders:
-{format_valid_orders(game_state, power)}
-
-Please submit orders for all your units.
+Based on the game state (and board image if provided), determine your valid moves and submit orders for all your units.
 """
+    return prompt, board_image_path  # Image attached separately for multimodal LLMs
 ```
 
 #### 2.2 Strategic Prompts

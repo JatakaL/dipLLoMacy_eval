@@ -152,12 +152,12 @@ class GameManager:
         """Resolve all orders and advance game state"""
         pass
         
-    def get_valid_orders(self, unit):
-        """Return list of valid orders for a unit"""
-        pass
-        
     def get_game_state(self):
         """Return current game state (JSON-serializable)"""
+        pass
+        
+    def export_board_image(self, output_path):
+        """Export current board state as JPEG with units and ownership"""
         pass
 ```
 
@@ -172,6 +172,7 @@ class GameManager:
 - [ ] Export game state to JSON
 - [ ] Import game state from JSON
 - [ ] Export game history for replay
+- [ ] **Export board image (JPEG)**: Render current game state as image with units and ownership
 
 ## File Structure
 
@@ -263,16 +264,17 @@ dipLLoMacy_eval/
 - [ ] Correctly resolves complex multi-unit conflicts
 - [ ] Handles retreat and build phases
 - [ ] Detects victory and elimination conditions
-- [ ] Exports game state for LLM consumption
-- [ ] Provides valid order suggestions for LLM prompts
+- [ ] Exports game state for LLM consumption (JSON and JPEG image)
 
 ## Integration with LLM Evaluation
 
 The game engine must provide:
 
 1. **State Description**: JSON representation of current game state
-2. **Valid Orders**: List of valid orders for each unit
+2. **Board Image**: JPEG rendering of the board with units, ownership, and supply centers
 3. **Order Submission**: Accept orders as strings
 4. **Result Reporting**: Outcome of each order (succeeded/failed/cut)
+
+**Note**: LLMs must determine valid orders themselves from the JSON or board image - the engine does not provide a pre-computed list of valid moves.
 
 This forms the foundation for the LLM evaluation framework described in `PLAN_LLM_INTEGRATION.md`.
