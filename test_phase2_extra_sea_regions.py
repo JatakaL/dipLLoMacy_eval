@@ -15,13 +15,13 @@ import traceback
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen', 'phases'))
 
-from topology import convert_cells_to_topology, get_adjacency_from_topology
+from topology import convert_cells_to_topology
 from topology_utils import (
     is_sea_adjacent_to_land,
     find_sea_regions_not_adjacent_to_land,
     find_best_sea_neighbor_toward_center,
     merge_extra_sea_regions,
-    merge_faces
+
 )
 
 
