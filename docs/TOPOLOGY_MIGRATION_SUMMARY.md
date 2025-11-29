@@ -60,7 +60,12 @@ This document summarizes the migration from cell-centric to Face-Edge-Vertex top
   },
   "borders": {
     "B_0_1": {"edges": ["E_0_1"], "left_face": "C1", "type": "map-edge", "start_vertex": 0, "end_vertex": 1},
-    "B_1_4": {"edges": ["E_1_4"], "left_face": "C1", "right_face": "C2", "type": "land", "start_vertex": 1, "end_vertex": 4}
+    "B_1_2": {"edges": ["E_1_2"], "left_face": "C2", "type": "map-edge", "start_vertex": 1, "end_vertex": 2},
+    "B_2_3": {"edges": ["E_2_3"], "left_face": "C2", "type": "map-edge", "start_vertex": 2, "end_vertex": 3},
+    "B_3_4": {"edges": ["E_3_4"], "left_face": "C2", "type": "map-edge", "start_vertex": 3, "end_vertex": 4},
+    "B_1_4": {"edges": ["E_1_4"], "left_face": "C1", "right_face": "C2", "type": "land", "start_vertex": 1, "end_vertex": 4},
+    "B_4_5": {"edges": ["E_4_5"], "left_face": "C1", "type": "map-edge", "start_vertex": 4, "end_vertex": 5},
+    "B_0_5": {"edges": ["E_0_5"], "left_face": "C1", "type": "map-edge", "start_vertex": 0, "end_vertex": 5}
   },
   "faces": {
     "C1": {
