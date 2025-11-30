@@ -308,29 +308,37 @@ class GameManager:
             ax.fill(poly_array[:, 0], poly_array[:, 1], 
                    color=color, alpha=alpha, edgecolor='black', linewidth=0.5)
         
-        # Draw supply center markers (always at center - they don't move)
+        # Draw supply center markers using pre-determined positions
         for face_id, face_data in faces.items():
             is_sc = face_data.get('is_supply_center', False)
             if is_sc:
-                center = face_data.get('center', [0.5, 0.5])
-                ax.plot(center[0], center[1], 'o', 
+                # Use pre-determined SC position if available, otherwise fall back to center
+                label_positions = face_data.get('label_positions', {})
+                sc_pos = label_positions.get('sc_position', face_data.get('center', [0.5, 0.5]))
+                ax.plot(sc_pos[0], sc_pos[1], 'o', 
                        markersize=8, color='gold', 
                        markeredgecolor='black', markeredgewidth=1.5, zorder=10)
         
-        # Draw units (slightly offset from center)
+        # Draw units using pre-determined positions
         for location, unit in self.state.units.items():
             face_data = faces.get(location, {})
-            center = face_data.get('center', [0.5, 0.5])
-            is_sc = face_data.get('is_supply_center', False)
+            
+            # Use pre-determined unit position if available
+            label_positions = face_data.get('label_positions', {})
+            unit_pos = label_positions.get('unit_position')
+            
+            if not unit_pos:
+                # Fall back to legacy offset-based positioning
+                center = face_data.get('center', [0.5, 0.5])
+                is_sc = face_data.get('is_supply_center', False)
+                unit_offset_x = 0.008 if is_sc else 0
+                unit_offset_y = -0.008 if is_sc else 0
+                unit_pos = [center[0] + unit_offset_x, center[1] + unit_offset_y]
+            
+            unit_x, unit_y = unit_pos[0], unit_pos[1]
             
             # Get unit color based on power
             unit_color = power_colors.get(unit.power, 'gray')
-            
-            # Offset unit if there's a supply center
-            unit_offset_x = 0.008 if is_sc else 0
-            unit_offset_y = -0.008 if is_sc else 0
-            unit_x = center[0] + unit_offset_x
-            unit_y = center[1] + unit_offset_y
             
             # Draw unit symbol
             if unit.unit_type == UnitType.ARMY:
@@ -350,46 +358,54 @@ class GameManager:
                        ha='center', va='center', fontsize=6, fontweight='bold',
                        color='white', zorder=16)
         
-        # Add province names (for all provinces including sea territories)
+        # Add province names using pre-determined positions
         for face_id, face_data in faces.items():
             face_type = face_data.get('type', 'land')
             name = face_data.get('name', '')
-            is_sc = face_data.get('is_supply_center', False)
-            has_unit = face_id in self.state.units
             
             if not name:
                 continue
             
-            center = face_data.get('center', [0.5, 0.5])
+            # Use pre-determined name position if available
+            label_positions = face_data.get('label_positions', {})
+            name_pos = label_positions.get('name_position')
             
-            # Calculate label position to avoid overlap with units and SCs
-            if has_unit and is_sc:
-                # Both unit and SC present - place label above
-                offset_y = 0.035
-                va = 'bottom'
-            elif has_unit:
-                # Only unit - place label above
-                offset_y = 0.025
-                va = 'bottom'
-            elif is_sc:
-                # Only SC - place label above
-                offset_y = 0.02
-                va = 'bottom'
-            else:
-                # No unit or SC - center the label
-                offset_y = 0
+            if name_pos:
+                # Use pre-determined position
+                text_x, text_y = name_pos[0], name_pos[1]
                 va = 'center'
+            else:
+                # Fall back to legacy offset-based positioning
+                center = face_data.get('center', [0.5, 0.5])
+                is_sc = face_data.get('is_supply_center', False)
+                has_unit = face_id in self.state.units
+                
+                if has_unit and is_sc:
+                    offset_y = 0.035
+                    va = 'bottom'
+                elif has_unit:
+                    offset_y = 0.025
+                    va = 'bottom'
+                elif is_sc:
+                    offset_y = 0.02
+                    va = 'bottom'
+                else:
+                    offset_y = 0
+                    va = 'center'
+                
+                text_x = center[0]
+                text_y = center[1] + offset_y
             
             # Style based on province type
             if face_type == 'sea':
                 # Sea territory names: smaller, italic, no background
-                ax.text(center[0], center[1] + offset_y, name, 
+                ax.text(text_x, text_y, name, 
                        ha='center', va=va,
                        fontsize=5, fontstyle='italic', color='#2B5797',
                        zorder=4)
             else:
                 # Land territory names: with background box
-                ax.text(center[0], center[1] + offset_y, name, 
+                ax.text(text_x, text_y, name, 
                        ha='center', va=va,
                        fontsize=5, fontweight='bold',
                        bbox=dict(boxstyle='round,pad=0.15', facecolor='white', 

@@ -1,0 +1,406 @@
+"""
+Label Position Calculator Module
+
+This module calculates optimal positions for placing labels, supply center markers,
+and unit markers within territory polygons. The positions are pre-determined during
+map generation (Phase 7) to avoid overlaps during game rendering.
+
+The algorithm uses Shapely to:
+1. Find a "writable" interior area within each territory polygon
+2. Designate positions for:
+   - Territory name label (primary position, typically the largest clear area)
+   - Supply center marker (if applicable)
+   - Unit marker position (for placing armies/fleets during gameplay)
+
+The positions are stored in the topology data structure and used during rendering
+to ensure text and markers don't overlap.
+"""
+
+import math
+from typing import Dict, List, Tuple, Optional
+
+# Try to import Shapely for geometric operations
+try:
+    from shapely.geometry import Polygon, Point, MultiPoint
+    from shapely.ops import polylabel
+    SHAPELY_AVAILABLE = True
+except ImportError:
+    SHAPELY_AVAILABLE = False
+
+
+# Default spacing between elements (as fraction of map dimensions)
+DEFAULT_ELEMENT_SPACING = 0.015
+
+# Minimum polygon area for label placement calculations (below this, use centroid)
+MIN_POLYGON_AREA = 0.0001
+
+
+def calculate_label_positions(
+    polygon_vertices: List[List[float]],
+    has_supply_center: bool = False,
+    element_spacing: float = DEFAULT_ELEMENT_SPACING
+) -> Dict[str, List[float]]:
+    """
+    Calculate optimal positions for name label, SC marker, and unit marker.
+    
+    The algorithm finds the "pole of inaccessibility" (point furthest from edges)
+    and arranges elements around it to avoid overlaps.
+    
+    Args:
+        polygon_vertices: List of [x, y] coordinates forming the territory polygon
+        has_supply_center: Whether this territory has a supply center
+        element_spacing: Spacing between elements (fraction of map dimensions)
+        
+    Returns:
+        Dictionary with position keys:
+        - 'name_position': [x, y] for territory name label
+        - 'sc_position': [x, y] for supply center marker (if has_supply_center)
+        - 'unit_position': [x, y] for unit marker
+    """
+    if not polygon_vertices or len(polygon_vertices) < 3:
+        return _fallback_positions([0.5, 0.5], has_supply_center, element_spacing)
+    
+    # Calculate centroid as fallback
+    centroid = _calculate_centroid(polygon_vertices)
+    
+    if not SHAPELY_AVAILABLE:
+        # Without Shapely, use centroid-based positioning
+        return _fallback_positions(centroid, has_supply_center, element_spacing)
+    
+    try:
+        # Create Shapely polygon
+        polygon = Polygon(polygon_vertices)
+        
+        if not polygon.is_valid:
+            # Try to fix invalid polygon
+            polygon = polygon.buffer(0)
+            if not polygon.is_valid or polygon.is_empty:
+                return _fallback_positions(centroid, has_supply_center, element_spacing)
+        
+        if polygon.area < MIN_POLYGON_AREA:
+            # Very small polygon - just use centroid
+            return _fallback_positions(centroid, has_supply_center, element_spacing)
+        
+        # Find the "pole of inaccessibility" - the point furthest from edges
+        # This gives us the best center point for placing labels
+        try:
+            poi = polylabel(polygon, tolerance=0.001)
+            base_point = [poi.x, poi.y]
+        except Exception:
+            # polylabel can fail on some geometries - use centroid
+            if polygon.centroid.is_empty:
+                base_point = centroid
+            else:
+                base_point = [polygon.centroid.x, polygon.centroid.y]
+        
+        # Calculate the interior buffer to find usable label area
+        # This is the area that's at least some distance from edges
+        interior_buffer = polygon.buffer(-element_spacing * 0.5)
+        
+        if interior_buffer.is_empty or interior_buffer.area < MIN_POLYGON_AREA:
+            # Polygon is too small for buffer - use simple positioning
+            return _arrange_elements_simple(base_point, polygon, has_supply_center, element_spacing)
+        
+        # Arrange elements within the interior area
+        return _arrange_elements(base_point, polygon, interior_buffer, has_supply_center, element_spacing)
+        
+    except Exception:
+        # Any error - fall back to centroid-based positioning
+        return _fallback_positions(centroid, has_supply_center, element_spacing)
+
+
+def _calculate_centroid(vertices: List[List[float]]) -> List[float]:
+    """Calculate the centroid of a polygon."""
+    if not vertices:
+        return [0.5, 0.5]
+    
+    x_sum = sum(v[0] for v in vertices)
+    y_sum = sum(v[1] for v in vertices)
+    n = len(vertices)
+    
+    return [x_sum / n, y_sum / n]
+
+
+def _fallback_positions(
+    center: List[float],
+    has_supply_center: bool,
+    element_spacing: float
+) -> Dict[str, List[float]]:
+    """
+    Generate positions using simple offset from center point.
+    
+    This is used when Shapely is not available or polygon is invalid/too small.
+    
+    Layout (when SC present):
+        [Name]
+        [SC]
+        [Unit]
+        
+    Layout (no SC):
+        [Name]
+        [Unit]
+    """
+    positions = {}
+    
+    if has_supply_center:
+        # Three elements stacked vertically
+        positions['name_position'] = [center[0], center[1] + element_spacing]
+        positions['sc_position'] = [center[0], center[1]]
+        positions['unit_position'] = [center[0], center[1] - element_spacing]
+    else:
+        # Two elements stacked vertically
+        positions['name_position'] = [center[0], center[1] + element_spacing * 0.5]
+        positions['unit_position'] = [center[0], center[1] - element_spacing * 0.5]
+    
+    return positions
+
+
+def _arrange_elements_simple(
+    base_point: List[float],
+    polygon: 'Polygon',
+    has_supply_center: bool,
+    element_spacing: float
+) -> Dict[str, List[float]]:
+    """
+    Arrange elements using simple vertical stacking when polygon is too small for buffering.
+    Ensures positions stay within the polygon boundary.
+    """
+    positions = _fallback_positions(base_point, has_supply_center, element_spacing)
+    
+    # Clamp positions to stay within polygon
+    for key in positions:
+        pos = positions[key]
+        point = Point(pos[0], pos[1])
+        if not polygon.contains(point):
+            # Move to nearest point on polygon boundary, then slightly inside
+            nearest = polygon.exterior.interpolate(polygon.exterior.project(point))
+            # Move toward centroid to ensure we're inside
+            cx, cy = polygon.centroid.x, polygon.centroid.y
+            dx = cx - nearest.x
+            dy = cy - nearest.y
+            dist = math.sqrt(dx * dx + dy * dy)
+            if dist > 0:
+                # Move 20% of the way toward centroid
+                positions[key] = [
+                    nearest.x + dx * 0.2,
+                    nearest.y + dy * 0.2
+                ]
+    
+    return positions
+
+
+def _arrange_elements(
+    base_point: List[float],
+    polygon: 'Polygon',
+    interior_buffer: 'Polygon',
+    has_supply_center: bool,
+    element_spacing: float
+) -> Dict[str, List[float]]:
+    """
+    Arrange elements optimally within the polygon interior.
+    
+    Strategy:
+    1. Name goes at the "pole of inaccessibility" (point furthest from edges)
+    2. SC marker (if present) goes below the name
+    3. Unit marker goes below the SC (or below name if no SC)
+    
+    If vertical arrangement doesn't fit, try horizontal arrangement.
+    """
+    positions = {}
+    
+    # Name position - at the base point (pole of inaccessibility or centroid)
+    positions['name_position'] = list(base_point)
+    
+    if has_supply_center:
+        # Try to place SC below the name
+        sc_pos = [base_point[0], base_point[1] - element_spacing]
+        if _is_inside_polygon(sc_pos, interior_buffer):
+            positions['sc_position'] = sc_pos
+        else:
+            # Try above
+            sc_pos = [base_point[0], base_point[1] + element_spacing]
+            if _is_inside_polygon(sc_pos, interior_buffer):
+                positions['sc_position'] = sc_pos
+            else:
+                # Try to the right
+                sc_pos = [base_point[0] + element_spacing, base_point[1]]
+                if _is_inside_polygon(sc_pos, interior_buffer):
+                    positions['sc_position'] = sc_pos
+                else:
+                    # Try to the left
+                    sc_pos = [base_point[0] - element_spacing, base_point[1]]
+                    if _is_inside_polygon(sc_pos, interior_buffer):
+                        positions['sc_position'] = sc_pos
+                    else:
+                        # Fall back to same position as name
+                        positions['sc_position'] = list(base_point)
+        
+        # Try to place unit below SC
+        sc_pos = positions['sc_position']
+        unit_pos = [sc_pos[0], sc_pos[1] - element_spacing]
+        if _is_inside_polygon(unit_pos, interior_buffer):
+            positions['unit_position'] = unit_pos
+        else:
+            # Try other directions relative to SC
+            for dx, dy in [(0, element_spacing), (element_spacing, 0), (-element_spacing, 0)]:
+                unit_pos = [sc_pos[0] + dx, sc_pos[1] + dy]
+                if _is_inside_polygon(unit_pos, interior_buffer):
+                    positions['unit_position'] = unit_pos
+                    break
+            else:
+                # Fall back - offset from SC
+                positions['unit_position'] = [sc_pos[0] + element_spacing * 0.5, sc_pos[1] - element_spacing * 0.5]
+    else:
+        # No SC - just place unit below name
+        unit_pos = [base_point[0], base_point[1] - element_spacing]
+        if _is_inside_polygon(unit_pos, interior_buffer):
+            positions['unit_position'] = unit_pos
+        else:
+            # Try other directions
+            for dx, dy in [(0, element_spacing), (element_spacing, 0), (-element_spacing, 0)]:
+                unit_pos = [base_point[0] + dx, base_point[1] + dy]
+                if _is_inside_polygon(unit_pos, interior_buffer):
+                    positions['unit_position'] = unit_pos
+                    break
+            else:
+                # Fall back to offset from name
+                positions['unit_position'] = [base_point[0] + element_spacing * 0.5, base_point[1] - element_spacing * 0.5]
+    
+    # Final validation - ensure all positions are inside polygon (at least the outer boundary)
+    for key in positions:
+        pos = positions[key]
+        if not _is_inside_polygon(pos, polygon):
+            # Move to centroid if outside
+            positions[key] = [polygon.centroid.x, polygon.centroid.y]
+    
+    return positions
+
+
+def _is_inside_polygon(point: List[float], polygon: 'Polygon') -> bool:
+    """Check if a point is inside a polygon (or MultiPolygon)."""
+    try:
+        return polygon.contains(Point(point[0], point[1]))
+    except Exception:
+        return False
+
+
+def calculate_all_label_positions(
+    faces: Dict[str, dict],
+    topology: dict,
+    element_spacing: float = DEFAULT_ELEMENT_SPACING
+) -> Dict[str, dict]:
+    """
+    Calculate label positions for all faces in a topology.
+    
+    This function reconstructs the polygon for each face and calculates
+    optimal positions for labels and markers.
+    
+    Args:
+        faces: Dictionary of face data from topology
+        topology: Full topology dictionary (needed to reconstruct polygons)
+        element_spacing: Spacing between elements
+        
+    Returns:
+        Updated faces dictionary with 'label_positions' added to each face
+    """
+    # Create vertex coordinate lookup
+    vertices_list = topology.get('vertices', [])
+    vertex_coords = {v['id']: v['coords'] for v in vertices_list}
+    
+    edges = topology.get('edges', {})
+    borders = topology.get('borders', {})
+    
+    for face_id, face_data in faces.items():
+        # Reconstruct polygon vertices
+        polygon_vertices = _reconstruct_face_polygon(
+            face_data, edges, borders, vertex_coords
+        )
+        
+        # Check if this face has a supply center
+        has_sc = face_data.get('is_supply_center', False)
+        
+        # Calculate positions
+        positions = calculate_label_positions(
+            polygon_vertices, has_sc, element_spacing
+        )
+        
+        # Store positions in face data
+        face_data['label_positions'] = positions
+    
+    return faces
+
+
+def _reconstruct_face_polygon(
+    face_data: dict,
+    edges: Dict[str, dict],
+    borders: Dict[str, dict],
+    vertex_coords: Dict[int, List[float]]
+) -> List[List[float]]:
+    """
+    Reconstruct polygon vertices for a face from topology data.
+    
+    This handles both direct edge references and border-based edge references.
+    """
+    # Get edge IDs through borders
+    edge_ids = []
+    for border_id in face_data.get('borders', []):
+        if border_id in borders:
+            border = borders[border_id]
+            edge_ids.extend(border.get('edges', []))
+    
+    if not edge_ids:
+        # Try direct edges (legacy support)
+        edge_ids = face_data.get('edges', [])
+    
+    if not edge_ids:
+        return []
+    
+    # Build vertex graph from edges
+    vertex_graph = {}
+    for edge_id in edge_ids:
+        if edge_id not in edges:
+            continue
+        edge = edges[edge_id]
+        v1, v2 = edge['v1'], edge['v2']
+        
+        if v1 not in vertex_graph:
+            vertex_graph[v1] = []
+        if v2 not in vertex_graph:
+            vertex_graph[v2] = []
+        vertex_graph[v1].append(v2)
+        vertex_graph[v2].append(v1)
+    
+    if not vertex_graph:
+        return []
+    
+    # Trace polygon boundary
+    start_vertex = next(iter(vertex_graph.keys()))
+    polygon = []
+    current = start_vertex
+    visited = set()
+    
+    max_iterations = len(vertex_graph) + 1
+    for _ in range(max_iterations):
+        if current in visited:
+            break
+        
+        visited.add(current)
+        if current in vertex_coords:
+            polygon.append(vertex_coords[current])
+        
+        # Find next unvisited neighbor
+        neighbors = vertex_graph.get(current, [])
+        next_vertex = None
+        for neighbor in neighbors:
+            if neighbor not in visited:
+                next_vertex = neighbor
+                break
+            elif neighbor == start_vertex and len(visited) == len(vertex_graph):
+                next_vertex = neighbor
+                break
+        
+        if next_vertex is None:
+            break
+        current = next_vertex
+    
+    return polygon
