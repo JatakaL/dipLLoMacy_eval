@@ -104,9 +104,10 @@ class GameManager:
         supply_centers = self.map_data.get('supply_centers', {})
         for sc in supply_centers.get('home', []):
             cell_id = sc.get('cell_id')
-            power = sc.get('power')
-            if cell_id and power:
-                self.state.sc_control[cell_id] = power
+            # Supply center data uses 'owner' key
+            owner = sc.get('owner')
+            if cell_id and owner:
+                self.state.sc_control[cell_id] = owner
     
     def _place_initial_units(self) -> None:
         """Place initial units at home supply centers."""
@@ -117,8 +118,8 @@ class GameManager:
         # Place one unit at each home supply center
         for sc in supply_centers.get('home', []):
             cell_id = sc.get('cell_id')
-            # The supply center data uses 'owner' not 'power'
-            power = sc.get('owner') or sc.get('power')
+            # Supply center data uses 'owner' key for the controlling power
+            power = sc.get('owner')
             
             if not cell_id or not power:
                 continue

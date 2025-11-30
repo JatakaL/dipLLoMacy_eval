@@ -86,9 +86,8 @@ class GameState:
         if not self.map_data:
             return []
         home_scs = self.map_data.get('supply_centers', {}).get('home', [])
-        # Support both 'owner' and 'power' keys for compatibility
-        return [sc['cell_id'] for sc in home_scs 
-                if sc.get('owner') == power or sc.get('power') == power]
+        # Supply center data uses 'owner' key for the controlling power
+        return [sc['cell_id'] for sc in home_scs if sc.get('owner') == power]
     
     def is_eliminated(self, power: str) -> bool:
         """Check if a power has been eliminated (0 supply centers)."""

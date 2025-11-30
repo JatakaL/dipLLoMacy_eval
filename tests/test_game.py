@@ -244,11 +244,10 @@ class TestGameManager:
     
     def test_init_requires_map(self):
         """Test that GameManager requires map data."""
-        try:
+        import pytest
+        with pytest.raises(ValueError) as exc_info:
             GameManager()
-            assert False, "Should have raised ValueError"
-        except ValueError as e:
-            assert "map_path or map_data" in str(e)
+        assert "map_path or map_data" in str(exc_info.value)
     
     def test_initialize_game(self):
         """Test game initialization."""
