@@ -39,7 +39,8 @@ from topology_utils import (
     find_largest_faces,
     find_smallest_neighbor,
     merge_extra_sea_regions,
-    find_sea_regions_not_adjacent_to_land
+    find_sea_regions_not_adjacent_to_land,
+    run_topology_quality_checks
 )
 from noise_utils import generate_perlin_noise_2d
 
@@ -598,6 +599,23 @@ def run_phase2(phase1_output, config):
     
     print(f"  Split {split_count} land territories")
     
+    # Step 9: Run topology quality checks
+    # This fixes "Four Corners" vertices (where 4+ borders meet) and short borders
+    print(f"\nStep 9: Running topology quality checks...")
+    quality_results = run_topology_quality_checks(
+        topology,
+        fix_four_corners=True,
+        fix_short=True,
+        min_border_length=0.02  # 2% of map width
+    )
+    
+    print(f"  Four Corners vertices found: {quality_results['four_corners_found']}")
+    if quality_results['four_corners_fixed'] > 0:
+        print(f"    Fixed by merging {quality_results['four_corners_fixed']} face pairs")
+    print(f"  Short borders found: {quality_results['short_borders_found']}")
+    if quality_results['short_borders_fixed'] > 0:
+        print(f"    Lengthened {quality_results['short_borders_fixed']} borders")
+    
     # Recalculate statistics after merging and splitting
     land_count = sum(1 for f in topology['faces'].values() if f['type'] == 'land')
     sea_count = sum(1 for f in topology['faces'].values() if f['type'] == 'sea')
@@ -641,7 +659,11 @@ def run_phase2(phase1_output, config):
             "edge_types": edge_types,
             "water_merges": merge_count,
             "extra_sea_merges": extra_sea_merge_count,
-            "land_splits": split_count
+            "land_splits": split_count,
+            "four_corners_found": quality_results['four_corners_found'],
+            "four_corners_fixed": quality_results['four_corners_fixed'],
+            "short_borders_found": quality_results['short_borders_found'],
+            "short_borders_fixed": quality_results['short_borders_fixed']
         }
     }
     
