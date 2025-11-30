@@ -21,7 +21,7 @@ Architecture:
 """
 
 import math
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 from shapely.geometry import Polygon, LineString
 from shapely.errors import GEOSException
 from topology import get_adjacency_from_topology, get_face_edges
@@ -1946,7 +1946,7 @@ def fix_short_borders(topology: dict, min_length: float = 0.02, max_iterations: 
 def run_topology_quality_checks(topology: dict, 
                                  fix_four_corners: bool = True,
                                  fix_short: bool = True,
-                                 min_border_length: float = 0.02) -> Dict[str, any]:
+                                 min_border_length: float = 0.02) -> Dict[str, Any]:
     """
     Run all topology quality checks and optionally fix issues.
     
