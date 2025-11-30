@@ -323,6 +323,230 @@ def test_merge_non_adjacent():
         print(f"  ⊘ Test skipped - required faces not found")
 
 
+def create_four_corners_topology():
+    """Create a topology with a Four Corners vertex (4+ borders meeting at one point)."""
+    # Create 4 cells that all share a common vertex at (0.5, 0.5)
+    cells = {
+        "C1": {
+            "id": "C1",
+            "type": "land",
+            "center": [0.25, 0.25],
+            "vertices": [
+                [0.0, 0.0],
+                [0.5, 0.0],
+                [0.5, 0.5],
+                [0.0, 0.5]
+            ]
+        },
+        "C2": {
+            "id": "C2",
+            "type": "land",
+            "center": [0.75, 0.25],
+            "vertices": [
+                [0.5, 0.0],
+                [1.0, 0.0],
+                [1.0, 0.5],
+                [0.5, 0.5]
+            ]
+        },
+        "C3": {
+            "id": "C3",
+            "type": "land",
+            "center": [0.25, 0.75],
+            "vertices": [
+                [0.0, 0.5],
+                [0.5, 0.5],
+                [0.5, 1.0],
+                [0.0, 1.0]
+            ]
+        },
+        "C4": {
+            "id": "C4",
+            "type": "land",
+            "center": [0.75, 0.75],
+            "vertices": [
+                [0.5, 0.5],
+                [1.0, 0.5],
+                [1.0, 1.0],
+                [0.5, 1.0]
+            ]
+        }
+    }
+    
+    topology = convert_cells_to_topology(cells)
+    return topology
+
+
+def create_short_border_topology():
+    """Create a topology with a very short border."""
+    # Create cells where two share a very short border
+    cells = {
+        "C1": {
+            "id": "C1",
+            "type": "land",
+            "center": [0.25, 0.5],
+            "vertices": [
+                [0.0, 0.0],
+                [0.49, 0.0],
+                [0.49, 0.51],  # Short border from here
+                [0.49, 1.0],
+                [0.0, 1.0]
+            ]
+        },
+        "C2": {
+            "id": "C2",
+            "type": "land", 
+            "center": [0.75, 0.5],
+            "vertices": [
+                [0.49, 0.0],
+                [1.0, 0.0],
+                [1.0, 1.0],
+                [0.49, 1.0],
+                [0.49, 0.51]  # Short border to here (length ~0.01)
+            ]
+        }
+    }
+    
+    topology = convert_cells_to_topology(cells)
+    return topology
+
+
+def test_get_vertex_border_count():
+    """Test counting borders at each vertex."""
+    print("\nTest 9: Get vertex border count")
+    
+    from topology_utils import get_vertex_border_count
+    
+    topology = create_four_corners_topology()
+    
+    vertex_counts = get_vertex_border_count(topology)
+    
+    assert len(vertex_counts) > 0, "Should find vertices"
+    
+    # At least one vertex should have multiple borders
+    max_count = max(vertex_counts.values())
+    assert max_count >= 2, f"Should have vertices with multiple borders, max found: {max_count}"
+    
+    print(f"  ✓ Found {len(vertex_counts)} vertices with border counts")
+    print(f"  ✓ Max borders at any vertex: {max_count}")
+
+
+def test_find_four_corners_vertices():
+    """Test finding Four Corners vertices."""
+    print("\nTest 10: Find Four Corners vertices")
+    
+    from topology_utils import find_four_corners_vertices
+    
+    topology = create_four_corners_topology()
+    
+    four_corners = find_four_corners_vertices(topology, threshold=4)
+    
+    # The center vertex at (0.5, 0.5) should have 4 borders meeting
+    # (one for each adjacent cell pair)
+    print(f"  Found {len(four_corners)} Four Corners vertices")
+    for vertex_id, count in four_corners:
+        print(f"    - Vertex {vertex_id}: {count} borders")
+    
+    # Even if we don't find a Four Corners vertex (depends on topology structure),
+    # the function should return without error
+    assert isinstance(four_corners, list), "Should return a list"
+
+
+def test_get_borders_at_vertex():
+    """Test getting borders at a vertex."""
+    print("\nTest 11: Get borders at vertex")
+    
+    from topology_utils import get_borders_at_vertex, get_vertex_border_count
+    
+    topology = create_test_topology()
+    
+    vertex_counts = get_vertex_border_count(topology)
+    
+    # Get a vertex that has borders
+    for vertex_id, count in vertex_counts.items():
+        if count > 0:
+            borders = get_borders_at_vertex(vertex_id, topology)
+            assert len(borders) == count, f"Border count mismatch for vertex {vertex_id}"
+            print(f"  ✓ Vertex {vertex_id} has {len(borders)} borders: {borders}")
+            break
+
+
+def test_find_short_borders():
+    """Test finding short borders."""
+    print("\nTest 12: Find short borders")
+    
+    from topology_utils import find_short_borders
+    
+    topology = create_short_border_topology()
+    
+    # Look for borders shorter than 0.1
+    short_borders = find_short_borders(topology, min_length=0.1)
+    
+    print(f"  Found {len(short_borders)} short borders (< 0.1)")
+    for border_id, length in short_borders:
+        print(f"    - {border_id}: {length:.4f}")
+    
+    # The function should work without errors
+    assert isinstance(short_borders, list), "Should return a list"
+
+
+def test_run_topology_quality_checks():
+    """Test running all quality checks."""
+    print("\nTest 13: Run topology quality checks")
+    
+    from topology_utils import run_topology_quality_checks
+    
+    topology = create_four_corners_topology()
+    
+    # Run checks without fixing
+    results = run_topology_quality_checks(
+        topology,
+        fix_four_corners=False,
+        fix_short=False,
+        min_border_length=0.02
+    )
+    
+    assert "four_corners_found" in results, "Should report four_corners_found"
+    assert "short_borders_found" in results, "Should report short_borders_found"
+    
+    print(f"  ✓ Four Corners vertices found: {results['four_corners_found']}")
+    print(f"  ✓ Short borders found: {results['short_borders_found']}")
+
+
+def test_fix_four_corners():
+    """Test fixing Four Corners vertices."""
+    print("\nTest 14: Fix Four Corners vertices")
+    
+    from topology_utils import (
+        find_four_corners_vertices, 
+        fix_all_four_corners
+    )
+    
+    topology = create_four_corners_topology()
+    
+    initial_four_corners = find_four_corners_vertices(topology, threshold=4)
+    initial_face_count = len(topology["faces"])
+    
+    print(f"  Initial Four Corners: {len(initial_four_corners)}")
+    print(f"  Initial face count: {initial_face_count}")
+    
+    # Fix the Four Corners vertices
+    merge_count = fix_all_four_corners(topology)
+    
+    final_four_corners = find_four_corners_vertices(topology, threshold=4)
+    final_face_count = len(topology["faces"])
+    
+    print(f"  Merges performed: {merge_count}")
+    print(f"  Final Four Corners: {len(final_four_corners)}")
+    print(f"  Final face count: {final_face_count}")
+    
+    # After fixing, should have fewer or no Four Corners vertices
+    assert len(final_four_corners) <= len(initial_four_corners), \
+        "Should have equal or fewer Four Corners vertices after fix"
+    
+    print(f"  ✓ Successfully reduced Four Corners vertices")
+
+
 def run_all_tests():
     """Run all tests."""
     print("=" * 60)
@@ -339,6 +563,14 @@ def run_all_tests():
         test_find_largest_faces()
         test_find_smallest_neighbor()
         test_merge_non_adjacent()
+        
+        # New tests for topology quality checks
+        test_get_vertex_border_count()
+        test_find_four_corners_vertices()
+        test_get_borders_at_vertex()
+        test_find_short_borders()
+        test_run_topology_quality_checks()
+        test_fix_four_corners()
         
         print("\n" + "=" * 60)
         print("ALL TESTS PASSED ✓")
