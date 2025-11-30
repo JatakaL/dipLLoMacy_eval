@@ -32,6 +32,14 @@ For new developers, we recommend starting with the **Phased Map Generation** gui
 | [Map Viewer Topology Update](MAP_VIEWER_TOPOLOGY_UPDATE.md) | Topology support additions to the map viewers |
 | [Viewer Implementation Summary](VIEWER_IMPLEMENTATION_SUMMARY.md) | Technical details of the map viewer implementation |
 
+### Project Roadmap
+
+| Document | Description |
+|----------|-------------|
+| [Map Completion Plan](PLAN_MAP_COMPLETION.md) | Status of map generation and remaining optional enhancements |
+| [Game Elements Plan](PLAN_GAME_ELEMENTS.md) | Plan for implementing Diplomacy game mechanics (units, orders, movement, combat) |
+| [LLM Integration Plan](PLAN_LLM_INTEGRATION.md) | Plan for hooking up LLMs for game evaluation and benchmarking |
+
 ## Additional Resources
 
 - **Phase-specific documentation**: See [map_gen/phases/README.md](../map_gen/phases/README.md) for detailed information about each generation phase
