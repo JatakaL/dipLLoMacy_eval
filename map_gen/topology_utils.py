@@ -1758,9 +1758,8 @@ def lengthen_border(border_id: str, topology: dict, target_length: float) -> boo
     each other along the line connecting them, while being careful not to
     create invalid geometry.
     
-    The movement is constrained to:
-    1. Not move vertices past the midpoint of adjacent borders
-    2. Not create self-intersecting polygons
+    The movement is constrained to not move vertices past 1/4 of adjacent 
+    border lengths, which helps prevent creating invalid topology.
     
     Args:
         border_id: ID of the border to lengthen
@@ -1793,9 +1792,10 @@ def lengthen_border(border_id: str, topology: dict, target_length: float) -> boo
     # Calculate current length (sum of all edge lengths in the border) and direction (straight line)
     dx = end_coords[0] - start_coords[0]
     dy = end_coords[1] - start_coords[1]
+    straight_line_dist = math.sqrt(dx * dx + dy * dy)
     current_length = calculate_border_length(border_id, topology)
     
-    if current_length < 1e-10:
+    if current_length < 1e-10 or straight_line_dist < 1e-10:
         return False  # Degenerate border
     
     if current_length >= target_length:
@@ -1805,9 +1805,9 @@ def lengthen_border(border_id: str, topology: dict, target_length: float) -> boo
     extension_needed = target_length - current_length
     extension_per_side = extension_needed / 2.0
     
-    # Normalize direction vector
-    dir_x = dx / current_length
-    dir_y = dy / current_length
+    # Normalize direction vector using straight-line distance
+    dir_x = dx / straight_line_dist
+    dir_y = dy / straight_line_dist
     
     # Constrain movement: check how much we can safely move each vertex
     # by looking at adjacent borders
