@@ -32,7 +32,7 @@ This document outlines the plan for integrating Large Language Models (LLMs) int
 │                          │                                       │
 │                 ┌────────▼────────┐                              │
 │                 │   Game Engine    │                             │
-│                 │ (from PLAN_GAME) │                             │
+│                 │ (from PLAN_GAME_ELEMENTS) │                    │
 │                 └────────┬────────┘                              │
 │                          │                                       │
 │                 ┌────────▼────────┐                              │
