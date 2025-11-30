@@ -17,6 +17,21 @@ from .game_state import GameState, Season, Phase
 from .units import Unit, UnitType
 
 
+# Power name mappings - gives meaningful names to generated powers
+POWER_NAMES = [
+    "Avalon",
+    "Borealis", 
+    "Crimson",
+    "Dawnland",
+    "Eastmark",
+    "Frostheim",
+    "Greenwood",
+    "Highvale",
+    "Ironhold",
+    "Jadekeep",
+]
+
+
 class GameManager:
     """
     High-level manager for Diplomacy games.
@@ -242,10 +257,18 @@ class GameManager:
         }
         power_colors_list = list(mcolors.TABLEAU_COLORS.values())
         
-        # Build power-to-color mapping
+        # Build power-to-color mapping with display names
         power_list = sorted(self.state.powers)
         power_colors = {p: power_colors_list[i % len(power_colors_list)] 
                        for i, p in enumerate(power_list)}
+        
+        # Create display names for powers
+        power_display_names = {}
+        for i, power in enumerate(power_list):
+            if i < len(POWER_NAMES):
+                power_display_names[power] = POWER_NAMES[i]
+            else:
+                power_display_names[power] = power
         
         # Get topology data
         topology = self.map_data.get('topology', {})
@@ -284,68 +307,108 @@ class GameManager:
             # Draw polygon
             ax.fill(poly_array[:, 0], poly_array[:, 1], 
                    color=color, alpha=alpha, edgecolor='black', linewidth=0.5)
-            
-            # Draw supply center marker
+        
+        # Draw supply center markers (offset from center to avoid overlap with units)
+        for face_id, face_data in faces.items():
+            is_sc = face_data.get('is_supply_center', False)
             if is_sc:
                 center = face_data.get('center', [0.5, 0.5])
-                ax.plot(center[0], center[1], 'o', 
-                       markersize=10, color='gold', 
+                has_unit = face_id in self.state.units
+                # Offset SC marker if there's a unit there
+                sc_offset_x = -0.012 if has_unit else 0
+                sc_offset_y = 0.012 if has_unit else 0
+                ax.plot(center[0] + sc_offset_x, center[1] + sc_offset_y, 'o', 
+                       markersize=8, color='gold', 
                        markeredgecolor='black', markeredgewidth=1.5, zorder=10)
         
-        # Draw units
+        # Draw units (slightly offset from center)
         for location, unit in self.state.units.items():
             face_data = faces.get(location, {})
             center = face_data.get('center', [0.5, 0.5])
+            is_sc = face_data.get('is_supply_center', False)
             
             # Get unit color based on power
             unit_color = power_colors.get(unit.power, 'gray')
             
+            # Offset unit if there's a supply center
+            unit_offset_x = 0.008 if is_sc else 0
+            unit_offset_y = -0.008 if is_sc else 0
+            unit_x = center[0] + unit_offset_x
+            unit_y = center[1] + unit_offset_y
+            
             # Draw unit symbol
             if unit.unit_type == UnitType.ARMY:
                 # Army: filled circle
-                ax.plot(center[0], center[1], 'o', 
-                       markersize=14, color=unit_color,
+                ax.plot(unit_x, unit_y, 'o', 
+                       markersize=12, color=unit_color,
                        markeredgecolor='black', markeredgewidth=2, zorder=15)
-                ax.text(center[0], center[1], 'A', 
-                       ha='center', va='center', fontsize=8, fontweight='bold',
+                ax.text(unit_x, unit_y, 'A', 
+                       ha='center', va='center', fontsize=7, fontweight='bold',
                        color='white', zorder=16)
             else:
                 # Fleet: filled triangle
-                ax.plot(center[0], center[1], '^', 
-                       markersize=14, color=unit_color,
+                ax.plot(unit_x, unit_y, '^', 
+                       markersize=12, color=unit_color,
                        markeredgecolor='black', markeredgewidth=2, zorder=15)
-                ax.text(center[0], center[1] - 0.003, 'F', 
-                       ha='center', va='center', fontsize=7, fontweight='bold',
+                ax.text(unit_x, unit_y - 0.002, 'F', 
+                       ha='center', va='center', fontsize=6, fontweight='bold',
                        color='white', zorder=16)
         
-        # Add province names (for land and important sea provinces)
+        # Add province names (for all provinces including sea territories)
         for face_id, face_data in faces.items():
             face_type = face_data.get('type', 'land')
             name = face_data.get('name', '')
             is_sc = face_data.get('is_supply_center', False)
+            has_unit = face_id in self.state.units
             
-            if name and (face_type == 'land' or is_sc):
-                center = face_data.get('center', [0.5, 0.5])
-                # Offset if there's a unit there
-                if face_id in self.state.units:
-                    offset_y = 0.025
-                else:
-                    offset_y = 0
+            if not name:
+                continue
+            
+            center = face_data.get('center', [0.5, 0.5])
+            
+            # Calculate label position to avoid overlap with units and SCs
+            if has_unit and is_sc:
+                # Both unit and SC present - place label above
+                offset_y = 0.035
+                va = 'bottom'
+            elif has_unit:
+                # Only unit - place label above
+                offset_y = 0.025
+                va = 'bottom'
+            elif is_sc:
+                # Only SC - place label above
+                offset_y = 0.02
+                va = 'bottom'
+            else:
+                # No unit or SC - center the label
+                offset_y = 0
+                va = 'center'
+            
+            # Style based on province type
+            if face_type == 'sea':
+                # Sea territory names: smaller, italic, no background
                 ax.text(center[0], center[1] + offset_y, name, 
-                       ha='center', va='bottom' if offset_y else 'center',
-                       fontsize=6, fontweight='bold',
-                       bbox=dict(boxstyle='round,pad=0.2', facecolor='white', 
+                       ha='center', va=va,
+                       fontsize=5, fontstyle='italic', color='#2B5797',
+                       zorder=4)
+            else:
+                # Land territory names: with background box
+                ax.text(center[0], center[1] + offset_y, name, 
+                       ha='center', va=va,
+                       fontsize=5, fontweight='bold',
+                       bbox=dict(boxstyle='round,pad=0.15', facecolor='white', 
                                alpha=0.7, edgecolor='none'), zorder=5)
         
-        # Add legend for powers
+        # Add legend for powers with display names
         legend_elements = []
         for power in power_list:
             color = power_colors[power]
+            display_name = power_display_names[power]
             unit_count = self.state.get_unit_count(power)
             sc_count = self.state.get_sc_count(power)
             legend_elements.append(
                 plt.Rectangle((0, 0), 1, 1, fc=color, 
-                             label=f"{power}: {unit_count}u/{sc_count}sc")
+                             label=f"{display_name}: {unit_count}u/{sc_count}sc")
             )
         
         if legend_elements:
