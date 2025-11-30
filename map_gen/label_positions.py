@@ -29,10 +29,15 @@ except ImportError:
 
 
 # Default spacing between elements (as fraction of map dimensions)
-DEFAULT_ELEMENT_SPACING = 0.015
+# Increased from 0.015 to 0.025 for better readability
+DEFAULT_ELEMENT_SPACING = 0.025
 
 # Minimum polygon area for label placement calculations (below this, use centroid)
 MIN_POLYGON_AREA = 0.0001
+
+# Aspect ratio threshold for detecting horizontal vs vertical territories
+# If width/height > this, consider it a horizontal territory
+HORIZONTAL_ASPECT_RATIO = 1.8
 
 
 def calculate_label_positions(
@@ -142,26 +147,29 @@ def _fallback_positions(
     
     This is used when Shapely is not available or polygon is invalid/too small.
     
-    Layout (when SC present):
-        [Name]
-        [SC]
-        [Unit]
+    Layout (when SC present) - Name and SC in northern part, unit below:
+        [Name]  (top/north)
+        [SC]    (middle)
+        [Unit]  (bottom/south, with more spacing)
         
-    Layout (no SC):
-        [Name]
-        [Unit]
+    Layout (no SC) - Name in northern part, unit below:
+        [Name]  (top/north)
+        [Unit]  (bottom/south)
+    
+    Note: unit_position is ALWAYS included since any territory can have a unit.
     """
     positions = {}
     
     if has_supply_center:
-        # Three elements stacked vertically
-        positions['name_position'] = [center[0], center[1] + element_spacing]
-        positions['sc_position'] = [center[0], center[1]]
-        positions['unit_position'] = [center[0], center[1] - element_spacing]
+        # Three elements stacked vertically with name/SC in northern part
+        # Name at top (highest Y), SC below it, Unit further below with extra spacing
+        positions['name_position'] = [center[0], center[1] + element_spacing * 1.2]
+        positions['sc_position'] = [center[0], center[1] + element_spacing * 0.3]
+        positions['unit_position'] = [center[0], center[1] - element_spacing * 1.0]
     else:
-        # Two elements stacked vertically
-        positions['name_position'] = [center[0], center[1] + element_spacing * 0.5]
-        positions['unit_position'] = [center[0], center[1] - element_spacing * 0.5]
+        # Two elements - name in northern part, unit below
+        positions['name_position'] = [center[0], center[1] + element_spacing * 0.7]
+        positions['unit_position'] = [center[0], center[1] - element_spacing * 0.7]
     
     return positions
 
@@ -175,6 +183,9 @@ def _arrange_elements_simple(
     """
     Arrange elements using simple vertical stacking when polygon is too small for buffering.
     Ensures positions stay within the polygon boundary.
+    Uses improved layout with name/SC in northern part and unit below.
+    
+    Note: unit_position is ALWAYS included since any territory can have a unit.
     """
     positions = _fallback_positions(base_point, has_supply_center, element_spacing)
     
@@ -191,10 +202,10 @@ def _arrange_elements_simple(
             dy = cy - nearest.y
             dist = math.sqrt(dx * dx + dy * dy)
             if dist > 0:
-                # Move 20% of the way toward centroid
+                # Move 30% of the way toward centroid for better positioning
                 positions[key] = [
-                    nearest.x + dx * 0.2,
-                    nearest.y + dy * 0.2
+                    nearest.x + dx * 0.3,
+                    nearest.y + dy * 0.3
                 ]
     
     return positions
@@ -211,77 +222,160 @@ def _arrange_elements(
     Arrange elements optimally within the polygon interior.
     
     Strategy:
-    1. Name goes at the "pole of inaccessibility" (point furthest from edges)
-    2. SC marker (if present) goes below the name
-    3. Unit marker goes below the SC (or below name if no SC)
+    1. Detect if territory is horizontally oriented (wide and short)
+    2. For vertical/normal territories:
+       - Name goes at northern position (higher Y, above base point)
+       - SC marker (if present) goes below name but still in upper portion
+       - Unit marker goes in southern portion (lower Y)
+    3. For horizontal territories:
+       - Name and SC on one side, unit on the other side
     
-    If vertical arrangement doesn't fit, try horizontal arrangement.
+    Note: unit_position is ALWAYS included since any territory can have a unit.
     """
     positions = {}
     
-    # Name position - at the base point (pole of inaccessibility or centroid)
-    positions['name_position'] = list(base_point)
+    # Get polygon bounds to detect orientation
+    minx, miny, maxx, maxy = polygon.bounds
+    width = maxx - minx
+    height = maxy - miny
+    
+    # Detect if territory is horizontally oriented
+    # Use epsilon to avoid floating point precision issues with height
+    is_horizontal = height > 1e-10 and (width / height) > HORIZONTAL_ASPECT_RATIO
+    
+    if is_horizontal:
+        # Horizontal territory - arrange elements left to right
+        # Name and SC on left/center, unit on right
+        return _arrange_elements_horizontal(base_point, polygon, interior_buffer, has_supply_center, element_spacing)
+    
+    # Vertical/normal arrangement - name/SC in northern part, unit in southern part
+    # Try to place name in northern part of polygon (higher Y)
+    name_pos = [base_point[0], base_point[1] + element_spacing * 1.2]
+    if not _is_inside_polygon(name_pos, interior_buffer):
+        # Try at base point
+        name_pos = list(base_point)
+    positions['name_position'] = name_pos
     
     if has_supply_center:
-        # Try to place SC below the name
-        sc_pos = [base_point[0], base_point[1] - element_spacing]
-        if _is_inside_polygon(sc_pos, interior_buffer):
-            positions['sc_position'] = sc_pos
-        else:
-            # Try above
-            sc_pos = [base_point[0], base_point[1] + element_spacing]
-            if _is_inside_polygon(sc_pos, interior_buffer):
-                positions['sc_position'] = sc_pos
-            else:
-                # Try to the right
-                sc_pos = [base_point[0] + element_spacing, base_point[1]]
-                if _is_inside_polygon(sc_pos, interior_buffer):
-                    positions['sc_position'] = sc_pos
-                else:
-                    # Try to the left
-                    sc_pos = [base_point[0] - element_spacing, base_point[1]]
-                    if _is_inside_polygon(sc_pos, interior_buffer):
-                        positions['sc_position'] = sc_pos
-                    else:
-                        # Fall back to same position as name
-                        positions['sc_position'] = list(base_point)
+        # SC goes below name but still in upper portion
+        sc_pos = [name_pos[0], name_pos[1] - element_spacing * 0.9]
+        if not _is_inside_polygon(sc_pos, interior_buffer):
+            # Try below base point
+            sc_pos = [base_point[0], base_point[1] - element_spacing * 0.3]
+            if not _is_inside_polygon(sc_pos, interior_buffer):
+                sc_pos = list(base_point)
+        positions['sc_position'] = sc_pos
         
-        # Try to place unit below SC
-        sc_pos = positions['sc_position']
-        unit_pos = [sc_pos[0], sc_pos[1] - element_spacing]
-        if _is_inside_polygon(unit_pos, interior_buffer):
-            positions['unit_position'] = unit_pos
-        else:
-            # Try other directions relative to SC
-            for dx, dy in [(0, element_spacing), (element_spacing, 0), (-element_spacing, 0)]:
-                unit_pos = [sc_pos[0] + dx, sc_pos[1] + dy]
-                if _is_inside_polygon(unit_pos, interior_buffer):
-                    positions['unit_position'] = unit_pos
-                    break
-            else:
-                # Fall back - offset from SC
-                positions['unit_position'] = [sc_pos[0] + element_spacing * 0.5, sc_pos[1] - element_spacing * 0.5]
+        # Unit goes in southern portion, below SC with good spacing
+        unit_pos = [sc_pos[0], sc_pos[1] - element_spacing * 1.2]
+        if not _is_inside_polygon(unit_pos, interior_buffer):
+            # Try further below base point
+            unit_pos = [base_point[0], base_point[1] - element_spacing * 1.5]
+            if not _is_inside_polygon(unit_pos, interior_buffer):
+                # Try to the side
+                for dx in [element_spacing, -element_spacing]:
+                    unit_pos = [sc_pos[0] + dx, sc_pos[1] - element_spacing * 0.5]
+                    if _is_inside_polygon(unit_pos, interior_buffer):
+                        break
+                else:
+                    # Fall back to below SC with smaller spacing
+                    unit_pos = [sc_pos[0], sc_pos[1] - element_spacing * 0.7]
+        positions['unit_position'] = unit_pos
     else:
-        # No SC - just place unit below name
-        unit_pos = [base_point[0], base_point[1] - element_spacing]
-        if _is_inside_polygon(unit_pos, interior_buffer):
-            positions['unit_position'] = unit_pos
-        else:
-            # Try other directions
-            for dx, dy in [(0, element_spacing), (element_spacing, 0), (-element_spacing, 0)]:
-                unit_pos = [base_point[0] + dx, base_point[1] + dy]
-                if _is_inside_polygon(unit_pos, interior_buffer):
-                    positions['unit_position'] = unit_pos
-                    break
-            else:
-                # Fall back to offset from name
-                positions['unit_position'] = [base_point[0] + element_spacing * 0.5, base_point[1] - element_spacing * 0.5]
+        # No SC - unit goes in southern portion below name
+        unit_pos = [name_pos[0], name_pos[1] - element_spacing * 1.5]
+        if not _is_inside_polygon(unit_pos, interior_buffer):
+            # Try at base point offset
+            unit_pos = [base_point[0], base_point[1] - element_spacing * 0.8]
+            if not _is_inside_polygon(unit_pos, interior_buffer):
+                # Try to the side
+                for dx in [element_spacing, -element_spacing]:
+                    unit_pos = [base_point[0] + dx, base_point[1]]
+                    if _is_inside_polygon(unit_pos, interior_buffer):
+                        break
+                else:
+                    unit_pos = [base_point[0], base_point[1] - element_spacing * 0.5]
+        positions['unit_position'] = unit_pos
     
     # Final validation - ensure all positions are inside polygon (at least the outer boundary)
     for key in positions:
         pos = positions[key]
         if not _is_inside_polygon(pos, polygon):
             # Move to centroid if outside
+            positions[key] = [polygon.centroid.x, polygon.centroid.y]
+    
+    return positions
+
+
+def _arrange_elements_horizontal(
+    base_point: List[float],
+    polygon: 'Polygon',
+    interior_buffer: 'Polygon',
+    has_supply_center: bool,
+    element_spacing: float
+) -> Dict[str, List[float]]:
+    """
+    Arrange elements for horizontally-oriented (wide) territories.
+    
+    Layout: Name and SC on left/center, Unit on right side
+    This prevents vertical stacking from going outside narrow boundaries.
+    """
+    positions = {}
+    
+    # Get polygon center
+    cx = polygon.centroid.x
+    cy = polygon.centroid.y
+    
+    if has_supply_center:
+        # Name slightly left and above center
+        name_pos = [cx - element_spacing * 0.3, cy + element_spacing * 0.5]
+        if not _is_inside_polygon(name_pos, interior_buffer):
+            name_pos = [cx, cy + element_spacing * 0.3]
+            if not _is_inside_polygon(name_pos, interior_buffer):
+                name_pos = [cx, cy]
+        positions['name_position'] = name_pos
+        
+        # SC below name
+        sc_pos = [name_pos[0], name_pos[1] - element_spacing * 0.7]
+        if not _is_inside_polygon(sc_pos, interior_buffer):
+            sc_pos = [cx, cy - element_spacing * 0.2]
+            if not _is_inside_polygon(sc_pos, interior_buffer):
+                sc_pos = [cx, cy]
+        positions['sc_position'] = sc_pos
+        
+        # Unit to the right side
+        unit_pos = [cx + element_spacing * 1.2, cy]
+        if not _is_inside_polygon(unit_pos, interior_buffer):
+            # Try left side instead
+            unit_pos = [cx - element_spacing * 1.2, cy]
+            if not _is_inside_polygon(unit_pos, interior_buffer):
+                # Fall back to below
+                unit_pos = [cx, cy - element_spacing * 0.8]
+                if not _is_inside_polygon(unit_pos, interior_buffer):
+                    unit_pos = [cx, cy]
+        positions['unit_position'] = unit_pos
+    else:
+        # Name on left side
+        name_pos = [cx - element_spacing * 0.5, cy]
+        if not _is_inside_polygon(name_pos, interior_buffer):
+            name_pos = [cx, cy]
+        positions['name_position'] = name_pos
+        
+        # Unit on right side
+        unit_pos = [cx + element_spacing * 1.0, cy]
+        if not _is_inside_polygon(unit_pos, interior_buffer):
+            # Try left side
+            unit_pos = [cx - element_spacing * 1.0, cy]
+            if not _is_inside_polygon(unit_pos, interior_buffer):
+                unit_pos = [cx, cy - element_spacing * 0.5]
+                if not _is_inside_polygon(unit_pos, interior_buffer):
+                    unit_pos = [cx, cy]
+        positions['unit_position'] = unit_pos
+    
+    # Final validation
+    for key in positions:
+        pos = positions[key]
+        if not _is_inside_polygon(pos, polygon):
             positions[key] = [polygon.centroid.x, polygon.centroid.y]
     
     return positions

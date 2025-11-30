@@ -19,7 +19,8 @@ from map_gen.label_positions import (
     calculate_all_label_positions,
     _calculate_centroid,
     _fallback_positions,
-    SHAPELY_AVAILABLE
+    SHAPELY_AVAILABLE,
+    DEFAULT_ELEMENT_SPACING
 )
 
 
@@ -106,6 +107,46 @@ class TestLabelPositionCalculation:
         assert 'name_position' in positions
         assert 'sc_position' in positions
         assert 'unit_position' in positions
+    
+    def test_unit_position_always_present(self):
+        """Test that unit_position is always created regardless of SC status."""
+        vertices = [[0.3, 0.3], [0.4, 0.3], [0.4, 0.4], [0.3, 0.4]]
+        
+        # With SC
+        positions_with_sc = calculate_label_positions(vertices, has_supply_center=True)
+        assert 'unit_position' in positions_with_sc, "unit_position should exist with SC"
+        
+        # Without SC
+        positions_no_sc = calculate_label_positions(vertices, has_supply_center=False)
+        assert 'unit_position' in positions_no_sc, "unit_position should exist without SC"
+    
+    def test_vertical_ordering_with_sc(self):
+        """Test that name is at top, SC in middle, unit at bottom (higher Y = north)."""
+        vertices = [[0.2, 0.2], [0.5, 0.2], [0.5, 0.5], [0.2, 0.5]]
+        
+        positions = calculate_label_positions(vertices, has_supply_center=True)
+        
+        name_y = positions['name_position'][1]
+        sc_y = positions['sc_position'][1]
+        unit_y = positions['unit_position'][1]
+        
+        # Name should be highest (northern), unit lowest (southern)
+        assert name_y >= sc_y, "Name should be at or above SC (northern position)"
+        assert sc_y >= unit_y, "SC should be at or above unit"
+    
+    def test_sufficient_spacing(self):
+        """Test that there is sufficient spacing between elements."""
+        vertices = [[0.2, 0.2], [0.5, 0.2], [0.5, 0.5], [0.2, 0.5]]
+        
+        positions = calculate_label_positions(vertices, has_supply_center=True)
+        
+        sc_y = positions['sc_position'][1]
+        unit_y = positions['unit_position'][1]
+        
+        # Spacing between SC and unit should be at least 80% of default element spacing
+        min_expected_spacing = DEFAULT_ELEMENT_SPACING * 0.8
+        spacing = abs(sc_y - unit_y)
+        assert spacing >= min_expected_spacing, f"SC-Unit spacing ({spacing}) should be at least {min_expected_spacing}"
 
 
 class TestCentroidCalculation:
