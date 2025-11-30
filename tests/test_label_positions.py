@@ -71,11 +71,10 @@ class TestLabelPositionCalculation:
         sc_pos = tuple(positions['sc_position'])
         unit_pos = tuple(positions['unit_position'])
         
-        # At least one pair should be different (they may overlap in tiny polygons)
+        # Positions should be distinct from each other in a normally-sized polygon
+        # The positions are stacked vertically, so at minimum the y-coordinates differ
         all_same = (name_pos == sc_pos == unit_pos)
-        # In a normal-sized polygon, positions should be different
-        # But we allow them to be same in very small polygons
-        assert not all_same or len(vertices) < 4
+        assert not all_same, "All three positions should not be identical in a normal polygon"
     
     def test_empty_polygon(self):
         """Test handling of empty polygon."""

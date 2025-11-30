@@ -72,7 +72,9 @@ def calculate_label_positions(
         polygon = Polygon(polygon_vertices)
         
         if not polygon.is_valid:
-            # Try to fix invalid polygon
+            # Try to fix invalid polygon using buffer(0) trick
+            # This can fix self-intersecting polygons but may produce empty results
+            # for degenerate geometries (e.g., bowtie shapes that collapse)
             polygon = polygon.buffer(0)
             if not polygon.is_valid or polygon.is_empty:
                 return _fallback_positions(centroid, has_supply_center, element_spacing)
@@ -93,12 +95,21 @@ def calculate_label_positions(
             else:
                 base_point = [polygon.centroid.x, polygon.centroid.y]
         
+        # Check if polygon is large enough to benefit from interior buffering
+        # For small polygons, skip the expensive buffer operation
+        buffer_distance = element_spacing * 0.5
+        min_area_for_buffer = buffer_distance * buffer_distance * 4  # Rough estimate
+        
+        if polygon.area < min_area_for_buffer:
+            # Polygon is too small for meaningful buffer - use simple positioning
+            return _arrange_elements_simple(base_point, polygon, has_supply_center, element_spacing)
+        
         # Calculate the interior buffer to find usable label area
         # This is the area that's at least some distance from edges
-        interior_buffer = polygon.buffer(-element_spacing * 0.5)
+        interior_buffer = polygon.buffer(-buffer_distance)
         
         if interior_buffer.is_empty or interior_buffer.area < MIN_POLYGON_AREA:
-            # Polygon is too small for buffer - use simple positioning
+            # Buffer result is too small - use simple positioning
             return _arrange_elements_simple(base_point, polygon, has_supply_center, element_spacing)
         
         # Arrange elements within the interior area
