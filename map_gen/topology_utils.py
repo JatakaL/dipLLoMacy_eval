@@ -1790,10 +1790,10 @@ def lengthen_border(border_id: str, topology: dict, target_length: float) -> boo
     if start_coords is None or end_coords is None:
         return False
     
-    # Calculate current length and direction
+    # Calculate current length (sum of all edge lengths in the border) and direction (straight line)
     dx = end_coords[0] - start_coords[0]
     dy = end_coords[1] - start_coords[1]
-    current_length = math.sqrt(dx * dx + dy * dy)
+    current_length = calculate_border_length(border_id, topology)
     
     if current_length < 1e-10:
         return False  # Degenerate border
