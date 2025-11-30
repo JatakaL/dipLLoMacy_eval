@@ -149,7 +149,7 @@ def _fallback_positions(
     
     Layout (when SC present) - Name and SC in northern part, unit below:
         [Name]  (top/north)
-        [SC]    (middle)
+        [SC]    (middle, with increased gap from name to avoid overlap)
         [Unit]  (bottom/south, with more spacing)
         
     Layout (no SC) - Name in northern part, unit below:
@@ -162,10 +162,12 @@ def _fallback_positions(
     
     if has_supply_center:
         # Three elements stacked vertically with name/SC in northern part
-        # Name at top (highest Y), SC below it, Unit further below with extra spacing
-        positions['name_position'] = [center[0], center[1] + element_spacing * 1.2]
-        positions['sc_position'] = [center[0], center[1] + element_spacing * 0.3]
-        positions['unit_position'] = [center[0], center[1] - element_spacing * 1.0]
+        # Name at top (highest Y), SC at center, Unit further below
+        # Name is 1.5 spacing above center, SC at center, Unit 1.3 spacing below center
+        # This gives 1.5 spacing between name and SC to prevent text/marker overlap
+        positions['name_position'] = [center[0], center[1] + element_spacing * 1.5]
+        positions['sc_position'] = [center[0], center[1]]
+        positions['unit_position'] = [center[0], center[1] - element_spacing * 1.3]
     else:
         # Two elements - name in northern part, unit below
         positions['name_position'] = [center[0], center[1] + element_spacing * 0.7]
@@ -250,36 +252,39 @@ def _arrange_elements(
     
     # Vertical/normal arrangement - name/SC in northern part, unit in southern part
     # Try to place name in northern part of polygon (higher Y)
-    name_pos = [base_point[0], base_point[1] + element_spacing * 1.2]
+    name_pos = [base_point[0], base_point[1] + element_spacing * 1.5]
     if not _is_inside_polygon(name_pos, interior_buffer):
-        # Try at base point
-        name_pos = list(base_point)
+        # Try at base point with smaller offset
+        name_pos = [base_point[0], base_point[1] + element_spacing * 0.8]
+        if not _is_inside_polygon(name_pos, interior_buffer):
+            name_pos = list(base_point)
     positions['name_position'] = name_pos
     
     if has_supply_center:
-        # SC goes below name but still in upper portion
-        sc_pos = [name_pos[0], name_pos[1] - element_spacing * 0.9]
+        # SC goes below name with increased gap to prevent text overlap
+        # Increased spacing from 0.9 to 1.5 to ensure name text doesn't overlap SC marker
+        sc_pos = [name_pos[0], name_pos[1] - element_spacing * 1.5]
         if not _is_inside_polygon(sc_pos, interior_buffer):
-            # Try below base point
-            sc_pos = [base_point[0], base_point[1] - element_spacing * 0.3]
+            # Try at center
+            sc_pos = [base_point[0], base_point[1]]
             if not _is_inside_polygon(sc_pos, interior_buffer):
                 sc_pos = list(base_point)
         positions['sc_position'] = sc_pos
         
         # Unit goes in southern portion, below SC with good spacing
-        unit_pos = [sc_pos[0], sc_pos[1] - element_spacing * 1.2]
+        unit_pos = [sc_pos[0], sc_pos[1] - element_spacing * 1.5]
         if not _is_inside_polygon(unit_pos, interior_buffer):
             # Try further below base point
-            unit_pos = [base_point[0], base_point[1] - element_spacing * 1.5]
+            unit_pos = [base_point[0], base_point[1] - element_spacing * 1.8]
             if not _is_inside_polygon(unit_pos, interior_buffer):
                 # Try to the side
                 for dx in [element_spacing, -element_spacing]:
-                    unit_pos = [sc_pos[0] + dx, sc_pos[1] - element_spacing * 0.5]
+                    unit_pos = [sc_pos[0] + dx, sc_pos[1] - element_spacing * 0.8]
                     if _is_inside_polygon(unit_pos, interior_buffer):
                         break
                 else:
                     # Fall back to below SC with smaller spacing
-                    unit_pos = [sc_pos[0], sc_pos[1] - element_spacing * 0.7]
+                    unit_pos = [sc_pos[0], sc_pos[1] - element_spacing * 1.0]
         positions['unit_position'] = unit_pos
     else:
         # No SC - unit goes in southern portion below name
@@ -327,30 +332,30 @@ def _arrange_elements_horizontal(
     cy = polygon.centroid.y
     
     if has_supply_center:
-        # Name slightly left and above center
-        name_pos = [cx - element_spacing * 0.3, cy + element_spacing * 0.5]
+        # Name slightly left and above center with more vertical spacing
+        name_pos = [cx - element_spacing * 0.3, cy + element_spacing * 0.8]
         if not _is_inside_polygon(name_pos, interior_buffer):
-            name_pos = [cx, cy + element_spacing * 0.3]
+            name_pos = [cx, cy + element_spacing * 0.5]
             if not _is_inside_polygon(name_pos, interior_buffer):
                 name_pos = [cx, cy]
         positions['name_position'] = name_pos
         
-        # SC below name
-        sc_pos = [name_pos[0], name_pos[1] - element_spacing * 0.7]
+        # SC below name with increased gap to prevent overlap
+        sc_pos = [name_pos[0], name_pos[1] - element_spacing * 1.3]
         if not _is_inside_polygon(sc_pos, interior_buffer):
-            sc_pos = [cx, cy - element_spacing * 0.2]
+            sc_pos = [cx, cy - element_spacing * 0.5]
             if not _is_inside_polygon(sc_pos, interior_buffer):
                 sc_pos = [cx, cy]
         positions['sc_position'] = sc_pos
         
         # Unit to the right side
-        unit_pos = [cx + element_spacing * 1.2, cy]
+        unit_pos = [cx + element_spacing * 1.5, cy]
         if not _is_inside_polygon(unit_pos, interior_buffer):
             # Try left side instead
-            unit_pos = [cx - element_spacing * 1.2, cy]
+            unit_pos = [cx - element_spacing * 1.5, cy]
             if not _is_inside_polygon(unit_pos, interior_buffer):
                 # Fall back to below
-                unit_pos = [cx, cy - element_spacing * 0.8]
+                unit_pos = [cx, cy - element_spacing * 1.2]
                 if not _is_inside_polygon(unit_pos, interior_buffer):
                     unit_pos = [cx, cy]
         positions['unit_position'] = unit_pos
