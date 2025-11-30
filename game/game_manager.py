@@ -308,16 +308,12 @@ class GameManager:
             ax.fill(poly_array[:, 0], poly_array[:, 1], 
                    color=color, alpha=alpha, edgecolor='black', linewidth=0.5)
         
-        # Draw supply center markers (offset from center to avoid overlap with units)
+        # Draw supply center markers (always at center - they don't move)
         for face_id, face_data in faces.items():
             is_sc = face_data.get('is_supply_center', False)
             if is_sc:
                 center = face_data.get('center', [0.5, 0.5])
-                has_unit = face_id in self.state.units
-                # Offset SC marker if there's a unit there
-                sc_offset_x = -0.012 if has_unit else 0
-                sc_offset_y = 0.012 if has_unit else 0
-                ax.plot(center[0] + sc_offset_x, center[1] + sc_offset_y, 'o', 
+                ax.plot(center[0], center[1], 'o', 
                        markersize=8, color='gold', 
                        markeredgecolor='black', markeredgewidth=1.5, zorder=10)
         
