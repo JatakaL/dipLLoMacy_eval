@@ -600,19 +600,21 @@ def visualize_map(map_data, output_path=None, dpi=150):
                 ax.fill(vertices[:, 0], vertices[:, 1], 
                        color=color, alpha=alpha, edgecolor=edge_color, linewidth=0.8)
             
-            # Draw supply center marker
+            # Draw supply center marker using pre-determined position if available
             if is_sc:
-                center = cell.get('center', [0, 0])
-                ax.plot(center[0], center[1], 'o', 
+                label_positions = cell.get('label_positions', {})
+                sc_pos = label_positions.get('sc_position', cell.get('center', [0, 0]))
+                ax.plot(sc_pos[0], sc_pos[1], 'o', 
                        markersize=10, color='gold', 
                        markeredgecolor='black', markeredgewidth=1.5, zorder=10)
             
-            # Label with name if available (Phase 7)
+            # Label with name if available (Phase 7), using pre-determined position if available
             if phase >= 7:
-                center = cell.get('center', [0, 0])
                 name = cell.get('name', '')
                 if name and (cell_type == 'land' or is_sc):
-                    ax.text(center[0], center[1], name, 
+                    label_positions = cell.get('label_positions', {})
+                    name_pos = label_positions.get('name_position', cell.get('center', [0, 0]))
+                    ax.text(name_pos[0], name_pos[1], name, 
                            ha='center', va='center', fontsize=7, weight='bold',
                            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
                                    alpha=0.8, edgecolor='none'), zorder=5)

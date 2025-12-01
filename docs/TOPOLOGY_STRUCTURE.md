@@ -86,12 +86,22 @@ The topology is stored in the `topology` key of phase outputs, with four main co
   "C4": {
     "type": "land",
     "borders": ["B_0_1", "B_1_5", "B_5_9", "B_9_0"],
-    "center": [0.16, 0.35]
+    "center": [0.16, 0.35],
+    "is_supply_center": true,
+    "label_positions": {
+      "name_position": [0.16, 0.38],
+      "sc_position": [0.16, 0.35],
+      "unit_position": [0.16, 0.32]
+    }
   },
   "C5": {
     "type": "sea",
     "borders": ["B_1_2", "B_2_6", "B_6_1"],
-    "center": [0.25, 0.42]
+    "center": [0.25, 0.42],
+    "label_positions": {
+      "name_position": [0.25, 0.44],
+      "unit_position": [0.25, 0.40]
+    }
   }
 }
 ```
@@ -100,8 +110,15 @@ The topology is stored in the `topology` key of phase outputs, with four main co
 - `type` (string): Type of face - `"land"`, `"sea"`, or `"impassable"`
 - `borders` (array of strings): Ordered list of border IDs forming the perimeter
 - `center` (array of 2 floats): Centroid coordinates [x, y]
+- `is_supply_center` (boolean, optional): Whether this face is a supply center
+- `label_positions` (object, optional): Pre-determined positions for rendering elements:
+  - `name_position` (array of 2 floats): [x, y] position for territory name label
+  - `sc_position` (array of 2 floats): [x, y] position for supply center marker (only if `is_supply_center` is true)
+  - `unit_position` (array of 2 floats): [x, y] position for unit marker (army/fleet)
 
 **No Geometric Data or Direct Edge References**: Faces reference borders, not edges directly. This eliminates redundancy and ensures edges are only referenced in one place (borders).
+
+**Label Positions**: The `label_positions` field is calculated during Phase 7 using the Shapely library to find optimal positions within the polygon that avoid overlap. The algorithm finds the "pole of inaccessibility" (the point furthest from edges) and arranges elements around it. This pre-calculation ensures consistent, non-overlapping placement of names, supply center markers, and units during game rendering.
 
 ### 4. Borders (Edge Groups)
 
@@ -223,7 +240,12 @@ The topology can be carried forward through region merging and other operations.
   - Replaces original edges with multiple smaller edges
   - Updates borders to contain the subdivided edges
   - Ensures visual representation matches topological data
-- Exports final map with subdivision applied
+- **Label Position Calculation**: Pre-determines positions for rendering elements:
+  - Uses Shapely's "pole of inaccessibility" algorithm to find optimal center points
+  - Calculates non-overlapping positions for: territory name, SC marker, and unit marker
+  - Stores positions in `label_positions` field of each face
+  - Ensures consistent rendering across different viewers and game states
+- Exports final map with subdivision and label positions applied
 
 ## Validation
 
@@ -267,6 +289,7 @@ Potential improvements to the topology system:
 
 - Original issue: "Refactor Map Data Structure to Face-Edge-Vertex Topology"
 - Border implementation issue: "Re-examine implementation of jagged borders"
-- Implementation: `map_gen/topology.py`, `map_gen/fractal_subdivision.py`
-- Tests: `test_topology.py`, `test_topology_integration.py`, `test_fractal_subdivision.py`
+- Label positions issue: "Pre-determine SC, Name, and Unit positions"
+- Implementation: `map_gen/topology.py`, `map_gen/fractal_subdivision.py`, `map_gen/label_positions.py`
+- Tests: `test_topology.py`, `test_topology_integration.py`, `test_fractal_subdivision.py`, `tests/test_label_positions.py`
 - Visualization: `map_viewer.py` and `map_viewer_cli.py` (interactive viewer and CLI renderer)
