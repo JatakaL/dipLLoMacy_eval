@@ -43,12 +43,16 @@ class GameState:
         sc_control: Dictionary mapping SC province_id -> power_id
         powers: Set of power names in the game
         map_data: Reference to the underlying map data
+        dislodged_units: Dictionary mapping original_province_id -> Unit for units that need to retreat
+        dislodged_from: Dictionary mapping original_province_id -> attacker_province_id (for retreat restrictions)
     """
     turn: int = 1
     year: int = 1901
     season: Season = Season.SPRING
     phase: Phase = Phase.ORDER
     units: Dict[str, Unit] = field(default_factory=dict)
+    dislodged_units: Dict[str, Unit] = field(default_factory=dict)
+    dislodged_from: Dict[str, str] = field(default_factory=dict)
     ownership: Dict[str, str] = field(default_factory=dict)
     sc_control: Dict[str, str] = field(default_factory=dict)
     powers: Set[str] = field(default_factory=set)
@@ -128,6 +132,8 @@ class GameState:
             "season": self.season.value,
             "phase": self.phase.value,
             "units": {loc: unit.to_dict() for loc, unit in self.units.items()},
+            "dislodged_units": {loc: unit.to_dict() for loc, unit in self.dislodged_units.items()},
+            "dislodged_from": dict(self.dislodged_from),
             "ownership": dict(self.ownership),
             "sc_control": dict(self.sc_control),
             "powers": list(self.powers)
@@ -140,12 +146,18 @@ class GameState:
         for loc, unit_data in data.get("units", {}).items():
             units[loc] = Unit.from_dict(unit_data)
         
+        dislodged_units = {}
+        for loc, unit_data in data.get("dislodged_units", {}).items():
+            dislodged_units[loc] = Unit.from_dict(unit_data)
+        
         return cls(
             turn=data.get("turn", 1),
             year=data.get("year", 1901),
             season=Season(data.get("season", "spring")),
             phase=Phase(data.get("phase", "order")),
             units=units,
+            dislodged_units=dislodged_units,
+            dislodged_from=dict(data.get("dislodged_from", {})),
             ownership=dict(data.get("ownership", {})),
             sc_control=dict(data.get("sc_control", {})),
             powers=set(data.get("powers", [])),

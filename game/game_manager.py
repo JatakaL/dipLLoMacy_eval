@@ -735,7 +735,7 @@ class GameManager:
         Get valid retreat options for a dislodged unit.
         
         Args:
-            dislodged_location: Location of the dislodged unit
+            dislodged_location: Original location of the dislodged unit
             
         Returns:
             List of valid retreat destinations
@@ -744,18 +744,31 @@ class GameManager:
             return []
         
         adjacency = self.get_adjacency()
-        unit = self.state.get_unit_at(dislodged_location)
         
-        if not unit or not unit.dislodged:
+        # Look for the unit in dislodged_units dictionary
+        unit = self.state.dislodged_units.get(dislodged_location)
+        
+        if not unit:
             return []
+        
+        # Get the territory the attack came from (cannot retreat there)
+        attack_from = self.state.dislodged_from.get(dislodged_location)
         
         valid_retreats = []
         topology = self.map_data.get('topology', {})
         faces = topology.get('faces', {})
         
         for adj in adjacency.get(dislodged_location, []):
-            # Check if territory is unoccupied
+            # Cannot retreat to the territory the attack came from
+            if adj == attack_from:
+                continue
+            
+            # Check if territory is unoccupied (by non-dislodged units)
             if self.state.get_unit_at(adj):
+                continue
+            
+            # Also check if another dislodged unit is retreating there
+            if adj in self.state.dislodged_units:
                 continue
             
             # Check terrain compatibility
@@ -779,7 +792,7 @@ class GameManager:
         Process a retreat order for a dislodged unit.
         
         Args:
-            location: Current location of dislodged unit
+            location: Original location of dislodged unit
             destination: Retreat destination
             
         Returns:
@@ -788,16 +801,19 @@ class GameManager:
         if not self.state:
             return False
         
-        unit = self.state.get_unit_at(location)
-        if not unit or not unit.dislodged:
+        # Get unit from dislodged_units
+        unit = self.state.dislodged_units.get(location)
+        if not unit:
             return False
         
         valid_retreats = self.get_retreat_options(location)
         if destination not in valid_retreats:
             return False
         
-        # Move unit
-        self.state.units.pop(location)
+        # Move unit from dislodged_units to units
+        del self.state.dislodged_units[location]
+        if location in self.state.dislodged_from:
+            del self.state.dislodged_from[location]
         unit.location = destination
         unit.dislodged = False
         self.state.units[destination] = unit
@@ -817,6 +833,14 @@ class GameManager:
         if not self.state:
             return False
         
+        # Check dislodged_units first
+        if location in self.state.dislodged_units:
+            del self.state.dislodged_units[location]
+            if location in self.state.dislodged_from:
+                del self.state.dislodged_from[location]
+            return True
+        
+        # Then check regular units
         if location in self.state.units:
             del self.state.units[location]
             return True
@@ -854,14 +878,11 @@ class GameManager:
         if not self.state:
             return False
         
-        for unit in self.state.units.values():
-            if unit.dislodged:
-                return True
-        return False
+        return len(self.state.dislodged_units) > 0
     
     def get_dislodged_units(self) -> List[Tuple[str, Unit]]:
-        """Get list of dislodged units and their locations."""
+        """Get list of dislodged units and their original locations."""
         if not self.state:
             return []
         
-        return [(loc, unit) for loc, unit in self.state.units.items() if unit.dislodged]
+        return [(loc, unit) for loc, unit in self.state.dislodged_units.items()]

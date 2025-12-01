@@ -410,14 +410,25 @@ class OrderResolver:
         Apply successful moves to the game state.
         
         Call this after resolution to update unit positions.
+        Dislodged units are moved to the dislodged_units dictionary.
         """
+        # First, move all dislodged units to the dislodged_units dictionary
+        for location, attacker_location in self.dislodged_units.items():
+            if location in self.state.units:
+                dislodged_unit = self.state.units.pop(location)
+                dislodged_unit.dislodged = True
+                # Store with original location as key
+                self.state.dislodged_units[location] = dislodged_unit
+                # Track where the attack came from (for retreat restrictions)
+                self.state.dislodged_from[location] = attacker_location
+        
         # Process successful moves
         moves_to_apply = []
         for order in self.successful_moves:
             if order.order_type == OrderType.MOVE:
                 moves_to_apply.append((order.location, order.target))
         
-        # Apply moves (need to handle chains properly)
+        # Apply moves
         for from_loc, to_loc in moves_to_apply:
             if from_loc in self.state.units:
                 unit = self.state.units.pop(from_loc)
