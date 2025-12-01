@@ -592,3 +592,276 @@ class GameManager:
                 result["neutral"].append(sc_id)
         
         return result
+    
+    def get_adjacency(self) -> Dict[str, List[str]]:
+        """
+        Get the adjacency mapping for the map.
+        
+        Returns:
+            Dictionary mapping territory ID to list of adjacent territory IDs
+        """
+        from .validators import build_adjacency_from_map
+        return build_adjacency_from_map(self.map_data)
+    
+    def get_territory_name(self, territory_id: str) -> str:
+        """Get the name of a territory by its ID."""
+        topology = self.map_data.get('topology', {})
+        faces = topology.get('faces', {})
+        face_data = faces.get(territory_id, {})
+        return face_data.get('name', territory_id)
+    
+    def write_order_files(self, output_dir: str) -> Dict[str, str]:
+        """
+        Write initial order files for each power with all units holding.
+        
+        Args:
+            output_dir: Directory to write order files
+            
+        Returns:
+            Dictionary mapping power name to order file path
+        """
+        if not self.state:
+            raise RuntimeError("Game not initialized. Call initialize_game() first.")
+        
+        os.makedirs(output_dir, exist_ok=True)
+        
+        order_files = {}
+        
+        for power in sorted(self.state.powers):
+            units = self.state.get_units_for_power(power)
+            
+            # Create order file
+            filename = f"{power}_orders.txt"
+            filepath = os.path.join(output_dir, filename)
+            
+            lines = []
+            lines.append(f"# Orders for {power}")
+            lines.append(f"# {self.state.get_turn_string()} - {self.state.phase.value.capitalize()} Phase")
+            lines.append(f"# Format: A/F {{Territory Name}} H/M/S/C ...")
+            lines.append(f"#")
+            lines.append(f"# Order types:")
+            lines.append(f"#   H - Hold")
+            lines.append(f"#   M {{Target}} - Move to target")
+            lines.append(f"#   S A/F {{Unit}} H - Support hold")
+            lines.append(f"#   S A/F {{Unit}} M {{Target}} - Support move")
+            lines.append(f"#   C A {{Army}} M {{Target}} - Convoy army")
+            lines.append(f"#")
+            lines.append("")
+            
+            for unit in units:
+                unit_type = 'A' if unit.unit_type == UnitType.ARMY else 'F'
+                territory_name = self.get_territory_name(unit.location)
+                # Default to hold
+                lines.append(f"{unit_type} {{{territory_name}}} H")
+            
+            with open(filepath, 'w') as f:
+                f.write("\n".join(lines))
+            
+            order_files[power] = filepath
+        
+        return order_files
+    
+    def read_order_files(self, order_files: Dict[str, str]) -> Dict[str, List]:
+        """
+        Read and parse order files for each power.
+        
+        Args:
+            order_files: Dictionary mapping power name to order file path
+            
+        Returns:
+            Dictionary mapping power name to list of Order objects
+        """
+        from .orders import OrderParser
+        
+        all_orders = {}
+        
+        for power, filepath in order_files.items():
+            orders = OrderParser.parse_file(filepath)
+            # Set power for each order
+            for order in orders:
+                order.power = power
+            all_orders[power] = orders
+        
+        return all_orders
+    
+    def process_turn(self, orders: Dict[str, List]) -> Tuple[List, Dict[str, str], str]:
+        """
+        Process a turn with the given orders.
+        
+        Args:
+            orders: Dictionary mapping power name to list of Order objects
+            
+        Returns:
+            Tuple of (all orders with results, dislodged units, resolution log)
+        """
+        if not self.state:
+            raise RuntimeError("Game not initialized. Call initialize_game() first.")
+        
+        from .validators import OrderValidator
+        from .resolver import OrderResolver
+        
+        adjacency = self.get_adjacency()
+        
+        # Flatten orders
+        all_orders = []
+        for power, power_orders in orders.items():
+            all_orders.extend(power_orders)
+        
+        # Validate orders
+        validator = OrderValidator(self.state, adjacency)
+        validated_orders = validator.validate_all_orders(all_orders)
+        
+        # Resolve orders
+        resolver = OrderResolver(self.state, adjacency)
+        resolved_orders, dislodged = resolver.resolve(validated_orders)
+        
+        # Generate log
+        log = resolver.get_resolution_log(resolved_orders)
+        
+        # Apply successful moves
+        resolver.apply_moves()
+        
+        # Record in history
+        self.history.append({
+            "turn": self.state.get_turn_string(),
+            "phase": self.state.phase.value,
+            "orders": [o.to_dict() for o in resolved_orders]
+        })
+        
+        return resolved_orders, dislodged, log
+    
+    def get_retreat_options(self, dislodged_location: str) -> List[str]:
+        """
+        Get valid retreat options for a dislodged unit.
+        
+        Args:
+            dislodged_location: Location of the dislodged unit
+            
+        Returns:
+            List of valid retreat destinations
+        """
+        if not self.state:
+            return []
+        
+        adjacency = self.get_adjacency()
+        unit = self.state.get_unit_at(dislodged_location)
+        
+        if not unit or not unit.dislodged:
+            return []
+        
+        valid_retreats = []
+        topology = self.map_data.get('topology', {})
+        faces = topology.get('faces', {})
+        
+        for adj in adjacency.get(dislodged_location, []):
+            # Check if territory is unoccupied
+            if self.state.get_unit_at(adj):
+                continue
+            
+            # Check terrain compatibility
+            face_data = faces.get(adj, {})
+            face_type = face_data.get('type', 'land')
+            is_coastal = face_data.get('coastal', False)
+            
+            if unit.unit_type == UnitType.ARMY:
+                if face_type == 'sea':
+                    continue
+            else:  # Fleet
+                if face_type == 'land' and not is_coastal:
+                    continue
+            
+            valid_retreats.append(adj)
+        
+        return valid_retreats
+    
+    def process_retreat(self, location: str, destination: str) -> bool:
+        """
+        Process a retreat order for a dislodged unit.
+        
+        Args:
+            location: Current location of dislodged unit
+            destination: Retreat destination
+            
+        Returns:
+            True if retreat succeeded, False otherwise
+        """
+        if not self.state:
+            return False
+        
+        unit = self.state.get_unit_at(location)
+        if not unit or not unit.dislodged:
+            return False
+        
+        valid_retreats = self.get_retreat_options(location)
+        if destination not in valid_retreats:
+            return False
+        
+        # Move unit
+        self.state.units.pop(location)
+        unit.location = destination
+        unit.dislodged = False
+        self.state.units[destination] = unit
+        
+        return True
+    
+    def disband_unit(self, location: str) -> bool:
+        """
+        Disband a unit (for retreats or winter adjustments).
+        
+        Args:
+            location: Location of unit to disband
+            
+        Returns:
+            True if unit was disbanded, False otherwise
+        """
+        if not self.state:
+            return False
+        
+        if location in self.state.units:
+            del self.state.units[location]
+            return True
+        
+        return False
+    
+    def advance_to_next_phase(self) -> None:
+        """Advance the game to the next phase."""
+        if not self.state:
+            return
+        
+        self.state.advance_phase()
+        
+        # If we're in fall retreat phase that's complete, update SC control
+        if self.state.season == Season.WINTER and self.state.phase == Phase.BUILD:
+            self._update_sc_control()
+    
+    def _update_sc_control(self) -> None:
+        """Update supply center control based on unit positions (fall only)."""
+        if not self.state:
+            return
+        
+        topology = self.map_data.get('topology', {})
+        faces = topology.get('faces', {})
+        
+        # Check each unit's position
+        for location, unit in self.state.units.items():
+            face_data = faces.get(location, {})
+            if face_data.get('is_supply_center', False):
+                # Unit occupies an SC - transfer control
+                self.state.sc_control[location] = unit.power
+    
+    def has_retreats_pending(self) -> bool:
+        """Check if there are any units needing to retreat."""
+        if not self.state:
+            return False
+        
+        for unit in self.state.units.values():
+            if unit.dislodged:
+                return True
+        return False
+    
+    def get_dislodged_units(self) -> List[Tuple[str, Unit]]:
+        """Get list of dislodged units and their locations."""
+        if not self.state:
+            return []
+        
+        return [(loc, unit) for loc, unit in self.state.units.items() if unit.dislodged]
