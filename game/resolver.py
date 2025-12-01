@@ -315,88 +315,123 @@ class OrderResolver:
     def _resolve_moves(self, strengths: Dict[str, int]) -> None:
         """
         Resolve remaining moves (not head-to-head).
+        
+        Uses iterative resolution to properly handle cases where a unit tries
+        to move into a space vacated by another unit whose move might fail.
         """
-        # Group moves by target
-        for target, attackers in self.orders_by_target.items():
-            pending_attackers = [a for a in attackers if a.result == OrderResult.PENDING]
+        # Keep resolving until no changes occur
+        max_iterations = 100  # Safety limit
+        iteration = 0
+        
+        while iteration < max_iterations:
+            iteration += 1
+            changes_made = False
             
-            if not pending_attackers:
-                continue
-            
-            # Get defender strength (if any unit is holding there)
-            defender = self.state.get_unit_at(target)
-            defender_order = self.orders_by_location.get(target)
-            
-            # Calculate defender strength
-            defender_strength = 0
-            if defender:
-                if defender_order and defender_order.order_type == OrderType.MOVE:
-                    # Defender is moving out - no defense strength
-                    defender_strength = 0
-                else:
-                    defender_strength = strengths.get((target, target), 1)
-            
-            # Get attacker strengths
-            attacker_strengths = []
-            for attacker in pending_attackers:
-                strength = strengths.get((attacker.location, target), 1)
-                attacker_strengths.append((attacker, strength))
-            
-            # Sort by strength (highest first)
-            attacker_strengths.sort(key=lambda x: x[1], reverse=True)
-            
-            if len(attacker_strengths) == 1:
-                # Single attacker
-                attacker, strength = attacker_strengths[0]
+            # Group moves by target
+            for target, attackers in self.orders_by_target.items():
+                pending_attackers = [a for a in attackers if a.result == OrderResult.PENDING]
                 
-                if strength > defender_strength:
-                    # Attack succeeds
-                    attacker.result = OrderResult.SUCCESS
-                    self.successful_moves.append(attacker)
-                    
-                    if defender and defender_order and defender_order.result == OrderResult.PENDING:
-                        if defender_order.order_type == OrderType.HOLD:
-                            defender_order.result = OrderResult.FAILED_DISLODGED
-                            self.dislodged_units[target] = attacker.location
-                        elif defender_order.order_type == OrderType.MOVE:
-                            # Defender was trying to move - check if it succeeds
-                            pass  # Will be resolved in their own turn
-                elif strength == defender_strength and not defender:
-                    # No defender and strength at least 1
-                    attacker.result = OrderResult.SUCCESS
-                    self.successful_moves.append(attacker)
-                else:
-                    # Attack fails
-                    attacker.result = OrderResult.FAILED_BOUNCE
-                    attacker.error_message = f"Bounced against defender (strength {defender_strength})"
-            else:
-                # Multiple attackers - check for standoffs
-                top_strength = attacker_strengths[0][1]
-                second_strength = attacker_strengths[1][1] if len(attacker_strengths) > 1 else 0
+                if not pending_attackers:
+                    continue
                 
-                if top_strength > second_strength and top_strength > defender_strength:
-                    # Top attacker wins
-                    winner = attacker_strengths[0][0]
-                    winner.result = OrderResult.SUCCESS
-                    self.successful_moves.append(winner)
+                # Get defender strength (if any unit is holding there)
+                defender = self.state.get_unit_at(target)
+                defender_order = self.orders_by_location.get(target)
+                
+                # Calculate defender strength
+                defender_strength = 0
+                defender_leaving = False
+                
+                if defender:
+                    if defender_order and defender_order.order_type == OrderType.MOVE:
+                        # Check if defender's move succeeded
+                        if defender_order.result == OrderResult.SUCCESS:
+                            # Defender is leaving - no defense strength
+                            defender_strength = 0
+                            defender_leaving = True
+                        elif defender_order.result == OrderResult.PENDING:
+                            # Defender's move not yet resolved - skip this target for now
+                            # We'll come back to it in a later iteration
+                            continue
+                        else:
+                            # Defender's move failed - they're still there defending
+                            defender_strength = 1
+                    else:
+                        defender_strength = strengths.get((target, target), 1)
+                
+                # Get attacker strengths
+                attacker_strengths = []
+                for attacker in pending_attackers:
+                    strength = strengths.get((attacker.location, target), 1)
+                    attacker_strengths.append((attacker, strength))
+                
+                # Sort by strength (highest first)
+                attacker_strengths.sort(key=lambda x: x[1], reverse=True)
+                
+                if len(attacker_strengths) == 1:
+                    # Single attacker
+                    attacker, strength = attacker_strengths[0]
                     
-                    if defender:
-                        defender_order = self.orders_by_location.get(target)
-                        if defender_order and defender_order.result == OrderResult.PENDING:
-                            if defender_order.order_type != OrderType.MOVE:
+                    if strength > defender_strength:
+                        # Attack succeeds
+                        attacker.result = OrderResult.SUCCESS
+                        self.successful_moves.append(attacker)
+                        changes_made = True
+                        
+                        if defender and not defender_leaving and defender_order and defender_order.result == OrderResult.PENDING:
+                            if defender_order.order_type == OrderType.HOLD:
                                 defender_order.result = OrderResult.FAILED_DISLODGED
-                                self.dislodged_units[target] = winner.location
-                    
-                    # Others fail
-                    for attacker, _ in attacker_strengths[1:]:
+                                self.dislodged_units[target] = attacker.location
+                    elif strength == defender_strength and not defender:
+                        # No defender and strength at least 1
+                        attacker.result = OrderResult.SUCCESS
+                        self.successful_moves.append(attacker)
+                        changes_made = True
+                    else:
+                        # Attack fails
                         attacker.result = OrderResult.FAILED_BOUNCE
-                        attacker.error_message = f"Lost to stronger attack (strength {top_strength})"
+                        attacker.error_message = f"Bounced against defender (strength {defender_strength})"
+                        changes_made = True
                 else:
-                    # Standoff - all fail
-                    for attacker, strength in attacker_strengths:
-                        attacker.result = OrderResult.FAILED_BOUNCE
-                        attacker.error_message = f"Standoff at {target} (strength {strength})"
-                    self.contested_territories.add(target)
+                    # Multiple attackers - check for standoffs
+                    top_strength = attacker_strengths[0][1]
+                    second_strength = attacker_strengths[1][1] if len(attacker_strengths) > 1 else 0
+                    
+                    if top_strength > second_strength and top_strength > defender_strength:
+                        # Top attacker wins
+                        winner = attacker_strengths[0][0]
+                        winner.result = OrderResult.SUCCESS
+                        self.successful_moves.append(winner)
+                        changes_made = True
+                        
+                        if defender and not defender_leaving:
+                            defender_order = self.orders_by_location.get(target)
+                            if defender_order and defender_order.result == OrderResult.PENDING:
+                                if defender_order.order_type != OrderType.MOVE:
+                                    defender_order.result = OrderResult.FAILED_DISLODGED
+                                    self.dislodged_units[target] = winner.location
+                        
+                        # Others fail
+                        for attacker, _ in attacker_strengths[1:]:
+                            attacker.result = OrderResult.FAILED_BOUNCE
+                            attacker.error_message = f"Lost to stronger attack (strength {top_strength})"
+                    else:
+                        # Standoff - all fail
+                        for attacker, strength in attacker_strengths:
+                            attacker.result = OrderResult.FAILED_BOUNCE
+                            attacker.error_message = f"Standoff at {target} (strength {strength})"
+                        self.contested_territories.add(target)
+                        changes_made = True
+            
+            # If no changes were made and there are still pending moves, they've failed
+            if not changes_made:
+                # Mark any remaining pending moves as failed (unit couldn't leave)
+                for target, attackers in self.orders_by_target.items():
+                    for attacker in attackers:
+                        if attacker.result == OrderResult.PENDING:
+                            attacker.result = OrderResult.FAILED_BOUNCE
+                            attacker.error_message = "Could not move - destination occupied"
+                break
     
     def _mark_dislodged(self) -> None:
         """Mark dislodged units in the game state."""
