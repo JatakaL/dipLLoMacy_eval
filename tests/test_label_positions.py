@@ -121,7 +121,7 @@ class TestLabelPositionCalculation:
         assert 'unit_position' in positions_no_sc, "unit_position should exist without SC"
     
     def test_vertical_ordering_with_sc(self):
-        """Test that name is at top, SC in middle, unit at bottom (higher Y = north)."""
+        """Test that SC is above name, name at center, unit below (higher Y = north)."""
         vertices = [[0.2, 0.2], [0.5, 0.2], [0.5, 0.5], [0.2, 0.5]]
         
         positions = calculate_label_positions(vertices, has_supply_center=True)
@@ -130,9 +130,10 @@ class TestLabelPositionCalculation:
         sc_y = positions['sc_position'][1]
         unit_y = positions['unit_position'][1]
         
-        # Name should be highest (northern), unit lowest (southern)
-        assert name_y >= sc_y, "Name should be at or above SC (northern position)"
-        assert sc_y >= unit_y, "SC should be at or above unit"
+        # SC should be highest (above name), unit lowest (below name)
+        # New layout: SC above, Name at center, Unit below
+        assert sc_y >= name_y, "SC should be at or above Name"
+        assert name_y >= unit_y, "Name should be at or above unit"
     
     def test_sufficient_spacing(self):
         """Test that there is sufficient spacing between elements."""
@@ -186,7 +187,7 @@ class TestFallbackPositions:
         assert 'unit_position' in positions
         assert 'sc_position' not in positions
         
-        # Name should be above unit
+        # Name at center, unit below (name Y > unit Y)
         assert positions['name_position'][1] > positions['unit_position'][1]
     
     def test_fallback_with_sc(self):
@@ -198,9 +199,10 @@ class TestFallbackPositions:
         assert 'sc_position' in positions
         assert 'unit_position' in positions
         
-        # Name should be above SC, SC above unit
-        assert positions['name_position'][1] > positions['sc_position'][1]
-        assert positions['sc_position'][1] > positions['unit_position'][1]
+        # New layout: SC above center, Name at center, Unit below center
+        # SC Y > Name Y > Unit Y
+        assert positions['sc_position'][1] > positions['name_position'][1], "SC should be above Name"
+        assert positions['name_position'][1] > positions['unit_position'][1], "Name should be above Unit"
 
 
 class TestCalculateAllLabelPositions:

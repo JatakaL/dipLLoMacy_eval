@@ -6,11 +6,12 @@ and unit markers within territory polygons. The positions are pre-determined dur
 map generation (Phase 7) to avoid overlaps during game rendering.
 
 The algorithm uses Shapely to:
-1. Find a "writable" interior area within each territory polygon
-2. Designate positions for:
-   - Territory name label (primary position, typically the largest clear area)
-   - Supply center marker (if applicable)
-   - Unit marker position (for placing armies/fleets during gameplay)
+1. Find the maximum inscribed circle within each territory polygon
+2. Use the center of this circle as the primary placement point
+3. Designate positions for (in order of priority):
+   - Territory name label (at the center - largest element)
+   - Unit marker position (below the name - second largest)
+   - Supply center marker (above the name if room, else find alternate position)
 
 The positions are stored in the topology data structure and used during rendering
 to ensure text and markers don't overlap.
@@ -27,17 +28,23 @@ try:
 except ImportError:
     SHAPELY_AVAILABLE = False
 
+# Try to import maximum_inscribed_circle (Shapely 2.0+)
+try:
+    from shapely import maximum_inscribed_circle
+    MIC_AVAILABLE = True
+except ImportError:
+    MIC_AVAILABLE = False
+
 
 # Default spacing between elements (as fraction of map dimensions)
-# Increased from 0.015 to 0.025 for better readability
 DEFAULT_ELEMENT_SPACING = 0.025
 
 # Minimum polygon area for label placement calculations (below this, use centroid)
 MIN_POLYGON_AREA = 0.0001
 
-# Aspect ratio threshold for detecting horizontal vs vertical territories
-# If width/height > this, consider it a horizontal territory
-HORIZONTAL_ASPECT_RATIO = 1.8
+# Minimum inscribed circle radius for valid label placement
+# If the max inscribed circle is smaller than this, the territory may be too small
+MIN_INSCRIBED_RADIUS = 0.015
 
 
 def calculate_label_positions(
@@ -48,8 +55,10 @@ def calculate_label_positions(
     """
     Calculate optimal positions for name label, SC marker, and unit marker.
     
-    The algorithm finds the "pole of inaccessibility" (point furthest from edges)
-    and arranges elements around it to avoid overlaps.
+    Uses the maximum inscribed circle approach:
+    1. Name goes at the center of the maximum inscribed circle (largest element)
+    2. Unit goes below the name, within the inscribed circle if possible
+    3. SC goes above the name if there's room, otherwise finds alternate position
     
     Args:
         polygon_vertices: List of [x, y] coordinates forming the territory polygon
@@ -69,7 +78,6 @@ def calculate_label_positions(
     centroid = _calculate_centroid(polygon_vertices)
     
     if not SHAPELY_AVAILABLE:
-        # Without Shapely, use centroid-based positioning
         return _fallback_positions(centroid, has_supply_center, element_spacing)
     
     try:
@@ -77,52 +85,135 @@ def calculate_label_positions(
         polygon = Polygon(polygon_vertices)
         
         if not polygon.is_valid:
-            # Try to fix invalid polygon using buffer(0) trick
-            # This can fix self-intersecting polygons but may produce empty results
-            # for degenerate geometries (e.g., bowtie shapes that collapse)
             polygon = polygon.buffer(0)
             if not polygon.is_valid or polygon.is_empty:
                 return _fallback_positions(centroid, has_supply_center, element_spacing)
         
         if polygon.area < MIN_POLYGON_AREA:
-            # Very small polygon - just use centroid
             return _fallback_positions(centroid, has_supply_center, element_spacing)
         
-        # Find the "pole of inaccessibility" - the point furthest from edges
-        # This gives us the best center point for placing labels
-        try:
-            poi = polylabel(polygon, tolerance=0.001)
-            base_point = [poi.x, poi.y]
-        except Exception:
-            # polylabel can fail on some geometries - use centroid
-            if polygon.centroid.is_empty:
-                base_point = centroid
-            else:
-                base_point = [polygon.centroid.x, polygon.centroid.y]
+        # Find the maximum inscribed circle
+        center, radius = _get_max_inscribed_circle(polygon)
         
-        # Check if polygon is large enough to benefit from interior buffering
-        # For small polygons, skip the expensive buffer operation
-        buffer_distance = element_spacing * 0.5
-        min_area_for_buffer = buffer_distance * buffer_distance * 4  # Rough estimate
+        if center is None or radius < MIN_INSCRIBED_RADIUS:
+            # Territory too small for good placement - use fallback
+            return _fallback_positions(centroid, has_supply_center, element_spacing)
         
-        if polygon.area < min_area_for_buffer:
-            # Polygon is too small for meaningful buffer - use simple positioning
-            return _arrange_elements_simple(base_point, polygon, has_supply_center, element_spacing)
-        
-        # Calculate the interior buffer to find usable label area
-        # This is the area that's at least some distance from edges
-        interior_buffer = polygon.buffer(-buffer_distance)
-        
-        if interior_buffer.is_empty or interior_buffer.area < MIN_POLYGON_AREA:
-            # Buffer result is too small - use simple positioning
-            return _arrange_elements_simple(base_point, polygon, has_supply_center, element_spacing)
-        
-        # Arrange elements within the interior area
-        return _arrange_elements(base_point, polygon, interior_buffer, has_supply_center, element_spacing)
+        # Arrange elements using the inscribed circle
+        return _arrange_in_inscribed_circle(center, radius, polygon, has_supply_center, element_spacing)
         
     except Exception:
-        # Any error - fall back to centroid-based positioning
         return _fallback_positions(centroid, has_supply_center, element_spacing)
+
+
+def _get_max_inscribed_circle(polygon: 'Polygon') -> Tuple[Optional[List[float]], float]:
+    """
+    Get the center and radius of the maximum inscribed circle.
+    
+    Returns:
+        Tuple of (center [x, y], radius) or (None, 0) if not available
+    """
+    if not MIC_AVAILABLE:
+        # Fall back to polylabel
+        try:
+            poi = polylabel(polygon, tolerance=0.001)
+            center = [poi.x, poi.y]
+            # Approximate radius as distance to nearest boundary
+            radius = polygon.exterior.distance(poi)
+            return center, radius
+        except Exception:
+            return None, 0
+    
+    try:
+        mic = maximum_inscribed_circle(polygon, tolerance=0.001)
+        coords = list(mic.coords)
+        if len(coords) < 2:
+            return None, 0
+        center = [coords[0][0], coords[0][1]]
+        radius_point = coords[1]
+        radius = math.sqrt((radius_point[0] - center[0])**2 + (radius_point[1] - center[1])**2)
+        return center, radius
+    except Exception:
+        return None, 0
+
+
+def _arrange_in_inscribed_circle(
+    center: List[float],
+    radius: float,
+    polygon: 'Polygon',
+    has_supply_center: bool,
+    element_spacing: float
+) -> Dict[str, List[float]]:
+    """
+    Arrange elements within the maximum inscribed circle.
+    
+    Priority order:
+    1. Name at center (largest element)
+    2. Unit below name  
+    3. SC above name (if has_supply_center and there's room)
+    
+    All positions are validated to be inside the polygon.
+    """
+    positions = {}
+    
+    # Helper function for Euclidean distance from center
+    def dist_from_center(pos):
+        return math.sqrt((pos[0] - center[0])**2 + (pos[1] - center[1])**2)
+    
+    # 1. Name goes at the center of the inscribed circle
+    positions['name_position'] = list(center)
+    
+    # Calculate vertical spacing based on radius (but not exceeding element_spacing)
+    # Use about 40% of radius for spacing, capped at element_spacing
+    vertical_spacing = min(radius * 0.4, element_spacing)
+    
+    # 2. Unit goes below the name
+    unit_pos = [center[0], center[1] - vertical_spacing * 1.5]
+    
+    # Check if unit position is inside the inscribed circle using Euclidean distance
+    if dist_from_center(unit_pos) > radius * 0.9:
+        # Outside circle, try smaller offset
+        unit_pos = [center[0], center[1] - radius * 0.6]
+    
+    # Validate inside polygon
+    if not _is_inside_polygon(unit_pos, polygon):
+        # Try smaller offset
+        unit_pos = [center[0], center[1] - radius * 0.3]
+        if not _is_inside_polygon(unit_pos, polygon):
+            # Fall back to center
+            unit_pos = list(center)
+    
+    positions['unit_position'] = unit_pos
+    
+    # 3. SC goes above the name (if applicable)
+    if has_supply_center:
+        sc_pos = [center[0], center[1] + vertical_spacing * 1.5]
+        
+        # Check if SC position is inside the inscribed circle using Euclidean distance
+        if dist_from_center(sc_pos) > radius * 0.9:
+            # Outside circle, try smaller offset
+            sc_pos = [center[0], center[1] + radius * 0.6]
+        
+        # Validate inside polygon
+        if not _is_inside_polygon(sc_pos, polygon):
+            # Try to find alternate position - to the side
+            for dx in [radius * 0.7, -radius * 0.7, radius * 0.5, -radius * 0.5]:
+                alt_pos = [center[0] + dx, center[1]]
+                if _is_inside_polygon(alt_pos, polygon) and dist_from_center(alt_pos) <= radius * 0.95:
+                    sc_pos = alt_pos
+                    break
+            else:
+                # Try smaller offset above
+                sc_pos = [center[0], center[1] + radius * 0.3]
+                if not _is_inside_polygon(sc_pos, polygon):
+                    # Last resort - just above center
+                    sc_pos = [center[0], center[1] + radius * 0.1]
+                    if not _is_inside_polygon(sc_pos, polygon):
+                        sc_pos = list(center)
+        
+        positions['sc_position'] = sc_pos
+    
+    return positions
 
 
 def _calculate_centroid(vertices: List[List[float]]) -> List[float]:
@@ -147,241 +238,28 @@ def _fallback_positions(
     
     This is used when Shapely is not available or polygon is invalid/too small.
     
-    Layout (when SC present) - Name and SC in northern part, unit below:
-        [Name]  (top/north)
-        [SC]    (middle, with increased gap from name to avoid overlap)
-        [Unit]  (bottom/south, with more spacing)
+    Layout (when SC present):
+        [SC]    (above center)
+        [Name]  (at center)
+        [Unit]  (below center)
         
-    Layout (no SC) - Name in northern part, unit below:
-        [Name]  (top/north)
-        [Unit]  (bottom/south)
+    Layout (no SC):
+        [Name]  (at center)
+        [Unit]  (below center)
     
     Note: unit_position is ALWAYS included since any territory can have a unit.
     """
     positions = {}
     
-    if has_supply_center:
-        # Three elements stacked vertically with name/SC in northern part
-        # Name at top (highest Y), SC at center, Unit further below
-        # Name is 1.5 spacing above center, SC at center, Unit 1.3 spacing below center
-        # This gives 1.5 spacing between name and SC to prevent text/marker overlap
-        positions['name_position'] = [center[0], center[1] + element_spacing * 1.5]
-        positions['sc_position'] = [center[0], center[1]]
-        positions['unit_position'] = [center[0], center[1] - element_spacing * 1.3]
-    else:
-        # Two elements - name in northern part, unit below
-        positions['name_position'] = [center[0], center[1] + element_spacing * 0.7]
-        positions['unit_position'] = [center[0], center[1] - element_spacing * 0.7]
+    # Name always at center
+    positions['name_position'] = list(center)
     
-    return positions
-
-
-def _arrange_elements_simple(
-    base_point: List[float],
-    polygon: 'Polygon',
-    has_supply_center: bool,
-    element_spacing: float
-) -> Dict[str, List[float]]:
-    """
-    Arrange elements using simple vertical stacking when polygon is too small for buffering.
-    Ensures positions stay within the polygon boundary.
-    Uses improved layout with name/SC in northern part and unit below.
-    
-    Note: unit_position is ALWAYS included since any territory can have a unit.
-    """
-    positions = _fallback_positions(base_point, has_supply_center, element_spacing)
-    
-    # Clamp positions to stay within polygon
-    for key in positions:
-        pos = positions[key]
-        point = Point(pos[0], pos[1])
-        if not polygon.contains(point):
-            # Move to nearest point on polygon boundary, then slightly inside
-            nearest = polygon.exterior.interpolate(polygon.exterior.project(point))
-            # Move toward centroid to ensure we're inside
-            cx, cy = polygon.centroid.x, polygon.centroid.y
-            dx = cx - nearest.x
-            dy = cy - nearest.y
-            dist = math.sqrt(dx * dx + dy * dy)
-            if dist > 0:
-                # Move 30% of the way toward centroid for better positioning
-                positions[key] = [
-                    nearest.x + dx * 0.3,
-                    nearest.y + dy * 0.3
-                ]
-    
-    return positions
-
-
-def _arrange_elements(
-    base_point: List[float],
-    polygon: 'Polygon',
-    interior_buffer: 'Polygon',
-    has_supply_center: bool,
-    element_spacing: float
-) -> Dict[str, List[float]]:
-    """
-    Arrange elements optimally within the polygon interior.
-    
-    Strategy:
-    1. Detect if territory is horizontally oriented (wide and short)
-    2. For vertical/normal territories:
-       - Name goes at northern position (higher Y, above base point)
-       - SC marker (if present) goes below name but still in upper portion
-       - Unit marker goes in southern portion (lower Y)
-    3. For horizontal territories:
-       - Name and SC on one side, unit on the other side
-    
-    Note: unit_position is ALWAYS included since any territory can have a unit.
-    """
-    positions = {}
-    
-    # Get polygon bounds to detect orientation
-    minx, miny, maxx, maxy = polygon.bounds
-    width = maxx - minx
-    height = maxy - miny
-    
-    # Detect if territory is horizontally oriented
-    # Use epsilon to avoid floating point precision issues with height
-    is_horizontal = height > 1e-10 and (width / height) > HORIZONTAL_ASPECT_RATIO
-    
-    if is_horizontal:
-        # Horizontal territory - arrange elements left to right
-        # Name and SC on left/center, unit on right
-        return _arrange_elements_horizontal(base_point, polygon, interior_buffer, has_supply_center, element_spacing)
-    
-    # Vertical/normal arrangement - name/SC in northern part, unit in southern part
-    # Try to place name in northern part of polygon (higher Y)
-    name_pos = [base_point[0], base_point[1] + element_spacing * 1.5]
-    if not _is_inside_polygon(name_pos, interior_buffer):
-        # Try at base point with smaller offset
-        name_pos = [base_point[0], base_point[1] + element_spacing * 0.8]
-        if not _is_inside_polygon(name_pos, interior_buffer):
-            name_pos = list(base_point)
-    positions['name_position'] = name_pos
+    # Unit below center
+    positions['unit_position'] = [center[0], center[1] - element_spacing * 1.2]
     
     if has_supply_center:
-        # SC goes below name with increased gap to prevent text overlap
-        # Increased spacing from 0.9 to 1.5 to ensure name text doesn't overlap SC marker
-        sc_pos = [name_pos[0], name_pos[1] - element_spacing * 1.5]
-        if not _is_inside_polygon(sc_pos, interior_buffer):
-            # Try at center
-            sc_pos = [base_point[0], base_point[1]]
-            if not _is_inside_polygon(sc_pos, interior_buffer):
-                sc_pos = list(base_point)
-        positions['sc_position'] = sc_pos
-        
-        # Unit goes in southern portion, below SC with good spacing
-        unit_pos = [sc_pos[0], sc_pos[1] - element_spacing * 1.5]
-        if not _is_inside_polygon(unit_pos, interior_buffer):
-            # Try further below base point
-            unit_pos = [base_point[0], base_point[1] - element_spacing * 1.8]
-            if not _is_inside_polygon(unit_pos, interior_buffer):
-                # Try to the side
-                for dx in [element_spacing, -element_spacing]:
-                    unit_pos = [sc_pos[0] + dx, sc_pos[1] - element_spacing * 0.8]
-                    if _is_inside_polygon(unit_pos, interior_buffer):
-                        break
-                else:
-                    # Fall back to below SC with smaller spacing
-                    unit_pos = [sc_pos[0], sc_pos[1] - element_spacing * 1.0]
-        positions['unit_position'] = unit_pos
-    else:
-        # No SC - unit goes in southern portion below name
-        unit_pos = [name_pos[0], name_pos[1] - element_spacing * 1.5]
-        if not _is_inside_polygon(unit_pos, interior_buffer):
-            # Try at base point offset
-            unit_pos = [base_point[0], base_point[1] - element_spacing * 0.8]
-            if not _is_inside_polygon(unit_pos, interior_buffer):
-                # Try to the side
-                for dx in [element_spacing, -element_spacing]:
-                    unit_pos = [base_point[0] + dx, base_point[1]]
-                    if _is_inside_polygon(unit_pos, interior_buffer):
-                        break
-                else:
-                    unit_pos = [base_point[0], base_point[1] - element_spacing * 0.5]
-        positions['unit_position'] = unit_pos
-    
-    # Final validation - ensure all positions are inside polygon (at least the outer boundary)
-    for key in positions:
-        pos = positions[key]
-        if not _is_inside_polygon(pos, polygon):
-            # Move to centroid if outside
-            positions[key] = [polygon.centroid.x, polygon.centroid.y]
-    
-    return positions
-
-
-def _arrange_elements_horizontal(
-    base_point: List[float],
-    polygon: 'Polygon',
-    interior_buffer: 'Polygon',
-    has_supply_center: bool,
-    element_spacing: float
-) -> Dict[str, List[float]]:
-    """
-    Arrange elements for horizontally-oriented (wide) territories.
-    
-    Layout: Name and SC on left/center, Unit on right side
-    This prevents vertical stacking from going outside narrow boundaries.
-    """
-    positions = {}
-    
-    # Get polygon center
-    cx = polygon.centroid.x
-    cy = polygon.centroid.y
-    
-    if has_supply_center:
-        # Name slightly left and above center with more vertical spacing
-        name_pos = [cx - element_spacing * 0.3, cy + element_spacing * 0.8]
-        if not _is_inside_polygon(name_pos, interior_buffer):
-            name_pos = [cx, cy + element_spacing * 0.5]
-            if not _is_inside_polygon(name_pos, interior_buffer):
-                name_pos = [cx, cy]
-        positions['name_position'] = name_pos
-        
-        # SC below name with increased gap to prevent overlap
-        sc_pos = [name_pos[0], name_pos[1] - element_spacing * 1.3]
-        if not _is_inside_polygon(sc_pos, interior_buffer):
-            sc_pos = [cx, cy - element_spacing * 0.5]
-            if not _is_inside_polygon(sc_pos, interior_buffer):
-                sc_pos = [cx, cy]
-        positions['sc_position'] = sc_pos
-        
-        # Unit to the right side
-        unit_pos = [cx + element_spacing * 1.5, cy]
-        if not _is_inside_polygon(unit_pos, interior_buffer):
-            # Try left side instead
-            unit_pos = [cx - element_spacing * 1.5, cy]
-            if not _is_inside_polygon(unit_pos, interior_buffer):
-                # Fall back to below
-                unit_pos = [cx, cy - element_spacing * 1.2]
-                if not _is_inside_polygon(unit_pos, interior_buffer):
-                    unit_pos = [cx, cy]
-        positions['unit_position'] = unit_pos
-    else:
-        # Name on left side
-        name_pos = [cx - element_spacing * 0.5, cy]
-        if not _is_inside_polygon(name_pos, interior_buffer):
-            name_pos = [cx, cy]
-        positions['name_position'] = name_pos
-        
-        # Unit on right side
-        unit_pos = [cx + element_spacing * 1.0, cy]
-        if not _is_inside_polygon(unit_pos, interior_buffer):
-            # Try left side
-            unit_pos = [cx - element_spacing * 1.0, cy]
-            if not _is_inside_polygon(unit_pos, interior_buffer):
-                unit_pos = [cx, cy - element_spacing * 0.5]
-                if not _is_inside_polygon(unit_pos, interior_buffer):
-                    unit_pos = [cx, cy]
-        positions['unit_position'] = unit_pos
-    
-    # Final validation
-    for key in positions:
-        pos = positions[key]
-        if not _is_inside_polygon(pos, polygon):
-            positions[key] = [polygon.centroid.x, polygon.centroid.y]
+        # SC above center
+        positions['sc_position'] = [center[0], center[1] + element_spacing * 1.2]
     
     return positions
 
