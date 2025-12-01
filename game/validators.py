@@ -443,4 +443,3 @@ def build_adjacency_from_map(map_data: dict) -> Dict[str, List[str]]:
                 adjacency[f2].append(f1)
     
     return adjacency
-    return adjacency

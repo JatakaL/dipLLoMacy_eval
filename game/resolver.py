@@ -137,7 +137,14 @@ class OrderResolver:
         """
         Check if there's a convoy chain from start to end.
         
-        Uses BFS to find a path through convoying fleets.
+        Uses BFS to find a path through convoying fleets from the army's
+        start location to the destination. The path must go:
+        start (army location) -> convoying fleet(s) -> end (destination)
+        
+        A valid convoy path requires:
+        1. The start must be adjacent to at least one convoying fleet
+        2. The convoying fleets must form a connected chain
+        3. The end must be adjacent to at least one convoying fleet in the chain
         """
         # Find all fleets convoying this army
         convoying_fleets = set()
@@ -148,23 +155,34 @@ class OrderResolver:
         if not convoying_fleets:
             return False
         
-        # BFS from start to end through convoying fleets
+        # Check that start is adjacent to at least one convoying fleet
+        start_adjacent_fleets = [f for f in convoying_fleets if f in self.adjacency.get(start, [])]
+        if not start_adjacent_fleets:
+            return False
+        
+        # Check that end is adjacent to at least one convoying fleet
+        end_adjacent_fleets = [f for f in convoying_fleets if f in self.adjacency.get(end, [])]
+        if not end_adjacent_fleets:
+            return False
+        
+        # BFS through convoying fleets to check if there's a connected chain
+        # from a fleet adjacent to start to a fleet adjacent to end
         visited = set()
-        queue = [start]
+        queue = list(start_adjacent_fleets)
         
         while queue:
             current = queue.pop(0)
-            if current == end:
-                return True
             
             if current in visited:
                 continue
             visited.add(current)
             
-            # Get adjacent territories
+            # Check if we've reached a fleet adjacent to the destination
+            if current in end_adjacent_fleets:
+                return True
+            
+            # Add adjacent convoying fleets to queue
             for adj in self.adjacency.get(current, []):
-                if adj == end:
-                    return True
                 if adj in convoying_fleets and adj not in visited:
                     queue.append(adj)
         
