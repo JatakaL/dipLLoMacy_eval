@@ -1,0 +1,13 @@
+[project]
+name = "dipllomacy-eval"
+version = "0.1.0"
+description = "Diplomacy board game evaluation framework with randomized map generation and LLM-based agent support"
+readme = "docs/README.md"
+license = "Unlicense"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy",
+    "scipy",
+    "shapely",
+    "matplotlib",
+]
