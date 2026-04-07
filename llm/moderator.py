@@ -9,7 +9,7 @@ from typing import Optional
 
 from game.game_manager import GameManager
 from game.game_state import Phase
-from game.orders import OrderParser
+from game.orders import Order, OrderParser
 
 from .adapters.base import BaseLLMAdapter
 
@@ -57,7 +57,7 @@ class GameModerator:
         turn_label = state.get_turn_string()
 
         # 1-2. Collect and parse orders from each agent
-        all_orders: dict[str, list] = {}
+        all_orders: dict[str, list[Order]] = {}
         for power_name, adapter in self.agents.items():
             state_dict = self.game_manager.get_game_state()
             order_strings = adapter.generate_orders(state_dict, power_name)
