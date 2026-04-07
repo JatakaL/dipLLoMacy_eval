@@ -57,7 +57,7 @@ def _build_turn_callback(output_mode: str, output_dir: Path | None):
             img_path = output_dir / f"{turn_label}_board.jpeg"
             try:
                 gm.export_board_image(str(img_path), dpi=150)
-            except Exception:
+            except (OSError, ValueError, KeyError):
                 pass  # Image export may fail on minimal maps
 
     return _callback
