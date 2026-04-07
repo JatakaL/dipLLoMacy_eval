@@ -193,6 +193,7 @@ class GameManager:
         
         return {
             "game_state": self.state.to_dict(),
+            "map_data": self.map_data,
             "map_info": {
                 "total_provinces": len(self.map_data.get('topology', {}).get('faces', {})),
                 "powers": list(self.state.powers),
