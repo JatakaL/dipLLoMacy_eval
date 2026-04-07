@@ -5,13 +5,101 @@ The GameModerator connects LLM adapters to the game engine, collecting
 orders from agents each turn and feeding them through the game manager.
 """
 
-from typing import Optional
+from typing import Callable, Optional
 
 from game.game_manager import GameManager
-from game.game_state import Phase
+from game.game_state import GameState, Phase
 from game.orders import Order, OrderParser
 
 from .adapters.base import BaseLLMAdapter
+
+
+def format_turn_summary(
+    turn_result: dict,
+    state: GameState,
+    game_manager: GameManager,
+) -> str:
+    """Format a human-readable summary of a completed turn.
+
+    The output includes the turn identifier, the orders submitted by
+    each power (with resolution results), unit positions after
+    resolution, and supply-center counts per power.
+
+    Args:
+        turn_result: The dict returned by ``GameModerator.run_turn``.
+        state: The game state *after* the turn has been processed.
+        game_manager: The game manager (used for territory name lookup).
+
+    Returns:
+        A multi-line string suitable for printing to the console.
+    """
+    lines: list[str] = []
+    turn_label = turn_result["turn"]
+
+    lines.append("")
+    lines.append("=" * 60)
+    lines.append(f"  TURN: {turn_label}")
+    lines.append("=" * 60)
+
+    # --- Orders by power ---
+    orders_by_power: dict[str, list[dict]] = {}
+    for order_dict in turn_result["resolved_orders"]:
+        power = order_dict.get("power", "Unknown")
+        orders_by_power.setdefault(power, []).append(order_dict)
+
+    lines.append("")
+    lines.append("  Orders:")
+    for power in sorted(orders_by_power):
+        lines.append(f"    {power}:")
+        for od in orders_by_power[power]:
+            raw = od.get("raw_order") or _reconstruct_order_string(od)
+            result = od.get("result", "pending")
+            lines.append(f"      {raw}  [{result}]")
+
+    # --- Dislodged units ---
+    dislodged = turn_result.get("dislodged", {})
+    if dislodged:
+        lines.append("")
+        lines.append("  Dislodged units:")
+        for loc, attacker_loc in dislodged.items():
+            loc_name = game_manager.get_territory_name(loc)
+            att_name = game_manager.get_territory_name(attacker_loc)
+            lines.append(f"    {loc_name} (by {att_name})")
+
+    # --- Board state: unit positions ---
+    lines.append("")
+    lines.append("  Unit positions:")
+    units_by_power: dict[str, list[str]] = {}
+    for loc, unit in state.units.items():
+        t = "A" if unit.unit_type.value == "army" else "F"
+        name = game_manager.get_territory_name(loc)
+        units_by_power.setdefault(unit.power, []).append(f"{t} {name}")
+    for power in sorted(units_by_power):
+        unit_list = ", ".join(sorted(units_by_power[power]))
+        lines.append(f"    {power}: {unit_list}")
+
+    # --- Supply-center counts ---
+    lines.append("")
+    lines.append("  Supply centers:")
+    for power in sorted(state.powers):
+        sc = state.get_sc_count(power)
+        units = state.get_unit_count(power)
+        lines.append(f"    {power:20s} : {sc} SCs, {units} units")
+
+    lines.append("-" * 60)
+
+    return "\n".join(lines)
+
+
+def _reconstruct_order_string(od: dict) -> str:
+    """Build a short display string from an order dict."""
+    ut = od.get("unit_type", "?")
+    loc = od.get("location", "?")
+    otype = od.get("order_type", "hold")
+    target = od.get("target")
+    if otype == "move" and target:
+        return f"{ut} {{{loc}}} M {{{target}}}"
+    return f"{ut} {{{loc}}} H"
 
 
 class GameModerator:
@@ -88,7 +176,11 @@ class GameModerator:
             "log": log,
         }
 
-    def run_game(self, max_turns: int = 50) -> dict:
+    def run_game(
+        self,
+        max_turns: int = 50,
+        turn_callback: Optional[Callable[[dict, "GameModerator"], None]] = None,
+    ) -> dict:
         """Run turns until victory, elimination, or *max_turns*.
 
         A "turn" is counted each time the ORDER phase is processed via
@@ -98,6 +190,9 @@ class GameModerator:
 
         Args:
             max_turns: Maximum number of ORDER-phase turns to process.
+            turn_callback: Optional callable invoked after each ORDER
+                turn with ``(turn_result, moderator)``.  Useful for
+                printing per-turn summaries or saving board images.
 
         Returns:
             A dict with keys ``"turns_played"``, ``"winner"`` (or
@@ -113,6 +208,8 @@ class GameModerator:
                 result = self.run_turn()
                 history.append(result)
                 turns_played += 1
+                if turn_callback is not None:
+                    turn_callback(result, self)
             elif state.phase == Phase.RETREAT:
                 # Auto-disband any remaining dislodged units
                 for loc in list(state.dislodged_units.keys()):
