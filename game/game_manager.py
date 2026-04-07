@@ -10,6 +10,7 @@ The GameManager provides:
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -31,6 +32,9 @@ POWER_NAMES = [
     "Ironhold",
     "Jadekeep",
 ]
+
+# Pattern for parsing BUILD orders in winter order files: B A/F {Territory}
+_BUILD_ORDER_PATTERN = re.compile(r'^B\s+(A|F)\s+\{([^}]+)\}\s*$')
 
 
 class GameManager:
@@ -1138,13 +1142,7 @@ class GameManager:
         Returns:
             Dictionary mapping power name to list of Order objects
         """
-        import re
-
         all_orders: Dict[str, List] = {}
-
-        build_pattern = re.compile(
-            r'^B\s+(A|F)\s+\{([^}]+)\}\s*$'
-        )
 
         for power, filepath in order_files.items():
             orders = []
@@ -1155,7 +1153,7 @@ class GameManager:
                         continue
 
                     # Try BUILD format: B A/F {Territory}
-                    build_match = build_pattern.match(line)
+                    build_match = _BUILD_ORDER_PATTERN.match(line)
                     if build_match:
                         unit_type = build_match.group(1)
                         location = build_match.group(2)
