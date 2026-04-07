@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from output_utils import get_output_path_for_phase, get_input_directory, get_datetime_filename
 from topology import get_adjacency_from_topology, get_coastal_faces_from_borders
 from fractal_subdivision import subdivide_all_edges
+from label_positions import calculate_all_label_positions
 
 
 class RegionNamer:
@@ -446,6 +447,18 @@ def run_phase7(phase6_output, config):
     print(f"  Added vertices: {original_vertex_count} -> {new_vertex_count}")
     for edge_type, count in sorted(edge_type_counts.items()):
         print(f"    - {edge_type}: {count} edges")
+    
+    # Step 6: Calculate label positions for all faces
+    # This pre-determines positions for name labels, SC markers, and unit markers
+    # to avoid overlaps during game rendering
+    print("\nStep 6: Calculating label positions...")
+    faces = topology["faces"]
+    faces = calculate_all_label_positions(faces, topology)
+    topology["faces"] = faces
+    
+    # Count faces with label positions
+    faces_with_positions = sum(1 for f in faces.values() if 'label_positions' in f)
+    print(f"  Calculated positions for {faces_with_positions} faces")
     
     # Create final output (without cells dictionary)
     output = {

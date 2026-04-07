@@ -21,7 +21,7 @@ Architecture:
 """
 
 import math
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 from shapely.geometry import Polygon, LineString
 from shapely.errors import GEOSException
 from topology import get_adjacency_from_topology, get_face_edges
@@ -1464,3 +1464,528 @@ def merge_extra_sea_regions(topology: dict, map_center: Tuple[float, float] = (0
             break
     
     return merged_count
+
+
+# =============================================================================
+# TOPOLOGY QUALITY CHECKS AND FIXES
+# =============================================================================
+# These functions check for and fix topology issues that can cause visual problems:
+# 1. "Four Corners" vertices - vertices connected to more than 3 borders
+# 2. Short borders - borders below a length threshold that are hard to see
+# =============================================================================
+
+
+def get_vertex_border_count(topology: dict) -> Dict[int, int]:
+    """
+    Count how many borders each vertex is connected to.
+    
+    A vertex is connected to a border if it is either the start_vertex or 
+    end_vertex of that border.
+    
+    Args:
+        topology: Dictionary with topology data
+        
+    Returns:
+        Dictionary mapping vertex ID to count of connected borders
+    """
+    borders = topology.get("borders", {})
+    vertex_counts: Dict[int, int] = {}
+    
+    for border_id, border_data in borders.items():
+        start_v = border_data.get("start_vertex")
+        end_v = border_data.get("end_vertex")
+        
+        if start_v is not None:
+            vertex_counts[start_v] = vertex_counts.get(start_v, 0) + 1
+        if end_v is not None:
+            vertex_counts[end_v] = vertex_counts.get(end_v, 0) + 1
+    
+    return vertex_counts
+
+
+def find_four_corners_vertices(topology: dict, threshold: int = 4) -> List[Tuple[int, int]]:
+    """
+    Find vertices that are connected to more than 3 borders ("Four Corners" vertices).
+    
+    In natural-looking maps, vertices where territory borders meet should typically
+    have exactly 3 borders meeting (a "Y" junction). Having 4 or more borders meet
+    at a single point creates an unnatural "Four Corners" situation that can be
+    visually confusing.
+    
+    Args:
+        topology: Dictionary with topology data
+        threshold: Minimum number of borders to consider a vertex as "Four Corners".
+                   Default is 4 (vertices with 4+ borders).
+        
+    Returns:
+        List of tuples (vertex_id, border_count) for vertices with too many borders,
+        sorted by border_count descending (worst cases first)
+    """
+    vertex_counts = get_vertex_border_count(topology)
+    
+    four_corners = [
+        (vertex_id, count) 
+        for vertex_id, count in vertex_counts.items() 
+        if count >= threshold
+    ]
+    
+    # Sort by count descending (worst cases first)
+    four_corners.sort(key=lambda x: -x[1])
+    
+    return four_corners
+
+
+def get_borders_at_vertex(vertex_id: int, topology: dict) -> List[str]:
+    """
+    Get all border IDs that have the given vertex as a start or end point.
+    
+    Args:
+        vertex_id: ID of the vertex
+        topology: Dictionary with topology data
+        
+    Returns:
+        List of border IDs connected to this vertex
+    """
+    borders = topology.get("borders", {})
+    connected_borders = []
+    
+    for border_id, border_data in borders.items():
+        start_v = border_data.get("start_vertex")
+        end_v = border_data.get("end_vertex")
+        
+        if start_v == vertex_id or end_v == vertex_id:
+            connected_borders.append(border_id)
+    
+    return connected_borders
+
+
+def get_faces_at_vertex(vertex_id: int, topology: dict) -> List[str]:
+    """
+    Get all face IDs that meet at a given vertex.
+    
+    A face meets at a vertex if any of its borders have that vertex as
+    a start or end point.
+    
+    Args:
+        vertex_id: ID of the vertex
+        topology: Dictionary with topology data
+        
+    Returns:
+        List of unique face IDs that meet at this vertex
+    """
+    borders = topology.get("borders", {})
+    faces_at_vertex = set()
+    
+    for border_id, border_data in borders.items():
+        start_v = border_data.get("start_vertex")
+        end_v = border_data.get("end_vertex")
+        
+        if start_v == vertex_id or end_v == vertex_id:
+            left_face = border_data.get("left_face")
+            right_face = border_data.get("right_face")
+            if left_face:
+                faces_at_vertex.add(left_face)
+            if right_face:
+                faces_at_vertex.add(right_face)
+    
+    return list(faces_at_vertex)
+
+
+def find_smallest_face_pair_at_vertex(vertex_id: int, topology: dict) -> Optional[Tuple[str, str]]:
+    """
+    Find the two smallest faces that meet at a vertex and share a border.
+    
+    This is used to determine which faces to merge to fix a "Four Corners" vertex.
+    We prefer to merge the smallest faces to minimize the impact on the map.
+    
+    Args:
+        vertex_id: ID of the vertex
+        topology: Dictionary with topology data
+        
+    Returns:
+        Tuple of (face1_id, face2_id) for the smallest pair that share a border,
+        or None if no valid pair is found
+    """
+    faces = topology.get("faces", {})
+    borders_at_v = get_borders_at_vertex(vertex_id, topology)
+    
+    if len(borders_at_v) < 2:
+        return None
+    
+    # Get all pairs of adjacent faces at this vertex
+    adjacent_pairs = []
+    
+    for border_id in borders_at_v:
+        border = topology.get("borders", {}).get(border_id)
+        if not border:
+            continue
+        
+        left_face = border.get("left_face")
+        right_face = border.get("right_face")
+        
+        if left_face and right_face and left_face in faces and right_face in faces:
+            # Calculate combined size
+            size1 = calculate_face_size(left_face, topology)
+            size2 = calculate_face_size(right_face, topology)
+            combined_size = size1 + size2
+            adjacent_pairs.append((left_face, right_face, combined_size))
+    
+    if not adjacent_pairs:
+        return None
+    
+    # Sort by combined size (smallest first)
+    adjacent_pairs.sort(key=lambda x: x[2])
+    
+    return (adjacent_pairs[0][0], adjacent_pairs[0][1])
+
+
+def fix_four_corners_vertex(vertex_id: int, topology: dict) -> Tuple[bool, Optional[str]]:
+    """
+    Fix a "Four Corners" vertex by merging two adjacent faces.
+    
+    This reduces the number of borders meeting at the vertex by 1.
+    Multiple calls may be needed to fully resolve a vertex with many borders.
+    
+    Args:
+        vertex_id: ID of the vertex to fix
+        topology: Dictionary with topology data (modified in place)
+        
+    Returns:
+        Tuple of (success, merged_face_id or error_message)
+    """
+    # Find the smallest pair of adjacent faces at this vertex
+    face_pair = find_smallest_face_pair_at_vertex(vertex_id, topology)
+    
+    if face_pair is None:
+        return False, "No adjacent face pair found at vertex"
+    
+    face1_id, face2_id = face_pair
+    
+    # Merge the faces
+    success, merged_id = merge_faces(face1_id, face2_id, topology)
+    
+    if success:
+        return True, merged_id
+    else:
+        return False, "Merge operation failed"
+
+
+def fix_all_four_corners(topology: dict, max_iterations: int = 100) -> int:
+    """
+    Fix all "Four Corners" vertices in the topology.
+    
+    Iteratively identifies and fixes vertices where 4+ borders meet by
+    merging adjacent faces until all vertices have at most 3 borders.
+    
+    Args:
+        topology: Dictionary with topology data (modified in place)
+        max_iterations: Maximum number of fix iterations to prevent infinite loops
+        
+    Returns:
+        Number of merges performed
+    """
+    merge_count = 0
+    
+    for _ in range(max_iterations):
+        # Find vertices with 4+ borders
+        four_corners = find_four_corners_vertices(topology, threshold=4)
+        
+        if not four_corners:
+            break
+        
+        # Fix the first (worst) vertex
+        vertex_id, border_count = four_corners[0]
+        
+        success, result = fix_four_corners_vertex(vertex_id, topology)
+        
+        if success:
+            merge_count += 1
+        else:
+            # If we can't fix the worst vertex, try the next one
+            fixed_any = False
+            for vertex_id, _ in four_corners[1:]:
+                success, result = fix_four_corners_vertex(vertex_id, topology)
+                if success:
+                    merge_count += 1
+                    fixed_any = True
+                    break
+            
+            if not fixed_any:
+                # No progress possible, exit to prevent infinite loop
+                break
+    
+    return merge_count
+
+
+def find_short_borders(topology: dict, min_length: float = 0.02) -> List[Tuple[str, float]]:
+    """
+    Find borders that are below a minimum length threshold.
+    
+    Short borders can be hard to see visually and may cause confusion about
+    whether two territories are actually adjacent.
+    
+    Args:
+        topology: Dictionary with topology data
+        min_length: Minimum border length threshold (in map units, default 0.02
+                    for a 1.0 x 1.0 map means borders should be at least 2% of map width)
+        
+    Returns:
+        List of tuples (border_id, length) for borders below the threshold,
+        sorted by length ascending (shortest first)
+    """
+    borders = topology.get("borders", {})
+    short_borders = []
+    
+    for border_id in borders:
+        try:
+            length = calculate_border_length(border_id, topology)
+            if length < min_length:
+                short_borders.append((border_id, length))
+        except ValueError:
+            continue
+    
+    # Sort by length ascending (shortest first)
+    short_borders.sort(key=lambda x: x[1])
+    
+    return short_borders
+
+
+def lengthen_border(border_id: str, topology: dict, target_length: float) -> bool:
+    """
+    Lengthen a short border by moving its endpoint vertices outward.
+    
+    This works by moving the start and end vertices of the border away from
+    each other along the line connecting them, while being careful not to
+    create invalid geometry.
+    
+    The movement is constrained to not move vertices past 1/4 of adjacent 
+    border lengths, which helps prevent creating invalid topology.
+    
+    Args:
+        border_id: ID of the border to lengthen
+        topology: Dictionary with topology data (modified in place)
+        target_length: Target length for the border
+        
+    Returns:
+        True if the border was successfully lengthened, False otherwise
+    """
+    borders = topology.get("borders", {})
+    vertices = topology.get("vertices", [])
+    vertex_coords = _get_vertex_coords_lookup(topology)
+    
+    if border_id not in borders:
+        return False
+    
+    border = borders[border_id]
+    start_v = border.get("start_vertex")
+    end_v = border.get("end_vertex")
+    
+    if start_v is None or end_v is None:
+        return False
+    
+    start_coords = vertex_coords.get(start_v)
+    end_coords = vertex_coords.get(end_v)
+    
+    if start_coords is None or end_coords is None:
+        return False
+    
+    # Calculate current length (sum of all edge lengths in the border) and direction (straight line)
+    dx = end_coords[0] - start_coords[0]
+    dy = end_coords[1] - start_coords[1]
+    straight_line_dist = math.sqrt(dx * dx + dy * dy)
+    current_length = calculate_border_length(border_id, topology)
+    
+    if current_length < 1e-10 or straight_line_dist < 1e-10:
+        return False  # Degenerate border
+    
+    if current_length >= target_length:
+        return True  # Already long enough
+    
+    # Calculate how much to extend on each side
+    extension_needed = target_length - current_length
+    extension_per_side = extension_needed / 2.0
+    
+    # Normalize direction vector using straight-line distance
+    dir_x = dx / straight_line_dist
+    dir_y = dy / straight_line_dist
+    
+    # Constrain movement: check how much we can safely move each vertex
+    # by looking at adjacent borders
+    max_start_movement = _get_max_vertex_movement(start_v, border_id, topology, -dir_x, -dir_y)
+    max_end_movement = _get_max_vertex_movement(end_v, border_id, topology, dir_x, dir_y)
+    
+    # Apply constrained movement
+    start_movement = min(extension_per_side, max_start_movement)
+    end_movement = min(extension_per_side, max_end_movement)
+    
+    # Calculate new coordinates
+    new_start_coords = [
+        start_coords[0] - dir_x * start_movement,
+        start_coords[1] - dir_y * start_movement
+    ]
+    new_end_coords = [
+        end_coords[0] + dir_x * end_movement,
+        end_coords[1] + dir_y * end_movement
+    ]
+    
+    # Update vertex coordinates in topology
+    for v in vertices:
+        if v["id"] == start_v:
+            v["coords"] = new_start_coords
+        elif v["id"] == end_v:
+            v["coords"] = new_end_coords
+    
+    return True
+
+
+def _get_max_vertex_movement(vertex_id: int, exclude_border_id: str, topology: dict,
+                             dir_x: float, dir_y: float) -> float:
+    """
+    Calculate the maximum safe movement for a vertex in a given direction.
+    
+    This prevents moving a vertex so far that it crosses adjacent borders
+    or creates invalid geometry.
+    
+    Args:
+        vertex_id: ID of the vertex to move
+        exclude_border_id: Border ID to exclude from the check (the border being lengthened)
+        topology: Dictionary with topology data
+        dir_x: X component of the movement direction (normalized)
+        dir_y: Y component of the movement direction (normalized)
+        
+    Returns:
+        Maximum safe movement distance in the given direction
+    """
+    borders = topology.get("borders", {})
+    vertex_coords = _get_vertex_coords_lookup(topology)
+    
+    v_coords = vertex_coords.get(vertex_id)
+    if v_coords is None:
+        return 0.0
+    
+    # Get all borders connected to this vertex
+    connected_borders = get_borders_at_vertex(vertex_id, topology)
+    
+    # Default max movement (fraction of average border length at this vertex)
+    max_movement = 0.05  # 5% of map width as fallback
+    
+    for border_id in connected_borders:
+        if border_id == exclude_border_id:
+            continue
+        
+        border = borders.get(border_id)
+        if not border:
+            continue
+        
+        # Get the other vertex of this border
+        start_v = border.get("start_vertex")
+        end_v = border.get("end_vertex")
+        other_v = end_v if start_v == vertex_id else start_v
+        
+        if other_v is None:
+            continue
+        
+        other_coords = vertex_coords.get(other_v)
+        if other_coords is None:
+            continue
+        
+        # Calculate border length and direction
+        border_dx = other_coords[0] - v_coords[0]
+        border_dy = other_coords[1] - v_coords[1]
+        border_length = math.sqrt(border_dx * border_dx + border_dy * border_dy)
+        
+        if border_length < 1e-10:
+            continue
+        
+        # Limit movement to 1/4 of this adjacent border's length
+        # This prevents the vertex from moving past the midpoint
+        max_from_this_border = border_length / 4.0
+        max_movement = min(max_movement, max_from_this_border)
+    
+    return max_movement
+
+
+def fix_short_borders(topology: dict, min_length: float = 0.02, max_iterations: int = 100) -> int:
+    """
+    Fix all short borders in the topology by lengthening them.
+    
+    Iteratively identifies and lengthens borders that are below the minimum
+    length threshold.
+    
+    Args:
+        topology: Dictionary with topology data (modified in place)
+        min_length: Minimum border length threshold
+        max_iterations: Maximum number of iterations to prevent infinite loops
+        
+    Returns:
+        Number of borders that were lengthened
+    """
+    fixed_count = 0
+    
+    for _ in range(max_iterations):
+        short_borders = find_short_borders(topology, min_length)
+        
+        if not short_borders:
+            break
+        
+        # Try to fix the shortest border
+        fixed_any = False
+        for border_id, current_length in short_borders:
+            if lengthen_border(border_id, topology, min_length):
+                fixed_count += 1
+                fixed_any = True
+                break  # Re-check all borders after each fix
+        
+        if not fixed_any:
+            # No progress possible
+            break
+    
+    return fixed_count
+
+
+def run_topology_quality_checks(topology: dict, 
+                                 fix_four_corners: bool = True,
+                                 fix_short: bool = True,
+                                 min_border_length: float = 0.02) -> Dict[str, Any]:
+    """
+    Run all topology quality checks and optionally fix issues.
+    
+    This is the main entry point for topology quality improvement.
+    It should be called after merging and splitting operations in Phase 2,
+    but before fractal edge subdivision in Phase 7.
+    
+    Args:
+        topology: Dictionary with topology data (modified in place if fixes enabled)
+        fix_four_corners: Whether to fix "Four Corners" vertices
+        fix_short: Whether to fix short borders
+        min_border_length: Minimum border length threshold for short border detection
+        
+    Returns:
+        Dictionary with results:
+        - four_corners_found: Number of Four Corners vertices found initially
+        - four_corners_fixed: Number of face merges performed to fix them
+        - short_borders_found: Number of short borders found initially
+        - short_borders_fixed: Number of borders lengthened
+    """
+    results = {
+        "four_corners_found": 0,
+        "four_corners_fixed": 0,
+        "short_borders_found": 0,
+        "short_borders_fixed": 0
+    }
+    
+    # Check for Four Corners vertices first
+    four_corners = find_four_corners_vertices(topology, threshold=4)
+    results["four_corners_found"] = len(four_corners)
+    
+    if fix_four_corners and four_corners:
+        results["four_corners_fixed"] = fix_all_four_corners(topology)
+    
+    # Check for short borders (after fixing Four Corners, as merges may affect borders)
+    short_borders = find_short_borders(topology, min_border_length)
+    results["short_borders_found"] = len(short_borders)
+    
+    if fix_short and short_borders:
+        results["short_borders_fixed"] = fix_short_borders(topology, min_border_length)
+    
+    return results
