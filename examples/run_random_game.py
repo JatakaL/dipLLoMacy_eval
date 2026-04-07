@@ -2,7 +2,7 @@
 """
 Example: Run a Diplomacy game with random-order agents.
 
-Generates a map, initialises a game, assigns a RandomLLMAdapter to every
+Generates a map, initializes a game, assigns a RandomLLMAdapter to every
 power, runs GameModerator.run_game(max_turns=10), and prints the summary.
 """
 
@@ -34,7 +34,7 @@ def main(seed: int = 42, max_turns: int = 10) -> dict:
     print("=" * 70)
 
     # --- Step 1: Generate a map ---
-    print("\n[1] Generating map …")
+    print("\n[1] Generating map ...")
     config = {
         "num_cells": 80,
         "num_powers": 7,
@@ -47,18 +47,18 @@ def main(seed: int = 42, max_turns: int = 10) -> dict:
     print(f"    {len(map_data.get('powers', {}))} powers on the map")
 
     # --- Step 2: Initialise the game ---
-    print("\n[2] Initialising game …")
+    print("\n[2] Initializing game ...")
     gm = GameManager(map_data=map_data)
     state = gm.initialize_game()
     print(f"    {state.get_turn_string()} | {len(state.units)} units")
 
     # --- Step 3: Assign random adapters ---
-    print("\n[3] Assigning RandomLLMAdapter to every power …")
+    print("\n[3] Assigning RandomLLMAdapter to every power ...")
     agents = {power: RandomLLMAdapter(seed=seed) for power in state.powers}
     moderator = GameModerator(gm, agents)
 
     # --- Step 4: Run the game ---
-    print(f"\n[4] Running game (max {max_turns} turns) …")
+    print(f"\n[4] Running game (max {max_turns} turns) ...")
     summary = moderator.run_game(max_turns=max_turns)
 
     # --- Step 5: Print summary ---
