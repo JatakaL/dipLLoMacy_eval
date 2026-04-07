@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from game import GameManager, GameState, Unit, UnitType
 from game.game_state import Season, Phase
+from game.orders import Order, OrderType, OrderResult
 
 
 class TestUnit:
@@ -336,9 +337,259 @@ class TestGameManager:
         assert all("location" in u for u in units)
 
 
+class TestWinterAdjustments:
+    """Tests for winter adjustment phase (builds and disbands)."""
+
+    @staticmethod
+    def _create_minimal_map_data():
+        """Create minimal map data for testing winter adjustments."""
+        return {
+            "powers": {
+                "Power1": {"name": "Power1", "home_centers": ["C1", "C2"]},
+                "Power2": {"name": "Power2", "home_centers": ["C3", "C4"]},
+            },
+            "supply_centers": {
+                "home": [
+                    {"cell_id": "C1", "owner": "Power1", "coastal": True},
+                    {"cell_id": "C2", "owner": "Power1", "coastal": False},
+                    {"cell_id": "C3", "owner": "Power2", "coastal": True},
+                    {"cell_id": "C4", "owner": "Power2", "coastal": False},
+                ],
+                "neutral": [
+                    {"cell_id": "C5", "coastal": True},
+                ]
+            },
+            "topology": {
+                "vertices": [
+                    {"id": "v1", "coords": [0, 0]},
+                    {"id": "v2", "coords": [1, 0]},
+                    {"id": "v3", "coords": [1, 1]},
+                    {"id": "v4", "coords": [0, 1]},
+                ],
+                "edges": {
+                    "e1": {"v1": "v1", "v2": "v2"},
+                    "e2": {"v1": "v2", "v2": "v3"},
+                    "e3": {"v1": "v3", "v2": "v4"},
+                    "e4": {"v1": "v4", "v2": "v1"},
+                },
+                "borders": {
+                    "b1": {"edges": ["e1", "e2", "e3", "e4"]},
+                },
+                "faces": {
+                    "C1": {"type": "land", "coastal": True, "owner": "Power1",
+                           "is_supply_center": True, "center": [0.5, 0.5],
+                           "borders": ["b1"], "name": "Province1"},
+                    "C2": {"type": "land", "coastal": False, "owner": "Power1",
+                           "is_supply_center": True, "center": [0.5, 0.5],
+                           "borders": ["b1"], "name": "Province2"},
+                    "C3": {"type": "land", "coastal": True, "owner": "Power2",
+                           "is_supply_center": True, "center": [0.5, 0.5],
+                           "borders": ["b1"], "name": "Province3"},
+                    "C4": {"type": "land", "coastal": False, "owner": "Power2",
+                           "is_supply_center": True, "center": [0.5, 0.5],
+                           "borders": ["b1"], "name": "Province4"},
+                    "C5": {"type": "land", "coastal": True,
+                           "is_supply_center": True, "center": [0.5, 0.5],
+                           "borders": ["b1"], "name": "Neutral1"},
+                    "Sea1": {"type": "sea", "center": [0.5, 0.5],
+                             "borders": ["b1"], "name": "Sea Zone"},
+                }
+            }
+        }
+
+    def _setup_game_for_winter(self, sc_control, units):
+        """Helper to set up a game manager in winter BUILD phase."""
+        map_data = self._create_minimal_map_data()
+        gm = GameManager(map_data=map_data)
+        gm.initialize_game()
+        # Override SC control and units for test scenario
+        gm.state.sc_control = dict(sc_control)
+        gm.state.units = dict(units)
+        gm.state.season = Season.WINTER
+        gm.state.phase = Phase.BUILD
+        return gm
+
+    def test_build_with_more_scs_than_units(self):
+        """Power with more SCs than units can build at unoccupied home SC."""
+        gm = self._setup_game_for_winter(
+            sc_control={"C1": "Power1", "C2": "Power1", "C3": "Power2"},
+            units={
+                "C1": Unit(UnitType.ARMY, "Power1", "C1"),
+                "C3": Unit(UnitType.ARMY, "Power2", "C3"),
+            },
+        )
+        # Power1 has 2 SCs, 1 unit -> can build 1
+        build_orders = {
+            "Power1": [
+                Order(unit_type="A", location="C2",
+                      order_type=OrderType.BUILD, power="Power1"),
+            ],
+        }
+        log = gm.process_winter_adjustments(build_orders)
+        assert "BUILD A at C2" in log
+        # Unit should now exist at C2
+        assert gm.state.get_unit_at("C2") is not None
+        assert gm.state.get_unit_at("C2").power == "Power1"
+        assert gm.state.get_unit_count("Power1") == 2
+
+    def test_disband_with_more_units_than_scs(self):
+        """Power with more units than SCs must disband."""
+        gm = self._setup_game_for_winter(
+            sc_control={"C3": "Power2"},
+            units={
+                "C3": Unit(UnitType.ARMY, "Power2", "C3"),
+                "C4": Unit(UnitType.ARMY, "Power2", "C4"),
+            },
+        )
+        # Power2 has 1 SC, 2 units -> must disband 1
+        disband_orders = {
+            "Power2": [
+                Order(unit_type="A", location="C4",
+                      order_type=OrderType.DISBAND, power="Power2"),
+            ],
+        }
+        log = gm.process_winter_adjustments(disband_orders)
+        assert "DISBAND A at C4" in log
+        assert gm.state.get_unit_at("C4") is None
+        assert gm.state.get_unit_count("Power2") == 1
+
+    def test_build_rejected_at_occupied_home_sc(self):
+        """Build at an occupied home SC should be rejected."""
+        gm = self._setup_game_for_winter(
+            sc_control={"C1": "Power1", "C2": "Power1"},
+            units={
+                "C2": Unit(UnitType.ARMY, "Power1", "C2"),
+            },
+        )
+        # Power1 has 2 SCs, 1 unit -> can build 1, but C2 is occupied
+        build_orders = {
+            "Power1": [
+                Order(unit_type="A", location="C2",
+                      order_type=OrderType.BUILD, power="Power1"),
+            ],
+        }
+        log = gm.process_winter_adjustments(build_orders)
+        assert "REJECTED" in log
+        assert "occupied" in log
+        # Still only 1 unit
+        assert gm.state.get_unit_count("Power1") == 1
+
+    def test_build_rejected_at_non_home_sc(self):
+        """Build at a non-home SC should be rejected."""
+        gm = self._setup_game_for_winter(
+            sc_control={"C1": "Power1", "C5": "Power1"},
+            units={
+                "C1": Unit(UnitType.ARMY, "Power1", "C1"),
+            },
+        )
+        # Power1 has 2 SCs, 1 unit -> can build 1
+        # C5 is a neutral SC (not a home SC for Power1)
+        build_orders = {
+            "Power1": [
+                Order(unit_type="A", location="C5",
+                      order_type=OrderType.BUILD, power="Power1"),
+            ],
+        }
+        log = gm.process_winter_adjustments(build_orders)
+        assert "REJECTED" in log
+        assert "not a home supply center" in log
+        assert gm.state.get_unit_count("Power1") == 1
+
+    def test_no_adjustment_when_equal(self):
+        """Power with equal SCs and units needs no adjustment."""
+        gm = self._setup_game_for_winter(
+            sc_control={"C1": "Power1", "C3": "Power2"},
+            units={
+                "C1": Unit(UnitType.ARMY, "Power1", "C1"),
+                "C3": Unit(UnitType.ARMY, "Power2", "C3"),
+            },
+        )
+        log = gm.process_winter_adjustments({})
+        assert "no adjustment needed" in log
+        assert gm.state.get_unit_count("Power1") == 1
+        assert gm.state.get_unit_count("Power2") == 1
+
+    def test_write_winter_order_files_builds(self):
+        """Test writing winter order files when builds are available."""
+        gm = self._setup_game_for_winter(
+            sc_control={"C1": "Power1", "C2": "Power1", "C3": "Power2"},
+            units={
+                "C1": Unit(UnitType.ARMY, "Power1", "C1"),
+                "C3": Unit(UnitType.ARMY, "Power2", "C3"),
+            },
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            files = gm.write_winter_order_files(tmpdir)
+            assert "Power1" in files
+            with open(files["Power1"], 'r') as f:
+                content = f.read()
+            assert "BUILD 1 unit(s)" in content
+            assert "(available)" in content
+
+    def test_write_winter_order_files_disbands(self):
+        """Test writing winter order files when disbands are required."""
+        gm = self._setup_game_for_winter(
+            sc_control={"C3": "Power2"},
+            units={
+                "C3": Unit(UnitType.ARMY, "Power2", "C3"),
+                "C4": Unit(UnitType.ARMY, "Power2", "C4"),
+            },
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            files = gm.write_winter_order_files(tmpdir)
+            assert "Power2" in files
+            with open(files["Power2"], 'r') as f:
+                content = f.read()
+            assert "DISBAND 1 unit(s)" in content
+
+    def test_read_winter_order_files_build(self):
+        """Test reading winter order files with build orders."""
+        gm = self._setup_game_for_winter(
+            sc_control={"C1": "Power1", "C2": "Power1"},
+            units={
+                "C1": Unit(UnitType.ARMY, "Power1", "C1"),
+            },
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath = os.path.join(tmpdir, "Power1_winter_orders.txt")
+            with open(filepath, 'w') as f:
+                f.write("# Winter Orders for Power1\n")
+                f.write("B A {Province2}\n")
+            order_files = {"Power1": filepath}
+            orders = gm.read_winter_order_files(order_files)
+            assert len(orders["Power1"]) == 1
+            order = orders["Power1"][0]
+            assert order.order_type == OrderType.BUILD
+            assert order.unit_type == "A"
+            assert order.location == "C2"  # resolved from name
+            assert order.power == "Power1"
+
+    def test_read_winter_order_files_disband(self):
+        """Test reading winter order files with disband orders."""
+        gm = self._setup_game_for_winter(
+            sc_control={"C3": "Power2"},
+            units={
+                "C3": Unit(UnitType.ARMY, "Power2", "C3"),
+                "C4": Unit(UnitType.ARMY, "Power2", "C4"),
+            },
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath = os.path.join(tmpdir, "Power2_winter_orders.txt")
+            with open(filepath, 'w') as f:
+                f.write("# Winter Orders for Power2\n")
+                f.write("A {Province4} D\n")
+            order_files = {"Power2": filepath}
+            orders = gm.read_winter_order_files(order_files)
+            assert len(orders["Power2"]) == 1
+            order = orders["Power2"][0]
+            assert order.order_type == OrderType.DISBAND
+            assert order.location == "C4"  # resolved from name
+            assert order.power == "Power2"
+
+
 def run_tests():
     """Run all tests and report results."""
-    test_classes = [TestUnit, TestGameState, TestGameManager]
+    test_classes = [TestUnit, TestGameState, TestGameManager, TestWinterAdjustments]
     
     total = 0
     passed = 0

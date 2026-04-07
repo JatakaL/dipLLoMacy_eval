@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from .game_state import GameState, Season, Phase
+from .orders import Order, OrderType, OrderResult, OrderParser
 from .units import Unit, UnitType
 
 
@@ -886,3 +887,334 @@ class GameManager:
             return []
         
         return [(loc, unit) for loc, unit in self.state.dislodged_units.items()]
+
+    def process_winter_adjustments(self, build_orders: Dict[str, List[Order]]) -> str:
+        """
+        Process winter adjustment phase (builds and disbands).
+
+        For each power, computes SC count vs unit count:
+        - If SC count > unit count: accepts BUILD orders at unoccupied home SCs
+        - If unit count > SC count: accepts DISBAND orders
+        - If equal: no adjustments needed
+
+        Args:
+            build_orders: Dictionary mapping power name to list of Order objects
+                          (BUILD or DISBAND type)
+
+        Returns:
+            A resolution log string summarizing what happened
+        """
+        if not self.state:
+            raise RuntimeError("Game not initialized. Call initialize_game() first.")
+
+        log_lines = [f"=== Winter {self.state.year} Adjustments ==="]
+
+        for power in sorted(self.state.powers):
+            sc_count = self.state.get_sc_count(power)
+            unit_count = self.state.get_unit_count(power)
+            diff = sc_count - unit_count
+            orders = build_orders.get(power, [])
+
+            if diff > 0:
+                # Power can build
+                builds_allowed = diff
+                builds_done = 0
+                home_scs = self.state.get_home_scs(power)
+
+                for order in orders:
+                    if order.order_type != OrderType.BUILD:
+                        log_lines.append(
+                            f"  {power}: REJECTED non-build order {order} "
+                            f"(expected BUILD)"
+                        )
+                        order.result = OrderResult.INVALID_UNIT_TYPE
+                        continue
+
+                    if builds_done >= builds_allowed:
+                        log_lines.append(
+                            f"  {power}: REJECTED {order} "
+                            f"(no more builds allowed)"
+                        )
+                        order.result = OrderResult.FAILED_BOUNCE
+                        continue
+
+                    # Validate: must be at a home SC
+                    if order.location not in home_scs:
+                        log_lines.append(
+                            f"  {power}: REJECTED {order} "
+                            f"(not a home supply center)"
+                        )
+                        order.result = OrderResult.INVALID_TARGET
+                        continue
+
+                    # Validate: home SC must be unoccupied
+                    if self.state.get_unit_at(order.location) is not None:
+                        log_lines.append(
+                            f"  {power}: REJECTED {order} "
+                            f"(home SC is occupied)"
+                        )
+                        order.result = OrderResult.INVALID_TARGET
+                        continue
+
+                    # Validate unit type
+                    if order.unit_type not in ('A', 'F'):
+                        log_lines.append(
+                            f"  {power}: REJECTED {order} "
+                            f"(invalid unit type)"
+                        )
+                        order.result = OrderResult.INVALID_UNIT_TYPE
+                        continue
+
+                    # Build the unit
+                    new_unit_type = (
+                        UnitType.ARMY if order.unit_type == 'A'
+                        else UnitType.FLEET
+                    )
+                    new_unit = Unit(
+                        unit_type=new_unit_type,
+                        power=power,
+                        location=order.location,
+                    )
+                    self.state.units[order.location] = new_unit
+                    order.result = OrderResult.SUCCESS
+                    builds_done += 1
+                    log_lines.append(
+                        f"  {power}: BUILD {order.unit_type} "
+                        f"at {order.location}"
+                    )
+
+                log_lines.append(
+                    f"  {power}: {sc_count} SCs, {unit_count} units, "
+                    f"{builds_done}/{builds_allowed} builds completed"
+                )
+
+            elif diff < 0:
+                # Power must disband
+                disbands_required = -diff
+                disbands_done = 0
+
+                for order in orders:
+                    if order.order_type != OrderType.DISBAND:
+                        log_lines.append(
+                            f"  {power}: REJECTED non-disband order {order} "
+                            f"(expected DISBAND)"
+                        )
+                        order.result = OrderResult.INVALID_UNIT_TYPE
+                        continue
+
+                    if disbands_done >= disbands_required:
+                        log_lines.append(
+                            f"  {power}: REJECTED {order} "
+                            f"(no more disbands needed)"
+                        )
+                        order.result = OrderResult.FAILED_BOUNCE
+                        continue
+
+                    # Validate: unit must exist at location and belong to power
+                    unit = self.state.get_unit_at(order.location)
+                    if unit is None or unit.power != power:
+                        log_lines.append(
+                            f"  {power}: REJECTED {order} "
+                            f"(no unit belonging to {power} at "
+                            f"{order.location})"
+                        )
+                        order.result = OrderResult.INVALID_UNIT
+                        continue
+
+                    # Disband the unit
+                    del self.state.units[order.location]
+                    order.result = OrderResult.SUCCESS
+                    disbands_done += 1
+                    log_lines.append(
+                        f"  {power}: DISBAND {order.unit_type} "
+                        f"at {order.location}"
+                    )
+
+                log_lines.append(
+                    f"  {power}: {sc_count} SCs, {unit_count} units, "
+                    f"{disbands_done}/{disbands_required} disbands completed"
+                )
+
+            else:
+                # No adjustment needed
+                log_lines.append(
+                    f"  {power}: {sc_count} SCs, {unit_count} units, "
+                    f"no adjustment needed"
+                )
+
+        log_lines.append("=== End Winter Adjustments ===")
+        return "\n".join(log_lines)
+
+    def write_winter_order_files(self, output_dir: str) -> Dict[str, str]:
+        """
+        Write per-power order files for the winter adjustment phase.
+
+        Each file indicates how many builds or disbands the power must make,
+        with commented instructions.
+
+        Args:
+            output_dir: Directory to write order files
+
+        Returns:
+            Dictionary mapping power name to order file path
+        """
+        if not self.state:
+            raise RuntimeError("Game not initialized. Call initialize_game() first.")
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        order_files = {}
+
+        for power in sorted(self.state.powers):
+            sc_count = self.state.get_sc_count(power)
+            unit_count = self.state.get_unit_count(power)
+            diff = sc_count - unit_count
+
+            filename = f"{power}_winter_orders.txt"
+            filepath = os.path.join(output_dir, filename)
+
+            lines = []
+            lines.append(f"# Winter Orders for {power}")
+            lines.append(
+                f"# {self.state.get_turn_string()} - Build Phase"
+            )
+            lines.append(f"# Supply Centers: {sc_count}")
+            lines.append(f"# Units: {unit_count}")
+            lines.append(f"#")
+
+            if diff > 0:
+                lines.append(f"# You may BUILD {diff} unit(s).")
+                lines.append(
+                    f"# Builds must be at unoccupied home supply centers."
+                )
+                lines.append(f"# Format: B A/F {{Territory Name}}")
+                lines.append(f"#")
+                home_scs = self.state.get_home_scs(power)
+                for sc in home_scs:
+                    occupied = (
+                        " (occupied)" if self.state.get_unit_at(sc)
+                        else " (available)"
+                    )
+                    name = self.get_territory_name(sc)
+                    lines.append(f"# Home SC: {{{name}}}{occupied}")
+                lines.append(f"#")
+            elif diff < 0:
+                disbands = -diff
+                lines.append(f"# You must DISBAND {disbands} unit(s).")
+                lines.append(f"# Format: A/F {{Territory Name}} D")
+                lines.append(f"#")
+                units = self.state.get_units_for_power(power)
+                for unit in units:
+                    utype = (
+                        'A' if unit.unit_type == UnitType.ARMY else 'F'
+                    )
+                    name = self.get_territory_name(unit.location)
+                    lines.append(f"# Unit: {utype} {{{name}}}")
+                lines.append(f"#")
+            else:
+                lines.append(f"# No adjustments needed.")
+
+            lines.append("")
+
+            with open(filepath, 'w') as f:
+                f.write("\n".join(lines))
+
+            order_files[power] = filepath
+
+        return order_files
+
+    def read_winter_order_files(
+        self, order_files: Dict[str, str]
+    ) -> Dict[str, List]:
+        """
+        Read and parse winter order files for each power.
+
+        Handles BUILD orders (format: B A/F {Territory}) and
+        DISBAND orders (format: A/F {Territory} D).
+
+        Args:
+            order_files: Dictionary mapping power name to order file path
+
+        Returns:
+            Dictionary mapping power name to list of Order objects
+        """
+        import re
+
+        all_orders: Dict[str, List] = {}
+
+        build_pattern = re.compile(
+            r'^B\s+(A|F)\s+\{([^}]+)\}\s*$'
+        )
+
+        for power, filepath in order_files.items():
+            orders = []
+            with open(filepath, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+
+                    # Try BUILD format: B A/F {Territory}
+                    build_match = build_pattern.match(line)
+                    if build_match:
+                        unit_type = build_match.group(1)
+                        location = build_match.group(2)
+                        # Resolve territory name to ID
+                        territory_id = self._resolve_territory(location)
+                        order = Order(
+                            unit_type=unit_type,
+                            location=territory_id,
+                            order_type=OrderType.BUILD,
+                            power=power,
+                            raw_order=line,
+                        )
+                        orders.append(order)
+                        continue
+
+                    # Try DISBAND format: A/F {Territory} D
+                    parsed = OrderParser.parse(line)
+                    if parsed.order_type == OrderType.DISBAND:
+                        # Resolve territory name to ID
+                        territory_id = self._resolve_territory(
+                            parsed.location
+                        )
+                        parsed.location = territory_id
+                        parsed.power = power
+                        orders.append(parsed)
+                        continue
+
+                    # Unknown format – still include as parsed order
+                    parsed = OrderParser.parse(line)
+                    parsed.power = power
+                    orders.append(parsed)
+
+            all_orders[power] = orders
+
+        return all_orders
+
+    def _resolve_territory(self, name_or_id: str) -> str:
+        """
+        Resolve a territory name to its ID.
+
+        If the name matches a face ID directly, return it.
+        Otherwise search face names for a match.
+
+        Args:
+            name_or_id: Territory name or ID
+
+        Returns:
+            The territory ID (falls back to the input if not found)
+        """
+        topology = self.map_data.get('topology', {})
+        faces = topology.get('faces', {})
+
+        # Direct ID match
+        if name_or_id in faces:
+            return name_or_id
+
+        # Search by name
+        for face_id, face_data in faces.items():
+            if face_data.get('name', '') == name_or_id:
+                return face_id
+
+        return name_or_id
