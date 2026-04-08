@@ -469,19 +469,19 @@ def _draw_orders(
             _draw_unit_marker(ax, src, unit_type, power, power_colors)
 
         if otype == "move":
-            _draw_move(ax, od, src_center, center_fn, color, result)
+            _draw_move(ax, od, src, center_fn, color, result)
         elif otype == "hold":
             _draw_hold(ax, src, color)
         elif otype == "support":
-            _draw_support(ax, od, src_center, center_fn, color)
+            _draw_support(ax, od, src, center_fn, color)
         elif otype == "convoy":
-            _draw_convoy(ax, od, src_center, center_fn, color)
+            _draw_convoy(ax, od, src, center_fn, color)
         elif otype == "build":
             _draw_build(ax, od, unit_pos_fn, center_fn, power, power_colors)
         elif otype == "disband":
             _draw_disband(ax, od, src, color)
         elif otype == "retreat":
-            _draw_move(ax, od, src_center, center_fn, color, result,
+            _draw_move(ax, od, src, center_fn, color, result,
                        linestyle="dashed")
 
 
