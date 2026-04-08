@@ -5,11 +5,13 @@ The GameModerator connects LLM adapters to the game engine, collecting
 orders from agents each turn and feeding them through the game manager.
 """
 
+import random
 from typing import Callable, Optional
 
 from game.game_manager import GameManager
 from game.game_state import GameState, Phase
-from game.orders import Order, OrderParser
+from game.orders import Order, OrderType, OrderParser
+from game.units import UnitType
 
 from .adapters.base import BaseLLMAdapter
 
@@ -257,7 +259,10 @@ class GameModerator:
                     self.game_manager.disband_unit(loc)
                 self.game_manager.advance_to_next_phase()
             elif state.phase == Phase.BUILD:
-                winter_log = self.game_manager.process_winter_adjustments({})
+                winter_orders = self._generate_random_winter_orders()
+                winter_log = self.game_manager.process_winter_adjustments(
+                    winter_orders
+                )
                 winter_result = {
                     "turn": f"Winter {state.year}",
                     "winter_log": winter_log,
@@ -296,3 +301,88 @@ class GameModerator:
             },
             "history": history,
         }
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _generate_random_winter_orders(self) -> dict[str, list[Order]]:
+        """Generate random valid winter build/disband orders for all powers.
+
+        For each power:
+        - If the power can build (SC count > unit count), randomly build
+          armies or fleets at unoccupied home SCs up to the allowed amount.
+        - If the power must disband (unit count > SC count), randomly
+          select units to disband.
+
+        Returns:
+            A dict mapping power name to a list of BUILD/DISBAND orders.
+        """
+        state = self.game_manager.state
+        orders: dict[str, list[Order]] = {}
+        faces = self.game_manager.map_data.get("topology", {}).get("faces", {})
+
+        for power in sorted(state.powers):
+            sc_count = state.get_sc_count(power)
+            unit_count = state.get_unit_count(power)
+            diff = sc_count - unit_count
+
+            if diff > 0:
+                # Power can build
+                builds_allowed = diff
+                home_scs = state.get_home_scs(power)
+                available = [
+                    loc for loc in home_scs
+                    if state.get_unit_at(loc) is None
+                ]
+                random.shuffle(available)
+                power_orders: list[Order] = []
+                for loc in available[:builds_allowed]:
+                    face_data = faces.get(loc, {})
+                    is_coastal = face_data.get("coastal", False)
+                    territory_type = face_data.get("type", "land")
+                    # Coastal provinces can have either; pick randomly.
+                    # Inland land gets an army; sea gets a fleet.
+                    if is_coastal:
+                        unit_type = random.choice(["A", "F"])
+                    elif territory_type == "sea":
+                        unit_type = "F"
+                    else:
+                        unit_type = "A"
+                    power_orders.append(
+                        Order(
+                            unit_type=unit_type,
+                            location=loc,
+                            order_type=OrderType.BUILD,
+                            power=power,
+                        )
+                    )
+                if power_orders:
+                    orders[power] = power_orders
+
+            elif diff < 0:
+                # Power must disband
+                disbands_needed = -diff
+                power_units = [
+                    (loc, u)
+                    for loc, u in state.units.items()
+                    if u.power == power
+                ]
+                random.shuffle(power_units)
+                power_orders = []
+                for loc, unit in power_units[:disbands_needed]:
+                    ut = (
+                        "A" if unit.unit_type == UnitType.ARMY else "F"
+                    )
+                    power_orders.append(
+                        Order(
+                            unit_type=ut,
+                            location=loc,
+                            order_type=OrderType.DISBAND,
+                            power=power,
+                        )
+                    )
+                if power_orders:
+                    orders[power] = power_orders
+
+        return orders
