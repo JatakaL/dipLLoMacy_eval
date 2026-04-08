@@ -1035,6 +1035,35 @@ class GameManager:
                         f"at {order.location}"
                     )
 
+                # Auto-disband remaining units if not enough valid
+                # DISBAND orders were provided (Diplomacy rules: a power
+                # cannot keep more units than SCs).  Units are sorted by
+                # province ID to ensure deterministic behaviour.
+                if disbands_done < disbands_required:
+                    remaining = disbands_required - disbands_done
+                    power_units = sorted(
+                        loc
+                        for loc, u in list(self.state.units.items())
+                        if u.power == power
+                    )
+                    for loc in power_units:
+                        if remaining <= 0:
+                            break
+                        unit = self.state.get_unit_at(loc)
+                        if unit is not None and unit.power == power:
+                            ut = (
+                                "A"
+                                if unit.unit_type == UnitType.ARMY
+                                else "F"
+                            )
+                            del self.state.units[loc]
+                            disbands_done += 1
+                            remaining -= 1
+                            log_lines.append(
+                                f"  {power}: AUTO-DISBAND {ut} "
+                                f"at {loc}"
+                            )
+
                 log_lines.append(
                     f"  {power}: {sc_count} SCs, {unit_count} units, "
                     f"{disbands_done}/{disbands_required} disbands completed"

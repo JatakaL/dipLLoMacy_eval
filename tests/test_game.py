@@ -587,6 +587,74 @@ class TestWinterAdjustments:
             assert order.power == "Power2"
 
 
+    def test_auto_disband_when_no_orders_provided(self):
+        """Power with more units than SCs auto-disbands when no orders given."""
+        gm = self._setup_game_for_winter(
+            sc_control={"C3": "Power2"},
+            units={
+                "C3": Unit(UnitType.ARMY, "Power2", "C3"),
+                "C4": Unit(UnitType.ARMY, "Power2", "C4"),
+            },
+        )
+        # Pass empty orders dict — no disband orders at all
+        log = gm.process_winter_adjustments({})
+        assert "AUTO-DISBAND" in log
+        assert gm.state.get_unit_count("Power2") == 1
+
+    def test_auto_disband_covers_shortfall(self):
+        """Auto-disband fills in remaining disbands after partial valid orders."""
+        gm = self._setup_game_for_winter(
+            sc_control={},  # Power2 has 0 SCs
+            units={
+                "C3": Unit(UnitType.ARMY, "Power2", "C3"),
+                "C4": Unit(UnitType.ARMY, "Power2", "C4"),
+            },
+        )
+        # Submit 1 valid disband but need 2
+        disband_orders = {
+            "Power2": [
+                Order(unit_type="A", location="C3",
+                      order_type=OrderType.DISBAND, power="Power2"),
+            ],
+        }
+        log = gm.process_winter_adjustments(disband_orders)
+        assert "DISBAND A at C3" in log
+        assert "AUTO-DISBAND" in log
+        assert gm.state.get_unit_count("Power2") == 0
+
+    def test_no_auto_disband_when_orders_sufficient(self):
+        """No auto-disband occurs when enough valid disband orders are given."""
+        gm = self._setup_game_for_winter(
+            sc_control={"C3": "Power2"},
+            units={
+                "C3": Unit(UnitType.ARMY, "Power2", "C3"),
+                "C4": Unit(UnitType.ARMY, "Power2", "C4"),
+            },
+        )
+        disband_orders = {
+            "Power2": [
+                Order(unit_type="A", location="C4",
+                      order_type=OrderType.DISBAND, power="Power2"),
+            ],
+        }
+        log = gm.process_winter_adjustments(disband_orders)
+        assert "AUTO-DISBAND" not in log
+        assert gm.state.get_unit_count("Power2") == 1
+
+    def test_no_forced_build_when_orders_missing(self):
+        """A power may decline builds — no forced build if orders missing."""
+        gm = self._setup_game_for_winter(
+            sc_control={"C1": "Power1", "C2": "Power1"},
+            units={
+                "C1": Unit(UnitType.ARMY, "Power1", "C1"),
+            },
+        )
+        # Pass empty orders — Power1 can build 1 but submits nothing
+        log = gm.process_winter_adjustments({})
+        assert "0/1 builds completed" in log
+        assert gm.state.get_unit_count("Power1") == 1
+
+
 def run_tests():
     """Run all tests and report results."""
     test_classes = [TestUnit, TestGameState, TestGameManager, TestWinterAdjustments]

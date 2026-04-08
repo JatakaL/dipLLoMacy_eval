@@ -229,3 +229,73 @@ class TestAgentCalls:
 
         assert adapter1.call_count == turns
         assert adapter2.call_count == turns
+
+
+class TestWinterOrderGeneration:
+    """Tests for random winter order generation in run_game."""
+
+    def test_generate_random_winter_orders_disbands(self):
+        """_generate_random_winter_orders produces DISBAND orders when needed."""
+        map_data = _create_minimal_map_data()
+        gm = GameManager(map_data=map_data)
+        gm.initialize_game()
+        # Force a state where Power2 has more units than SCs
+        from game.game_state import Season, Phase
+        from game.orders import OrderType
+        from game import Unit, UnitType
+        gm.state.sc_control = {"C3": "Power2"}
+        gm.state.units = {
+            "C3": Unit(UnitType.ARMY, "Power2", "C3"),
+            "C4": Unit(UnitType.ARMY, "Power2", "C4"),
+        }
+        gm.state.season = Season.WINTER
+        gm.state.phase = Phase.BUILD
+
+        agents = {"Power1": MockLLMAdapter(), "Power2": MockLLMAdapter()}
+        moderator = GameModerator(gm, agents)
+        orders = moderator._generate_random_winter_orders()
+        assert "Power2" in orders
+        assert len(orders["Power2"]) == 1
+        assert orders["Power2"][0].order_type == OrderType.DISBAND
+
+    def test_generate_random_winter_orders_builds(self):
+        """_generate_random_winter_orders produces BUILD orders when possible."""
+        map_data = _create_minimal_map_data()
+        gm = GameManager(map_data=map_data)
+        gm.initialize_game()
+        from game.game_state import Season, Phase
+        from game.orders import OrderType
+        from game import Unit, UnitType
+        gm.state.sc_control = {"C1": "Power1", "C2": "Power1"}
+        gm.state.units = {
+            "C1": Unit(UnitType.ARMY, "Power1", "C1"),
+        }
+        gm.state.season = Season.WINTER
+        gm.state.phase = Phase.BUILD
+
+        agents = {"Power1": MockLLMAdapter(), "Power2": MockLLMAdapter()}
+        moderator = GameModerator(gm, agents)
+        orders = moderator._generate_random_winter_orders()
+        assert "Power1" in orders
+        assert len(orders["Power1"]) == 1
+        assert orders["Power1"][0].order_type == OrderType.BUILD
+
+    def test_run_game_applies_winter_disbands(self):
+        """run_game correctly disbands units during winter adjustments."""
+        map_data = _create_minimal_map_data()
+        gm = GameManager(map_data=map_data)
+        gm.initialize_game()
+
+        agents = {
+            "Power1": MockLLMAdapter(),
+            "Power2": MockLLMAdapter(),
+        }
+        moderator = GameModerator(gm, agents)
+        # Run enough turns to hit a winter phase; check that no power
+        # has more units than SCs after each winter.
+        summary = moderator.run_game(max_turns=4)
+        state = gm.state
+        for power in state.powers:
+            unit_count = state.get_unit_count(power)
+            sc_count = state.get_sc_count(power)
+            assert unit_count <= sc_count or sc_count == 0
