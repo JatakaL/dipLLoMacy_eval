@@ -420,6 +420,28 @@ def _is_failed(result: str) -> bool:
                       "invalid_adjacent", "invalid_unit_type")
 
 
+def _draw_unit_marker(
+    ax: plt.Axes,
+    pos: Optional[tuple[float, float]],
+    unit_type: str,
+    power: Optional[str],
+    power_colors: dict[str, str],
+) -> None:
+    """Draw a unit marker (army circle or fleet triangle) at *pos*."""
+    if pos is None:
+        return
+
+    unit_color = power_colors.get(power, "#555555") if power else "#555555"
+
+    marker = "o" if unit_type == "A" else "^"
+    ax.plot(pos[0], pos[1], marker,
+            markersize=11, color=unit_color,
+            markeredgecolor="black", markeredgewidth=1.8, zorder=15)
+    ax.text(pos[0], pos[1] - (0.001 if unit_type == "F" else 0),
+            unit_type, ha="center", va="center",
+            fontsize=6, fontweight="bold", color="white", zorder=16)
+
+
 def _draw_orders(
     ax: plt.Axes,
     orders: list[dict],
@@ -441,10 +463,15 @@ def _draw_orders(
         src = unit_pos_fn(location)
         src_center = center_fn(location)
 
+        # Draw the unit marker at its starting territory for all
+        # non-winter order types so the unit is always visible.
+        if otype in ("move", "hold", "support", "convoy", "retreat"):
+            _draw_unit_marker(ax, src, unit_type, power, power_colors)
+
         if otype == "move":
             _draw_move(ax, od, src_center, center_fn, color, result)
         elif otype == "hold":
-            _draw_hold(ax, src, color, unit_type, power, power_colors)
+            _draw_hold(ax, src, color)
         elif otype == "support":
             _draw_support(ax, od, src_center, center_fn, color)
         elif otype == "convoy":
@@ -508,24 +535,10 @@ def _draw_hold(
     ax: plt.Axes,
     pos: Optional[tuple[float, float]],
     color: str,
-    unit_type: str,
-    power: Optional[str],
-    power_colors: dict[str, str],
 ) -> None:
-    """Draw a hold indicator — a small shield-like circle around the unit."""
+    """Draw a hold indicator — a ring around the unit."""
     if pos is None:
         return
-
-    unit_color = power_colors.get(power, "#555555") if power else "#555555"
-
-    # Unit marker
-    marker = "o" if unit_type == "A" else "^"
-    ax.plot(pos[0], pos[1], marker,
-            markersize=11, color=unit_color,
-            markeredgecolor="black", markeredgewidth=1.8, zorder=15)
-    ax.text(pos[0], pos[1] - (0.001 if unit_type == "F" else 0),
-            unit_type, ha="center", va="center",
-            fontsize=6, fontweight="bold", color="white", zorder=16)
 
     # Hold ring
     ring = plt.Circle(pos, 0.012, fill=False,
