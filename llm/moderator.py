@@ -314,9 +314,12 @@ class GameModerator:
           armies or fleets at unoccupied home SCs up to the allowed amount.
         - If the power must disband (unit count > SC count), randomly
           select units to disband.
+        - If SC count equals unit count, no entry is created.
 
         Returns:
-            A dict mapping power name to a list of BUILD/DISBAND orders.
+            A dict mapping power name to a list of BUILD or DISBAND
+            ``Order`` objects.  Powers that need no adjustment are
+            omitted from the dict.
         """
         state = self.game_manager.state
         orders: dict[str, list[Order]] = {}

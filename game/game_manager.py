@@ -1037,7 +1037,8 @@ class GameManager:
 
                 # Auto-disband remaining units if not enough valid
                 # DISBAND orders were provided (Diplomacy rules: a power
-                # cannot keep more units than SCs).
+                # cannot keep more units than SCs).  Units are sorted by
+                # province ID to ensure deterministic behaviour.
                 if disbands_done < disbands_required:
                     remaining = disbands_required - disbands_done
                     power_units = sorted(
