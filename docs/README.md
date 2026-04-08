@@ -32,6 +32,12 @@ For new developers, we recommend starting with the **Phased Map Generation** gui
 | [Map Viewer Topology Update](MAP_VIEWER_TOPOLOGY_UPDATE.md) | Topology support additions to the map viewers |
 | [Viewer Implementation Summary](VIEWER_IMPLEMENTATION_SUMMARY.md) | Technical details of the map viewer implementation |
 
+### Game Viewer & Output
+
+| Document | Description |
+|----------|-------------|
+| [Game Viewer README](GAME_VIEWER_README.md) | Unified Game Viewer for replaying games, standardized output folder structure, and programmatic export API |
+
 ### Project Roadmap
 
 | Document | Description |
@@ -59,6 +65,17 @@ python orchestrator.py
 python map_viewer_cli.py path/to/map.json
 # or for GUI:
 python map_viewer.py path/to/map.json
+```
+
+### Run a Game and View It
+```bash
+# Run a random game (output saved to outputs/game_TIMESTAMP/)
+python examples/run_random_game.py --output both
+
+# Replay the game in the viewer
+python game_viewer.py outputs/game_YYYYMMDD_HHMMSS
+# or text-only:
+python game_viewer.py --text outputs/game_YYYYMMDD_HHMMSS
 ```
 
 ## Contributing
