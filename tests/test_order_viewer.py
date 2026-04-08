@@ -5,7 +5,7 @@ Verifies:
 - Text turn-summary parsing into order dicts
 - JSON turn-result loading
 - Rendering produces an image file without errors
-- Result colour mapping
+- Result color mapping
 - Name-to-ID resolution
 - Winter (build/disband) order parsing and rendering
 """
@@ -310,11 +310,11 @@ class TestLoadOrdersJSON:
 
 
 # ------------------------------------------------------------------
-# Tests: result colour helpers
+# Tests: result color helpers
 # ------------------------------------------------------------------
 
 class TestResultColors:
-    """Tests for result colour mapping."""
+    """Tests for result color mapping."""
 
     def test_success_is_green(self):
         assert _result_color("success") == "#2ca02c"

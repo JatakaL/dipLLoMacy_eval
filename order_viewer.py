@@ -34,7 +34,7 @@ import numpy as np
 
 
 # ---------------------------------------------------------------------------
-# Result → colour mapping
+# Result → color mapping
 # ---------------------------------------------------------------------------
 RESULT_COLORS = {
     "success": "#2ca02c",       # green
@@ -50,7 +50,7 @@ RESULT_COLORS = {
     "invalid_unit_type": "#7f7f7f",
 }
 
-# Display names for power colours (reused from game_manager)
+# Display names for power colors (reused from game_manager)
 POWER_NAMES = [
     "Avalon", "Borealis", "Crimson", "Dawnland", "Eastmark",
     "Frostheim", "Greenwood", "Highvale", "Ironhold", "Jadekeep",
@@ -283,7 +283,7 @@ def render_order_view(
     powers_data = map_data.get("powers", {})
     power_list = sorted(powers_data.keys()) if powers_data else []
 
-    # Power → colour
+    # Power → color
     tableau = list(mcolors.TABLEAU_COLORS.values())
     power_colors = {p: tableau[i % len(tableau)] for i, p in enumerate(power_list)}
 
@@ -670,10 +670,10 @@ def _draw_legend(
     power_list: list[str],
     power_colors: dict[str, str],
 ) -> None:
-    """Draw a legend for power colours and result indicators."""
+    """Draw a legend for power colors and result indicators."""
     elements = []
 
-    # Power colours
+    # Power colors
     for i, power in enumerate(power_list):
         color = power_colors[power]
         display = POWER_NAMES[i] if i < len(POWER_NAMES) else power
