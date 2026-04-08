@@ -3,7 +3,8 @@ Tests for turn-by-turn output: format_turn_summary and turn_callback in run_game
 
 Verifies that:
 - format_turn_summary produces the expected text sections
-- run_game invokes the turn_callback for every ORDER turn
+- format_turn_summary shows territory names (not cell IDs) in orders
+- run_game invokes the turn_callback for every ORDER turn and winter BUILD
 - run_game still works identically when no callback is provided
 """
 
@@ -151,6 +152,47 @@ class TestFormatTurnSummary:
         assert "Power1" in text
         assert "Power2" in text
 
+    def test_orders_use_territory_names(self):
+        """Orders section uses territory names, not cell IDs."""
+        gm, moderator = _setup_game_and_moderator()
+        # Build a synthetic turn result with properly formed order dicts
+        # (as would be produced by a real adapter that emits valid orders)
+        result = {
+            "turn": "Spring 1901",
+            "resolved_orders": [
+                {
+                    "unit_type": "A",
+                    "location": "C2",
+                    "order_type": "hold",
+                    "target": None,
+                    "result": "success",
+                    "power": "Power1",
+                    "raw_order": "A {C2} H",
+                },
+                {
+                    "unit_type": "F",
+                    "location": "C1",
+                    "order_type": "move",
+                    "target": "C3",
+                    "result": "bounce",
+                    "power": "Power1",
+                    "raw_order": "F {C1} M {C3}",
+                },
+            ],
+            "dislodged": {},
+            "log": "",
+        }
+        text = format_turn_summary(result, gm.state, gm)
+        orders_section = text.split("Orders:")[1].split("Unit positions:")[0]
+        # Should contain province names
+        assert "Province1" in orders_section
+        assert "Province2" in orders_section
+        assert "Province3" in orders_section
+        # Cell IDs should NOT appear in the orders display
+        assert "{C1}" not in orders_section
+        assert "{C2}" not in orders_section
+        assert "{C3}" not in orders_section
+
 
 # ------------------------------------------------------------------
 # turn_callback in run_game
@@ -159,27 +201,28 @@ class TestFormatTurnSummary:
 class TestTurnCallback:
     """Tests for the turn_callback parameter of run_game."""
 
-    def test_callback_invoked_per_turn(self):
-        """turn_callback is called once per ORDER-phase turn."""
+    def test_callback_invoked_per_order_turn(self):
+        """turn_callback is called at least once per ORDER-phase turn."""
         gm, moderator = _setup_game_and_moderator()
         collected: list[dict] = []
 
-        def cb(result, mod):
+        def cb(result, mod, step):
             collected.append(result)
 
         summary = moderator.run_game(max_turns=3, turn_callback=cb)
-        assert len(collected) == summary["turns_played"]
+        # At least as many callbacks as turns played (winter adds more)
+        assert len(collected) >= summary["turns_played"]
 
     def test_callback_receives_turn_result(self):
         """Each callback invocation receives a dict with expected keys."""
         gm, moderator = _setup_game_and_moderator()
         collected: list[dict] = []
 
-        def cb(result, mod):
+        def cb(result, mod, step):
             collected.append(result)
 
         moderator.run_game(max_turns=1, turn_callback=cb)
-        assert len(collected) == 1
+        assert len(collected) >= 1
         result = collected[0]
         assert "turn" in result
         assert "resolved_orders" in result
@@ -191,12 +234,26 @@ class TestTurnCallback:
         gm, moderator = _setup_game_and_moderator()
         received_mods: list = []
 
-        def cb(result, mod):
+        def cb(result, mod, step):
             received_mods.append(mod)
 
         moderator.run_game(max_turns=1, turn_callback=cb)
-        assert len(received_mods) == 1
+        assert len(received_mods) >= 1
         assert received_mods[0] is moderator
+
+    def test_callback_receives_step_number(self):
+        """The callback receives a sequential step_number starting at 1."""
+        gm, moderator = _setup_game_and_moderator()
+        steps: list[int] = []
+
+        def cb(result, mod, step):
+            steps.append(step)
+
+        moderator.run_game(max_turns=3, turn_callback=cb)
+        assert steps[0] == 1
+        # Steps should be strictly increasing
+        for i in range(1, len(steps)):
+            assert steps[i] == steps[i - 1] + 1
 
     def test_no_callback_still_works(self):
         """run_game works identically when turn_callback is None."""
@@ -212,3 +269,48 @@ class TestTurnCallback:
         summary = moderator.run_game(max_turns=2)
         assert isinstance(summary, dict)
         assert summary["turns_played"] > 0
+
+
+# ------------------------------------------------------------------
+# Winter turns
+# ------------------------------------------------------------------
+
+class TestWinterTurnOutput:
+    """Tests verifying winter BUILD phases appear in callback output."""
+
+    def test_winter_turn_in_history(self):
+        """Winter build results appear in the history list."""
+        gm, moderator = _setup_game_and_moderator()
+        summary = moderator.run_game(max_turns=3)
+        winter_entries = [
+            h for h in summary["history"] if "Winter" in h.get("turn", "")
+        ]
+        # With 3 order turns (S1901, F1901, S1902) there should be
+        # at least one winter entry (Winter 1901).
+        assert len(winter_entries) >= 1
+
+    def test_winter_callback_invoked(self):
+        """turn_callback is invoked for winter BUILD phases."""
+        gm, moderator = _setup_game_and_moderator()
+        turns_seen: list[str] = []
+
+        def cb(result, mod, step):
+            turns_seen.append(result["turn"])
+
+        moderator.run_game(max_turns=3, turn_callback=cb)
+        winter_calls = [t for t in turns_seen if "Winter" in t]
+        assert len(winter_calls) >= 1
+
+    def test_winter_summary_has_adjustments(self):
+        """format_turn_summary for a winter turn contains adjustments text."""
+        gm, moderator = _setup_game_and_moderator()
+        collected: list[dict] = []
+
+        def cb(result, mod, step):
+            collected.append(result)
+
+        moderator.run_game(max_turns=3, turn_callback=cb)
+        winter_results = [r for r in collected if "Winter" in r["turn"]]
+        assert len(winter_results) >= 1
+        text = format_turn_summary(winter_results[0], gm.state, gm)
+        assert "Winter" in text

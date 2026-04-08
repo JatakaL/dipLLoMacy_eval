@@ -26,7 +26,8 @@ def format_turn_summary(
     resolution, and supply-center counts per power.
 
     Args:
-        turn_result: The dict returned by ``GameModerator.run_turn``.
+        turn_result: The dict returned by ``GameModerator.run_turn``
+            or the winter-build dict produced internally by ``run_game``.
         state: The game state *after* the turn has been processed.
         game_manager: The game manager (used for territory name lookup).
 
@@ -43,18 +44,27 @@ def format_turn_summary(
 
     # --- Orders by power ---
     orders_by_power: dict[str, list[dict]] = {}
-    for order_dict in turn_result["resolved_orders"]:
+    for order_dict in turn_result.get("resolved_orders", []):
         power = order_dict.get("power", "Unknown")
         orders_by_power.setdefault(power, []).append(order_dict)
 
-    lines.append("")
-    lines.append("  Orders:")
-    for power in sorted(orders_by_power):
-        lines.append(f"    {power}:")
-        for od in orders_by_power[power]:
-            raw = od.get("raw_order") or _reconstruct_order_string(od)
-            result = od.get("result", "pending")
-            lines.append(f"      {raw}  [{result}]")
+    if orders_by_power:
+        lines.append("")
+        lines.append("  Orders:")
+        for power in sorted(orders_by_power):
+            lines.append(f"    {power}:")
+            for od in orders_by_power[power]:
+                display = _format_order_with_names(od, game_manager)
+                result = od.get("result", "pending")
+                lines.append(f"      {display}  [{result}]")
+
+    # --- Winter adjustments log ---
+    winter_log = turn_result.get("winter_log")
+    if winter_log:
+        lines.append("")
+        lines.append("  Winter adjustments:")
+        for log_line in winter_log.splitlines():
+            lines.append(f"    {log_line}")
 
     # --- Dislodged units ---
     dislodged = turn_result.get("dislodged", {})
@@ -91,15 +101,42 @@ def format_turn_summary(
     return "\n".join(lines)
 
 
-def _reconstruct_order_string(od: dict) -> str:
-    """Build a short display string from an order dict."""
+def _format_order_with_names(od: dict, game_manager: GameManager) -> str:
+    """Build a display string using territory names instead of cell IDs."""
     ut = od.get("unit_type", "?")
     loc = od.get("location", "?")
+    loc_name = game_manager.get_territory_name(loc)
     otype = od.get("order_type", "hold")
-    target = od.get("target")
-    if otype == "move" and target:
-        return f"{ut} {{{loc}}} M {{{target}}}"
-    return f"{ut} {{{loc}}} H"
+
+    if otype == "move":
+        target = od.get("target", "?")
+        target_name = game_manager.get_territory_name(target)
+        return f"{ut} {{{loc_name}}} M {{{target_name}}}"
+    elif otype == "support":
+        s_ut = od.get("support_unit_type", "?")
+        s_from = od.get("support_from", "?")
+        s_from_name = game_manager.get_territory_name(s_from)
+        s_to = od.get("support_to")
+        if s_to:
+            s_to_name = game_manager.get_territory_name(s_to)
+            return f"{ut} {{{loc_name}}} S {s_ut} {{{s_from_name}}} M {{{s_to_name}}}"
+        return f"{ut} {{{loc_name}}} S {s_ut} {{{s_from_name}}} H"
+    elif otype == "convoy":
+        s_ut = od.get("support_unit_type", "?")
+        s_from = od.get("support_from", "?")
+        s_from_name = game_manager.get_territory_name(s_from)
+        target = od.get("target", "?")
+        target_name = game_manager.get_territory_name(target)
+        return f"{ut} {{{loc_name}}} C {s_ut} {{{s_from_name}}} M {{{target_name}}}"
+    elif otype == "retreat":
+        target = od.get("target", "?")
+        target_name = game_manager.get_territory_name(target)
+        return f"{ut} {{{loc_name}}} R {{{target_name}}}"
+    elif otype == "disband":
+        return f"{ut} {{{loc_name}}} D"
+    elif otype == "build":
+        return f"B {ut} {{{loc_name}}}"
+    return f"{ut} {{{loc_name}}} H"
 
 
 class GameModerator:
@@ -179,7 +216,7 @@ class GameModerator:
     def run_game(
         self,
         max_turns: int = 50,
-        turn_callback: Optional[Callable[[dict, "GameModerator"], None]] = None,
+        turn_callback: Optional[Callable[[dict, "GameModerator", int], None]] = None,
     ) -> dict:
         """Run turns until victory, elimination, or *max_turns*.
 
@@ -191,8 +228,10 @@ class GameModerator:
         Args:
             max_turns: Maximum number of ORDER-phase turns to process.
             turn_callback: Optional callable invoked after each ORDER
-                turn with ``(turn_result, moderator)``.  Useful for
-                printing per-turn summaries or saving board images.
+                turn and each BUILD phase with
+                ``(turn_result, moderator, step_number)`` where
+                *step_number* is a 1-based sequential counter across
+                all reported phases.
 
         Returns:
             A dict with keys ``"turns_played"``, ``"winner"`` (or
@@ -200,6 +239,7 @@ class GameModerator:
         """
         history: list[dict] = []
         turns_played = 0
+        step_number = 0
         winner: Optional[str] = None
         state = self.game_manager.state
 
@@ -208,15 +248,27 @@ class GameModerator:
                 result = self.run_turn()
                 history.append(result)
                 turns_played += 1
+                step_number += 1
                 if turn_callback is not None:
-                    turn_callback(result, self)
+                    turn_callback(result, self, step_number)
             elif state.phase == Phase.RETREAT:
                 # Auto-disband any remaining dislodged units
                 for loc in list(state.dislodged_units.keys()):
                     self.game_manager.disband_unit(loc)
                 self.game_manager.advance_to_next_phase()
             elif state.phase == Phase.BUILD:
-                self.game_manager.process_winter_adjustments({})
+                winter_log = self.game_manager.process_winter_adjustments({})
+                winter_result = {
+                    "turn": f"Winter {state.year}",
+                    "winter_log": winter_log,
+                    "resolved_orders": [],
+                    "dislodged": {},
+                    "log": winter_log,
+                }
+                history.append(winter_result)
+                step_number += 1
+                if turn_callback is not None:
+                    turn_callback(winter_result, self, step_number)
                 self.game_manager.advance_to_next_phase()
 
             # Check victory conditions

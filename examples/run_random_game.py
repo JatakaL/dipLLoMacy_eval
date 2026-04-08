@@ -35,7 +35,8 @@ def _build_turn_callback(output_mode: str, output_dir: Path | None):
             *output_mode* is ``"file"`` or ``"both"``).
     """
 
-    def _callback(turn_result: dict, moderator: GameModerator) -> None:
+    def _callback(turn_result: dict, moderator: GameModerator,
+                  step_number: int) -> None:
         gm = moderator.game_manager
         state = gm.state
         summary_text = format_turn_summary(turn_result, state, gm)
@@ -47,14 +48,15 @@ def _build_turn_callback(output_mode: str, output_dir: Path | None):
         # --- File output ---
         if output_mode in ("file", "both") and output_dir is not None:
             turn_label = turn_result["turn"].replace(" ", "_")
+            prefix = f"{step_number:02d}"
 
             # Write text log
-            log_path = output_dir / f"{turn_label}_orders.txt"
+            log_path = output_dir / f"{prefix}_{turn_label}_orders.txt"
             with open(log_path, "w") as f:
                 f.write(summary_text + "\n")
 
             # Write board image
-            img_path = output_dir / f"{turn_label}_board.jpeg"
+            img_path = output_dir / f"{prefix}_{turn_label}_board.jpeg"
             try:
                 gm.export_board_image(str(img_path), dpi=150)
             except (OSError, ValueError, KeyError):
