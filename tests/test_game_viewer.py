@@ -144,8 +144,8 @@ class TestGameViewerImport:
         assert hasattr(game_viewer, "main")
 
 
-class TestOwnershipChangeDetection:
-    """Test that _get_previous_ownership returns the right data."""
+class TestWinterOrdersExport:
+    """Verify exported game data includes winter build/disband orders."""
 
     def test_winter_orders_exported(self, tmp_path):
         """Exported winter turns should contain resolved_orders with build/disband."""

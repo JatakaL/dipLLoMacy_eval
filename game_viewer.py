@@ -384,18 +384,8 @@ class GameViewer:
             # Only consider changes when there is a previous turn to
             # compare against and the ownership actually changed.
             if prev_ownership and owner != prev_owner:
-                gained = (
-                    owner is not None
-                    and owner in power_colors
-                    and (prev_owner is None or prev_owner not in power_colors
-                         or prev_owner != owner)
-                )
-                lost = (
-                    prev_owner is not None
-                    and prev_owner in power_colors
-                    and (owner is None or owner not in power_colors
-                         or owner != prev_owner)
-                )
+                gained = owner is not None and owner in power_colors
+                lost = prev_owner is not None and prev_owner in power_colors
 
                 if gained:
                     # Forward-slash hatching in the new owner's color
