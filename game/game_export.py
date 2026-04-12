@@ -16,8 +16,9 @@ Output directory layout
     │   ├── turn_01_Spring_1901/
     │   │   ├── state.json        # Game state *after* resolution
     │   │   ├── orders.json       # Resolved orders for this turn
+    │   │   ├── orders_view.png   # Map with order overlays (primary replay image)
     │   │   ├── summary.txt       # Human-readable turn summary
-    │   │   └── board.jpeg        # Board image after resolution
+    │   │   └── board.jpeg        # Board image (state only, no orders)
     │   ├── turn_02_Fall_1901/
     │   │   └── ...
     │   ├── turn_03_Winter_1901/
@@ -36,6 +37,9 @@ Design decisions
   turns played, etc.
 * Board images are best-effort — if ``export_board_image`` fails (e.g.
   on a minimal test map) the turn folder is still valid without it.
+* ``orders_view.png`` is the primary replay image, showing the map with
+  order overlays (move arrows, hold rings, etc.).  The Game Viewer
+  prefers this over ``board.jpeg`` when both are present.
 """
 
 import json
@@ -174,12 +178,27 @@ def write_turn_data(
     with open(summary_path, "w") as f:
         f.write(summary_text + "\n")
 
-    # board.jpeg — best-effort board image
+    # board.jpeg — best-effort board image (state only, no orders)
     try:
         img_path = turn_dir / "board.jpeg"
         game_manager.export_board_image(str(img_path), dpi=150)
     except (OSError, ValueError, KeyError, TypeError):
         pass  # Image export may fail on minimal/test maps
+
+    # orders_view.png — board with order overlays (the primary replay image)
+    try:
+        from order_viewer import render_order_view
+        resolved = turn_result.get("resolved_orders", [])
+        if resolved:
+            render_order_view(
+                map_data=game_manager.map_data,
+                orders=resolved,
+                turn_label=turn_result.get("turn", ""),
+                output_path=str(turn_dir / "orders_view.png"),
+                dpi=150,
+            )
+    except (ImportError, OSError, ValueError, KeyError, TypeError):
+        pass  # Order-view export is best-effort
 
     return turn_dir
 
@@ -387,6 +406,11 @@ def load_game_output(game_dir: str | Path) -> dict:
             board_file = turn_path / "board.jpeg"
             turn_info["has_board_image"] = board_file.exists()
             turn_info["board_image_path"] = str(board_file) if board_file.exists() else None
+
+            # Check for order-overlay image (preferred for replay)
+            orders_view_file = turn_path / "orders_view.png"
+            turn_info["has_orders_view"] = orders_view_file.exists()
+            turn_info["orders_view_path"] = str(orders_view_file) if orders_view_file.exists() else None
 
             turns.append(turn_info)
 

@@ -55,9 +55,10 @@ outputs/game_YYYYMMDD_HHMMSS/
 ├── turns/
 │   ├── turn_01_Spring_1901/
 │   │   ├── orders.json       # Resolved orders for this turn
+│   │   ├── orders_view.png   # Map with order overlays (primary replay image)
 │   │   ├── state.json        # Game state after resolution
 │   │   ├── summary.txt       # Human-readable turn summary
-│   │   └── board.jpeg        # Board image after resolution
+│   │   └── board.jpeg        # Board image (state only, no orders)
 │   ├── turn_02_Fall_1901/
 │   │   └── ...
 │   ├── turn_03_Winter_1901/
@@ -73,9 +74,10 @@ outputs/game_YYYYMMDD_HHMMSS/
 | `game_metadata.json` | Game setup: power names, home SCs, total provinces/SCs, generation config |
 | `map.json` | Complete map data (topology, faces, edges, vertices, etc.) |
 | `turns/turn_NN_Label/orders.json` | Resolved orders, dislodged units, winter log |
+| `turns/turn_NN_Label/orders_view.png` | Map with order overlays — arrows, hold rings, build/disband markers (primary replay image) |
 | `turns/turn_NN_Label/state.json` | Serialized `GameState` after resolution |
 | `turns/turn_NN_Label/summary.txt` | Human-readable turn summary |
-| `turns/turn_NN_Label/board.jpeg` | Board image (best-effort; may be absent on minimal maps) |
+| `turns/turn_NN_Label/board.jpeg` | Board image — state only, no order arrows (best-effort; may be absent on minimal maps) |
 | `result.json` | Game outcome: winner, turns played, final SC counts |
 
 ### Naming conventions
@@ -90,16 +92,21 @@ outputs/game_YYYYMMDD_HHMMSS/
 
 ## Game Viewer Interface
 
-### GUI Mode
+### GUI Mode — Unified Map-Centric View
 
-The Game Viewer provides:
+The Game Viewer presents a **single unified view** focused on the map:
 
-- **Turn list** (left sidebar) — click any turn to jump to it.
-- **Navigation buttons** — Previous / Next to step through turns.
-- **Board tab** — shows the board image for the selected turn.
-- **Orders tab** — displays all orders grouped by power with results.
-- **Summary tab** — shows the full human-readable turn summary.
-- **Info bar** — shows powers and game result at the top.
+- **Map with order overlays** (centre, dominant) — the focal point of the
+  viewer. Shows territories colored by owner, units, and order arrows/markers
+  (move arrows, hold rings, support dashes, build stars, etc.) all rendered
+  directly on the map. Uses `orders_view.png` when available; falls back to
+  live rendering from map + state data.
+- **Turn list** (left sidebar) — click any turn to jump to it instantly.
+- **Navigation buttons** (top bar) — Previous / Next to step through turns.
+- **Collapsible text panel** (right side) — shows text orders grouped by
+  power and the turn summary. Can be hidden via "Hide Panel" to give the
+  map maximum screen space, or shown again with "Show Panel".
+- **Result info** (top bar) — game outcome displayed at a glance.
 
 ### Text Mode (`--text`)
 
