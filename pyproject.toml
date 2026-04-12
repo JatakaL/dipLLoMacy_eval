@@ -1,8 +1,8 @@
 [project]
 name = "dipllomacy-eval"
 version = "0.1.0"
-description = "Diplomacy board game evaluation framework with randomized map generation and LLM-based agent support"
-readme = "docs/README.md"
+description = "Framework for evaluating LLM strategic reasoning and negotiation via Diplomacy gameplay on randomized maps"
+readme = "README.md"
 license = "Unlicense"
 requires-python = ">=3.12"
 dependencies = [

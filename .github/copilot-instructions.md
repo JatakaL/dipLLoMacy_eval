@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-dipLLoMacy_eval is a Diplomacy board game evaluation framework. It generates randomized Diplomacy maps via a 7-phase pipeline and includes a game engine with full turn processing, order resolution, and a modular LLM agent interface for evaluation.
+dipLLoMacy_eval evaluates Large Language Models on strategic reasoning, negotiation, and long-term planning by having them play the board game Diplomacy. Randomized maps (generated via a 7-phase pipeline) prevent memorization and force genuine reasoning. The framework includes a full game engine with turn processing and order resolution, and a modular LLM agent interface for running evaluations.
 
 ## Architecture
 

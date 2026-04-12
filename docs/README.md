@@ -1,10 +1,10 @@
 # dipLLoMacy_eval Documentation
 
-Welcome to the dipLLoMacy_eval documentation. This directory contains comprehensive documentation for the Diplomacy map generation and evaluation system.
+Welcome to the dipLLoMacy_eval documentation. This project evaluates LLM capabilities — strategic reasoning, negotiation, and long-term planning — by having them play Diplomacy on procedurally generated maps.
 
 ## Getting Started
 
-For new developers, we recommend starting with the **Phased Map Generation** guide to understand the core map generation pipeline.
+For new developers, start with the [LLM Integration Plan](PLAN_LLM_INTEGRATION.md) to understand the evaluation objectives. Then see the [Phased Map Generation](PHASED_MAP_GENERATION.md) guide to understand how randomized maps are produced.
 
 ## Documentation Index
 
