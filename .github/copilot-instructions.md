@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-dipLLoMacy_eval is a Diplomacy board game evaluation framework. It generates randomized Diplomacy maps via a 7-phase pipeline and will eventually support LLM-based agents playing the game with negotiation, strategic reasoning, and simultaneous order resolution.
+dipLLoMacy_eval evaluates Large Language Models on strategic reasoning, negotiation, and long-term planning by having them play the board game Diplomacy. Randomized maps (generated via a 7-phase pipeline) prevent memorization and force genuine reasoning. The framework includes a full game engine with turn processing and order resolution, and a modular LLM agent interface for running evaluations.
 
 ## Architecture
 
@@ -29,16 +29,40 @@ Core data model uses a face-edge-vertex topological structure:
 - **Border** — ordered list of edges forming a boundary between two faces
 - **Face** — territory with a type (land / sea / impassable) and a list of borders
 
+### Game Engine (`game/`)
+
+Fully implemented Diplomacy game mechanics:
+
+- `game_state.py` — GameState class tracking turn, season, phase, units, ownership, and supply center control
+- `units.py` — Unit and UnitType (Army / Fleet)
+- `orders.py` — Order, OrderType (Hold, Move, Support, Convoy, Retreat, Build, Disband), OrderResult, and OrderParser
+- `resolver.py` — OrderResolver implementing standard Diplomacy adjudication (support cutting, standoffs, dislodgement, head-to-head battles)
+- `validators.py` — OrderValidator for territory existence, adjacency, unit type constraints, and convoy path validation
+- `game_manager.py` — GameManager providing initialization, turn processing (spring/fall), retreat handling, winter adjustments (build/disband), state export (JSON and JPEG)
+- `game_export.py` — standardized output directory creation, full game export, and game loading
+
+### LLM Agent Framework (`llm/`)
+
+Modular adapter system for connecting LLM agents to the game engine:
+
+- `adapters/base.py` — BaseLLMAdapter ABC defining `generate_orders()` and `generate_diplomacy_message()`
+- `adapters/random_adapter.py` — RandomLLMAdapter for baseline evaluation (random valid moves)
+- `adapters/mock_adapter.py` — MockAdapter for testing without API calls
+- `moderator.py` — GameModerator connecting adapters to the game engine, orchestrating turn collection and result distribution
+
+Provider-specific adapters (OpenAI, Anthropic, local models) are not yet implemented; the framework is designed for them to be added as plugins.
+
 ### Visualization
 
-- `map_viewer.py` — interactive GUI (matplotlib + tkinter)
-- `map_viewer_cli.py` — CLI renderer for terminal output
+- `map_viewer.py` — interactive map GUI (matplotlib + tkinter) with tab interface and phase auto-detection
+- `map_viewer_cli.py` — CLI batch renderer for terminal output
+- `game_viewer.py` — game replay viewer with map-centric order overlays and turn navigation
+- `order_viewer.py` — order visualization library rendering arrows, hold shields, support dashes, and build/disband markers
 
 ### Planned Modules (not yet implemented)
 
-- **Game Engine** (`game/`) — GameState, Unit, Order classes; movement rules; turn processing (spring/fall/winter); victory conditions
-- **LLM Agents** (`llm/`) — adapters for OpenAI, Anthropic, and local models; prompt engineering for state representation and strategy
 - **Evaluation** (`evaluation/`) — performance metrics, strategic quality, diplomatic quality, batch benchmarking
+- **LLM Provider Adapters** — OpenAI, Anthropic, and local model adapters for `llm/adapters/`
 
 ## Tech Stack
 
@@ -57,7 +81,7 @@ Core data model uses a face-edge-vertex topological structure:
 - Module-level docstrings describing purpose and overview
 - Imports grouped: stdlib first, then third-party
 - Prefer `pathlib.Path` over `os.path`
-- Tests live in the project root as `test_*.py` files using plain `assert` statements
+- Tests live in the project root as `test_*.py` files and in the `tests/` subdirectory, using plain `assert` statements
 - Documentation in `docs/` as Markdown files with UPPER_SNAKE_CASE names
 
 ## Domain Concepts
@@ -74,6 +98,12 @@ Core data model uses a face-edge-vertex topological structure:
 - `docs/README.md` — documentation index and quick-start commands
 - `docs/PHASED_MAP_GENERATION.md` — complete pipeline guide with parameters and examples
 - `docs/TOPOLOGY_STRUCTURE.md` — face-edge-vertex data structure specification
-- `docs/PLAN_GAME_ELEMENTS.md` — roadmap for Diplomacy game mechanics implementation
-- `docs/PLAN_LLM_INTEGRATION.md` — roadmap for LLM agent integration and evaluation framework
+- `docs/PLAN_GAME_ELEMENTS.md` — game mechanics implementation status
+- `docs/PLAN_LLM_INTEGRATION.md` — LLM agent integration and evaluation framework roadmap
 - `docs/REFACTORING_SUMMARY.md` — architecture evolution from monolithic to phased design
+- `docs/GAME_VIEWER_README.md` — game replay viewer and standardized output format
+- `docs/MAP_VIEWER_README.md` — GUI and CLI map viewer user guide
+- `docs/MERGE_SPLIT_IMPLEMENTATION.md` — face merging and splitting for topology manipulation
+- `docs/OUTPUT_STRUCTURE_CHANGES.md` — output directory organization
+- `docs/TOPOLOGY_MIGRATION_SUMMARY.md` — migration from cell-centric to topological data structure
+- `docs/PLAN_MAP_COMPLETION.md` — map generation completion status and optional enhancements

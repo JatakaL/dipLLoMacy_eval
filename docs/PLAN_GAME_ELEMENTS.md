@@ -104,21 +104,21 @@ class OrderResolver:
         pass
 ```
 
-### Phase 3: Turn Processing (Partial ✅)
+### Phase 3: Turn Processing ✅
 
 #### 3.1 Spring/Fall Movement Turns
 
 - [x] Accept orders from all powers (via order files)
 - [x] Resolve all orders simultaneously
 - [x] Process retreats for dislodged units
-- [ ] Update supply center control (fall only) - partially implemented
+- [x] Update supply center control (fall only)
 
 #### 3.2 Winter Adjustment Phase
 
-- [ ] Calculate supply center counts per power
-- [ ] Allow builds if SC count > unit count
-- [ ] Force disbands if unit count > SC count
-- [ ] Validate builds occur at unoccupied home SCs
+- [x] Calculate supply center counts per power
+- [x] Allow builds if SC count > unit count
+- [x] Force disbands if unit count > SC count
+- [x] Validate builds occur at unoccupied home SCs
 
 #### 3.3 Victory Conditions
 
@@ -259,7 +259,7 @@ dipLLoMacy_eval/
 - [x] Can initialize a game from any generated map
 - [x] Can process all standard Diplomacy order types
 - [x] Correctly resolves complex multi-unit conflicts
-- [x] Handles retreat and build phases (retreat phase complete, build phase pending)
+- [x] Handles retreat and build phases
 - [x] Detects victory and elimination conditions
 - [x] Exports game state for LLM consumption (JSON and JPEG image)
 
