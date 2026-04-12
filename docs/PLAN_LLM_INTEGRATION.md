@@ -49,13 +49,13 @@ This document outlines the plan for integrating Large Language Models (LLMs) int
 
 Create an abstract interface for LLM communication:
 
-- [ ] Define base LLM adapter class
+- [x] Define base LLM adapter class
 - [ ] Support multiple LLM providers (OpenAI, Anthropic, local models)
 - [ ] Handle rate limiting and retries
 - [ ] Log all prompts and responses
 
 ```python
-# Proposed structure (llm_adapters/base.py)
+# Implemented in llm/adapters/base.py
 from abc import ABC, abstractmethod
 
 class BaseLLMAdapter(ABC):
@@ -80,7 +80,8 @@ class BaseLLMAdapter(ABC):
 - [ ] **OpenAI Adapter**: GPT-4, GPT-4-turbo, GPT-3.5
 - [ ] **Anthropic Adapter**: Claude 3, Claude 2
 - [ ] **Local Model Adapter**: LLaMA, Mistral via API
-- [ ] **Mock Adapter**: For testing without API calls
+- [x] **Mock Adapter**: For testing without API calls
+- [x] **Random Adapter**: Baseline random valid-order generation
 
 ```python
 # Proposed structure (llm_adapters/openai_adapter.py)
@@ -146,18 +147,18 @@ Based on the game state (and board image if provided), determine your valid move
 - [ ] **Negotiation**: Make and evaluate deals
 - [ ] **Message Generation**: Write diplomatic messages
 
-### Phase 3: Game Moderator
+### Phase 3: Game Moderator ✅
 
 #### 3.1 Turn Orchestration
 
-- [ ] Initialize game with LLM agents
-- [ ] Collect orders from all agents
+- [x] Initialize game with LLM agents
+- [x] Collect orders from all agents
 - [ ] Process diplomacy phase
-- [ ] Submit orders to game engine
-- [ ] Distribute results to agents
+- [x] Submit orders to game engine
+- [x] Distribute results to agents
 
 ```python
-# Proposed structure (moderator.py)
+# Implemented in llm/moderator.py
 class GameModerator:
     def __init__(self, game_manager, agents):
         self.game = game_manager
@@ -262,29 +263,31 @@ dipLLoMacy_eval/
 │   ├── __init__.py
 │   ├── adapters/
 │   │   ├── __init__.py
-│   │   ├── base.py          # BaseLLMAdapter
-│   │   ├── openai_adapter.py
-│   │   ├── anthropic_adapter.py
-│   │   └── mock_adapter.py
-│   ├── prompts/
+│   │   ├── base.py              # ✅ BaseLLMAdapter
+│   │   ├── random_adapter.py    # ✅ Random baseline adapter
+│   │   ├── mock_adapter.py      # ✅ Mock adapter for testing
+│   │   ├── openai_adapter.py    # ☐ Not yet implemented
+│   │   └── anthropic_adapter.py # ☐ Not yet implemented
+│   ├── prompts/                  # ☐ Not yet implemented
 │   │   ├── __init__.py
 │   │   ├── state_prompt.py
 │   │   ├── order_prompt.py
 │   │   └── diplomacy_prompt.py
-│   ├── moderator.py         # GameModerator
-│   └── agent.py             # LLMAgent wrapper
-├── evaluation/
+│   └── moderator.py             # ✅ GameModerator
+├── evaluation/                   # ☐ Not yet implemented
 │   ├── __init__.py
-│   ├── metrics.py           # EvaluationMetrics
-│   ├── scenarios.py         # Benchmark scenarios
-│   └── runner.py            # Evaluation orchestrator
-├── config/
-│   ├── llm_config.yaml      # LLM provider configs
-│   └── eval_config.yaml     # Evaluation parameters
+│   ├── metrics.py
+│   ├── scenarios.py
+│   └── runner.py
+├── config/                       # ☐ Not yet implemented
+│   ├── llm_config.yaml
+│   └── eval_config.yaml
+├── tests/
+│   ├── test_llm_adapter.py      # ✅ Adapter interface tests
+│   ├── test_random_adapter.py   # ✅ Random adapter tests
+│   └── test_moderator.py        # ✅ Moderator tests
 └── examples/
-    ├── run_single_game.py
-    ├── run_evaluation.py
-    └── compare_models.py
+    └── run_random_game.py        # ✅ Full game with random agents
 ```
 
 ## Implementation Order
