@@ -418,7 +418,7 @@ class GameViewer:
             pos = lp.get("unit_position", face_data.get("center"))
             if not pos:
                 continue
-            ut = unit_data.get("unit_type", "army")
+            ut = unit_data.get("type", unit_data.get("unit_type", "army"))
             ut_char = "A" if ut == "army" else "F"
             power = unit_data.get("power")
             uc = power_colors.get(power, "#555555")

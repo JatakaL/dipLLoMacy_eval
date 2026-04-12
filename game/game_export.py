@@ -71,7 +71,7 @@ def create_game_output_dir(
     output_dir = Path(base_dir) / f"game_{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "turns").mkdir(exist_ok=True)
-    return output_dir
+    return output_dir.resolve()
 
 
 def write_game_metadata(
@@ -98,7 +98,7 @@ def write_game_metadata(
         }
 
     metadata = {
-        "created": datetime.now(timezone.utc).isoformat() + "Z",
+        "created": datetime.now(timezone.utc).isoformat(),
         "powers": powers_info,
         "total_provinces": len(
             game_manager.map_data.get("topology", {}).get("faces", {})
