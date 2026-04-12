@@ -299,3 +299,32 @@ class TestWinterOrderGeneration:
             unit_count = state.get_unit_count(power)
             sc_count = state.get_sc_count(power)
             assert unit_count <= sc_count or sc_count == 0
+
+    def test_winter_resolved_orders_populated(self):
+        """Winter results include serialized build/disband orders."""
+        map_data = _create_minimal_map_data()
+        gm = GameManager(map_data=map_data)
+        gm.initialize_game()
+
+        agents = {
+            "Power1": MockLLMAdapter(),
+            "Power2": MockLLMAdapter(),
+        }
+        moderator = GameModerator(gm, agents)
+        collected: list[dict] = []
+
+        def cb(result, mod, step):
+            collected.append(result)
+
+        moderator.run_game(max_turns=3, turn_callback=cb)
+        winter_results = [
+            r for r in collected if "Winter" in r.get("turn", "")
+        ]
+        # There should be at least one winter turn
+        assert len(winter_results) >= 1
+        winter = winter_results[0]
+        # resolved_orders should contain dicts with order_type build/disband
+        for od in winter["resolved_orders"]:
+            assert od["order_type"] in ("build", "disband")
+            assert "power" in od
+            assert "location" in od

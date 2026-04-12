@@ -325,6 +325,15 @@ class GameViewer:
         self.fig.tight_layout(pad=0.5)
         self.canvas.draw()
 
+    def _get_previous_ownership(self) -> dict[str, str | None]:
+        """Return the ownership dict from the previous turn, or empty."""
+        idx = self.current_turn_idx
+        if idx <= 0:
+            return {}
+        prev_turn = self.turns[idx - 1]
+        prev_state = prev_turn.get("state") or {}
+        return prev_state.get("ownership", {})
+
     def _render_map_live(self, turn: dict) -> None:
         """Render the map + orders directly onto self.ax using topology data."""
         ax = self.ax
@@ -343,6 +352,7 @@ class GameViewer:
         # -- Province polygons --
         state_data = turn.get("state") or {}
         ownership = state_data.get("ownership", {})
+        prev_ownership = self._get_previous_ownership()
 
         for face_id, face_data in faces.items():
             polygon = self._get_face_polygon(face_id)
@@ -352,6 +362,7 @@ class GameViewer:
 
             face_type = face_data.get("type", "land")
             owner = ownership.get(face_id, face_data.get("owner"))
+            prev_owner = prev_ownership.get(face_id, face_data.get("owner"))
             is_sc = face_data.get("is_supply_center", False)
 
             if owner and owner in power_colors:
@@ -368,6 +379,46 @@ class GameViewer:
                 poly_arr[:, 0], poly_arr[:, 1],
                 color=color, alpha=alpha, edgecolor="black", linewidth=0.4,
             )
+
+            # -- Hatching for gained / lost territories --
+            # Only consider changes when there is a previous turn to
+            # compare against and the ownership actually changed.
+            if prev_ownership and owner != prev_owner:
+                gained = (
+                    owner is not None
+                    and owner in power_colors
+                    and (prev_owner is None or prev_owner not in power_colors
+                         or prev_owner != owner)
+                )
+                lost = (
+                    prev_owner is not None
+                    and prev_owner in power_colors
+                    and (owner is None or owner not in power_colors
+                         or owner != prev_owner)
+                )
+
+                if gained:
+                    # Forward-slash hatching in the new owner's color
+                    hatch_patch = mpatches.Polygon(
+                        poly_arr, closed=True,
+                        facecolor="none",
+                        edgecolor=power_colors[owner],
+                        hatch="//",
+                        linewidth=0.5,
+                        zorder=3,
+                    )
+                    ax.add_patch(hatch_patch)
+                elif lost:
+                    # Cross hatching in the old owner's color
+                    hatch_patch = mpatches.Polygon(
+                        poly_arr, closed=True,
+                        facecolor="none",
+                        edgecolor=power_colors[prev_owner],
+                        hatch="xx",
+                        linewidth=0.5,
+                        zorder=3,
+                    )
+                    ax.add_patch(hatch_patch)
 
         # -- SC markers --
         for face_id, face_data in faces.items():
