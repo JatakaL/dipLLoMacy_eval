@@ -175,6 +175,7 @@ cython_debug/
 
 # Generated map outputs
 output/
+outputs/
 test_output/
 test_env/
 demo_map/

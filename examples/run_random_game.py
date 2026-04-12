@@ -5,8 +5,14 @@ Example: Run a Diplomacy game with random-order agents.
 Generates a map, initializes a game, assigns a RandomLLMAdapter to every
 power, runs GameModerator.run_game(max_turns=10), and prints the summary.
 
-Turn-by-turn output (orders, board state) can be directed to the console,
-to files in an output directory, or both, via the ``--output`` flag.
+Turn-by-turn output is written to a standardized game output folder
+(see ``game/game_export.py`` for the directory layout) that can be
+opened directly by the Game Viewer::
+
+    python game_viewer.py outputs/game_20260408_224500
+
+Use ``--output`` to control whether summaries are also printed to the
+console, and ``--output-dir`` to override the output location.
 """
 
 import argparse
@@ -20,61 +26,29 @@ sys.path.insert(0, os.path.join(Path(__file__).parent.parent, "map_gen", "phases
 
 from orchestrator import run_full_pipeline
 from game import GameManager
-from llm import GameModerator, RandomLLMAdapter, format_turn_summary
+from game.game_export import (
+    create_game_output_dir,
+    export_full_game,
+)
+from llm import GameModerator, RandomLLMAdapter
 
 
-def _build_turn_callback(output_mode: str, output_dir: Path | None):
-    """Return a callback suitable for ``GameModerator.run_game(turn_callback=...)``.
-
-    The callback prints turn-by-turn summaries and/or writes per-turn
-    log files and board images depending on *output_mode*.
-
-    Args:
-        output_mode: One of ``"console"``, ``"file"``, or ``"both"``.
-        output_dir: Directory for file output (required when
-            *output_mode* is ``"file"`` or ``"both"``).
-    """
-
-    def _callback(turn_result: dict, moderator: GameModerator,
-                  step_number: int) -> None:
-        gm = moderator.game_manager
-        state = gm.state
-        summary_text = format_turn_summary(turn_result, state, gm)
-
-        # --- Console output ---
-        if output_mode in ("console", "both"):
-            print(summary_text)
-
-        # --- File output ---
-        if output_mode in ("file", "both") and output_dir is not None:
-            turn_label = turn_result["turn"].replace(" ", "_")
-            prefix = f"{step_number:02d}"
-
-            # Write text log
-            log_path = output_dir / f"{prefix}_{turn_label}_orders.txt"
-            with open(log_path, "w") as f:
-                f.write(summary_text + "\n")
-
-            # Write board image
-            img_path = output_dir / f"{prefix}_{turn_label}_board.jpeg"
-            try:
-                gm.export_board_image(str(img_path), dpi=150)
-            except (OSError, ValueError, KeyError):
-                pass  # Image export may fail on minimal maps
-
-    return _callback
-
-
-def main(seed: int = 42, max_turns: int = 10, output: str = "console",
+def main(seed: int = 42, max_turns: int = 10, output: str = "both",
          output_dir: str | None = None) -> dict:
     """Generate a map, run a full random game, and print the summary.
+
+    All game artifacts (map, per-turn state/orders/images, result) are
+    written to a single output folder using the standardized export
+    format so the Game Viewer can load and replay the game.
 
     Args:
         seed: Random seed used for both map generation and the adapters.
         max_turns: Maximum number of ORDER-phase turns to play.
-        output: Output mode — ``"console"``, ``"file"``, or ``"both"``.
+        output: Output mode — ``"console"`` (print only), ``"file"``
+            (write only), or ``"both"`` (default).
         output_dir: Directory for file output (auto-created if needed).
-            Required when *output* is ``"file"`` or ``"both"``.
+            When *None*, a timestamped directory is created under
+            ``outputs/``.
 
     Returns:
         The summary dict produced by ``GameModerator.run_game``.
@@ -107,20 +81,46 @@ def main(seed: int = 42, max_turns: int = 10, output: str = "console",
     agents = {power: RandomLLMAdapter(seed=seed) for power in state.powers}
     moderator = GameModerator(gm, agents)
 
-    # --- Prepare output directory if needed ---
-    resolved_output_dir: Path | None = None
-    if output in ("file", "both"):
-        if output_dir is None:
-            resolved_output_dir = Path("game_output") / f"random_game_seed{seed}"
-        else:
+    # --- Prepare output directory ---
+    console = output in ("console", "both")
+    write_files = output in ("file", "both")
+
+    if write_files:
+        if output_dir is not None:
             resolved_output_dir = Path(output_dir)
-        resolved_output_dir.mkdir(parents=True, exist_ok=True)
-        print(f"\n    File output directory: {resolved_output_dir}")
+            resolved_output_dir.mkdir(parents=True, exist_ok=True)
+            (resolved_output_dir / "turns").mkdir(exist_ok=True)
+        else:
+            resolved_output_dir = create_game_output_dir(base_dir="outputs")
+        print(f"\n    Output directory: {resolved_output_dir}")
+    else:
+        resolved_output_dir = None
 
     # --- Step 4: Run the game ---
     print(f"\n[4] Running game (max {max_turns} turns) ...")
-    turn_cb = _build_turn_callback(output, resolved_output_dir)
-    summary = moderator.run_game(max_turns=max_turns, turn_callback=turn_cb)
+
+    if write_files and resolved_output_dir is not None:
+        summary = export_full_game(
+            output_dir=resolved_output_dir,
+            game_manager=gm,
+            moderator=moderator,
+            max_turns=max_turns,
+            console=console,
+            config=config,
+        )
+    else:
+        # Console-only: use the old callback approach
+        from llm import format_turn_summary
+
+        def _console_cb(turn_result, mod, step):
+            text = format_turn_summary(turn_result, mod.game_manager.state,
+                                       mod.game_manager)
+            print(text)
+
+        summary = moderator.run_game(
+            max_turns=max_turns,
+            turn_callback=_console_cb if console else None,
+        )
 
     # --- Step 5: Print summary ---
     print("\n" + "=" * 70)
@@ -135,7 +135,8 @@ def main(seed: int = 42, max_turns: int = 10, output: str = "console",
         print(f"    {power:20s} : {count}")
 
     if resolved_output_dir is not None:
-        print(f"\n  Turn-by-turn files saved to: {resolved_output_dir}")
+        print(f"\n  Game output saved to: {resolved_output_dir}")
+        print(f"  View with:  python game_viewer.py {resolved_output_dir}")
 
     return summary
 
@@ -153,12 +154,12 @@ if __name__ == "__main__":
         help="Maximum ORDER-phase turns to play (default: 10)",
     )
     parser.add_argument(
-        "--output", choices=["console", "file", "both"], default="console",
-        help="Where to send turn-by-turn output (default: console)",
+        "--output", choices=["console", "file", "both"], default="both",
+        help="Where to send turn-by-turn output (default: both)",
     )
     parser.add_argument(
         "--output-dir", type=str, default=None,
-        help="Directory for file output (auto-created; required for 'file'/'both')",
+        help="Directory for file output (auto-created; default: outputs/game_TIMESTAMP/)",
     )
     args = parser.parse_args()
     main(

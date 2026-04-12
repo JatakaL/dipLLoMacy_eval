@@ -17,6 +17,16 @@ from .game_manager import GameManager
 from .orders import Order, OrderType, OrderResult, OrderParser
 from .resolver import OrderResolver
 from .validators import OrderValidator, build_adjacency_from_map
+from .game_export import (
+    create_game_output_dir,
+    write_game_metadata,
+    write_map_data,
+    write_turn_data,
+    write_game_result,
+    build_turn_callback,
+    export_full_game,
+    load_game_output,
+)
 
 __all__ = [
     'GameState', 
@@ -29,5 +39,13 @@ __all__ = [
     'OrderParser',
     'OrderResolver',
     'OrderValidator',
-    'build_adjacency_from_map'
+    'build_adjacency_from_map',
+    'create_game_output_dir',
+    'write_game_metadata',
+    'write_map_data',
+    'write_turn_data',
+    'write_game_result',
+    'build_turn_callback',
+    'export_full_game',
+    'load_game_output',
 ]
