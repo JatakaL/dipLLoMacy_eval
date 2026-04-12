@@ -440,11 +440,12 @@ class GameViewer:
         if resolved:
             try:
                 from order_viewer import (
-                    _draw_orders, _draw_legend, _build_name_to_id_map,
+                    draw_orders, draw_legend, build_name_to_id_map,
                 )
-                name_to_id = _build_name_to_id_map(faces)
+                name_to_id = build_name_to_id_map(faces)
 
-                def _center(loc):
+                def _face_center(loc):
+                    """Resolve a location name to its face center coords."""
                     fid = name_to_id.get(loc)
                     if fid is None:
                         return None
@@ -455,6 +456,7 @@ class GameViewer:
                     return (c[0], c[1]) if c else None
 
                 def _unit_pos(loc):
+                    """Get pre-determined unit position or fall back to center."""
                     fid = name_to_id.get(loc)
                     if fid is None:
                         return None
@@ -465,13 +467,13 @@ class GameViewer:
                     p = lp.get("unit_position")
                     if p:
                         return (p[0], p[1])
-                    return _center(loc)
+                    return _face_center(loc)
 
-                _draw_orders(
-                    ax, resolved, _center, _unit_pos,
+                draw_orders(
+                    ax, resolved, _face_center, _unit_pos,
                     power_colors, name_to_id, faces,
                 )
-                _draw_legend(ax, resolved, self._power_list, power_colors)
+                draw_legend(ax, resolved, self._power_list, power_colors)
             except ImportError:
                 pass  # order_viewer not available
 
