@@ -370,31 +370,22 @@ class GameViewer:
                 color=color, alpha=alpha, edgecolor="black", linewidth=0.4,
             )
 
-            # -- Hatching for gained / lost territories --
-            # Only consider changes when there is a previous turn to
-            # compare against and the ownership actually changed.
+            # -- Hatching for gained territories --
+            # Territory fill already uses the new owner's color.
+            # Overlay hatching in the *previous* owner's color so the
+            # viewer can see who held it before.  Neutral colour is used
+            # when the territory was previously unowned.
             if prev_ownership and owner != prev_owner:
-                gained = owner is not None and owner in power_colors
-                lost = prev_owner is not None and prev_owner in power_colors
-
-                if gained:
-                    # Forward-slash hatching in the new owner's color
+                if owner is not None and owner in power_colors:
+                    if prev_owner and prev_owner in power_colors:
+                        hatch_color = power_colors[prev_owner]
+                    else:
+                        hatch_color = "#C5E0B4"  # neutral land colour
                     hatch_patch = mpatches.Polygon(
                         poly_arr, closed=True,
                         facecolor="none",
-                        edgecolor=power_colors[owner],
+                        edgecolor=hatch_color,
                         hatch="//",
-                        linewidth=0.5,
-                        zorder=3,
-                    )
-                    ax.add_patch(hatch_patch)
-                elif lost:
-                    # Cross hatching in the old owner's color
-                    hatch_patch = mpatches.Polygon(
-                        poly_arr, closed=True,
-                        facecolor="none",
-                        edgecolor=power_colors[prev_owner],
-                        hatch="xx",
                         linewidth=0.5,
                         zorder=3,
                     )
@@ -441,31 +432,7 @@ class GameViewer:
                     zorder=5,
                 )
 
-        # -- Draw units from state --
-        units = state_data.get("units", {})
-        for loc, unit_data in units.items():
-            face_data = faces.get(loc, {})
-            lp = face_data.get("label_positions", {})
-            pos = lp.get("unit_position", face_data.get("center"))
-            if not pos:
-                continue
-            ut = unit_data.get("type", unit_data.get("unit_type", "army"))
-            ut_char = "A" if ut == "army" else "F"
-            power = unit_data.get("power")
-            uc = power_colors.get(power, "#555555")
-            marker = "o" if ut_char == "A" else "^"
-            ax.plot(
-                pos[0], pos[1], marker,
-                markersize=11, color=uc,
-                markeredgecolor="black", markeredgewidth=1.8, zorder=15,
-            )
-            ax.text(
-                pos[0], pos[1] - (0.001 if ut_char == "F" else 0),
-                ut_char, ha="center", va="center",
-                fontsize=6, fontweight="bold", color="white", zorder=16,
-            )
-
-        # -- Draw order overlays --
+        # -- Draw units and order overlays --
         orders_data = turn.get("orders") or {}
         resolved = orders_data.get("resolved_orders", [])
         if resolved:
@@ -507,6 +474,30 @@ class GameViewer:
                 draw_legend(ax, resolved, self._power_list, power_colors)
             except ImportError:
                 pass  # order_viewer not available
+        else:
+            # No orders to render — draw units from game state directly.
+            units = state_data.get("units", {})
+            for loc, unit_data in units.items():
+                fd = faces.get(loc, {})
+                lp = fd.get("label_positions", {})
+                pos = lp.get("unit_position", fd.get("center"))
+                if not pos:
+                    continue
+                ut = unit_data.get("type", unit_data.get("unit_type", "army"))
+                ut_char = "A" if ut == "army" else "F"
+                power = unit_data.get("power")
+                uc = power_colors.get(power, "#555555")
+                marker = "o" if ut_char == "A" else "^"
+                ax.plot(
+                    pos[0], pos[1], marker,
+                    markersize=11, color=uc,
+                    markeredgecolor="black", markeredgewidth=1.8, zorder=15,
+                )
+                ax.text(
+                    pos[0], pos[1] - (0.001 if ut_char == "F" else 0),
+                    ut_char, ha="center", va="center",
+                    fontsize=6, fontweight="bold", color="white", zorder=16,
+                )
 
         # -- Title --
         turn_label = orders_data.get("turn", turn.get("label", ""))

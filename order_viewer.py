@@ -332,29 +332,23 @@ def render_order_view(
         ax.fill(poly_arr[:, 0], poly_arr[:, 1],
                 color=color, alpha=alpha, edgecolor="black", linewidth=0.4)
 
-        # -- Hatching for gained / lost territories --
+        # -- Hatching for gained territories --
+        # Territory fill already uses the new owner's colour.
+        # Overlay hatching in the *previous* owner's colour so the
+        # viewer can see who held it before.
         if prev_ownership is not None:
             prev_owner = prev_ownership.get(face_id, face_data.get("owner"))
             if owner != prev_owner:
-                gained = owner is not None and owner in power_colors
-                lost = prev_owner is not None and prev_owner in power_colors
-
-                if gained:
+                if owner is not None and owner in power_colors:
+                    if prev_owner and prev_owner in power_colors:
+                        hatch_color = power_colors[prev_owner]
+                    else:
+                        hatch_color = "#C5E0B4"  # neutral land colour
                     hatch_patch = mpatches.Polygon(
                         poly_arr, closed=True,
                         facecolor="none",
-                        edgecolor=power_colors[owner],
+                        edgecolor=hatch_color,
                         hatch="//",
-                        linewidth=0.5,
-                        zorder=3,
-                    )
-                    ax.add_patch(hatch_patch)
-                elif lost:
-                    hatch_patch = mpatches.Polygon(
-                        poly_arr, closed=True,
-                        facecolor="none",
-                        edgecolor=power_colors[prev_owner],
-                        hatch="xx",
                         linewidth=0.5,
                         zorder=3,
                     )
