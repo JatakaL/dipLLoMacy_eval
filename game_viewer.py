@@ -295,44 +295,34 @@ class GameViewer:
     def _update_map(self, turn: dict) -> None:
         """Render the map with order overlays for this turn.
 
-        Prefers the pre-rendered ``orders_view.png`` if present; falls
-        back to ``board.jpeg``; finally falls back to live rendering.
+        Always uses live rendering so that territory colors update
+        dynamically and ownership-change hatching is visible.
         """
         self.ax.clear()
-
-        # 1. Try pre-rendered order-overlay image (best experience)
-        orders_view_path = turn.get("orders_view_path")
-        if orders_view_path and Path(orders_view_path).exists():
-            img = mpimg.imread(orders_view_path)
-            self.ax.imshow(img)
-            self.ax.set_axis_off()
-            self.fig.tight_layout(pad=0.5)
-            self.canvas.draw()
-            return
-
-        # 2. Try board.jpeg fallback
-        board_path = turn.get("board_image_path")
-        if board_path and Path(board_path).exists():
-            img = mpimg.imread(board_path)
-            self.ax.imshow(img)
-            self.ax.set_axis_off()
-            self.fig.tight_layout(pad=0.5)
-            self.canvas.draw()
-            return
-
-        # 3. Live render if no images available
         self._render_map_live(turn)
         self.fig.tight_layout(pad=0.5)
         self.canvas.draw()
 
-    def _get_previous_ownership(self) -> dict[str, str | None]:
-        """Return the ownership dict from the previous turn, or empty."""
+    @staticmethod
+    def _effective_ownership(state_data: dict) -> dict[str, str]:
+        """Build an ownership dict that reflects SC captures.
+
+        ``state.ownership`` only contains the initial map assignments.
+        ``state.sc_control`` is updated whenever a unit captures a supply
+        center.  Merging the two gives the up-to-date picture.
+        """
+        own = dict(state_data.get("ownership", {}))
+        own.update(state_data.get("sc_control", {}))
+        return own
+
+    def _get_previous_ownership(self) -> dict[str, str]:
+        """Return the effective ownership dict from the previous turn."""
         idx = self.current_turn_idx
         if idx <= 0:
             return {}
         prev_turn = self.turns[idx - 1]
         prev_state = prev_turn.get("state") or {}
-        return prev_state.get("ownership", {})
+        return self._effective_ownership(prev_state)
 
     def _render_map_live(self, turn: dict) -> None:
         """Render the map + orders directly onto self.ax using topology data."""
@@ -351,7 +341,7 @@ class GameViewer:
 
         # -- Province polygons --
         state_data = turn.get("state") or {}
-        ownership = state_data.get("ownership", {})
+        ownership = self._effective_ownership(state_data)
         prev_ownership = self._get_previous_ownership()
 
         for face_id, face_data in faces.items():

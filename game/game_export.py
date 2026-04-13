@@ -137,6 +137,7 @@ def write_turn_data(
     state: GameState,
     game_manager: GameManager,
     summary_text: str,
+    prev_ownership: Optional[dict[str, str]] = None,
 ) -> Path:
     """Write all artifacts for a single turn into ``turns/turn_NN_Label/``.
 
@@ -148,6 +149,8 @@ def write_turn_data(
         state: Game state *after* resolution.
         game_manager: Game manager (for board image export).
         summary_text: Pre-formatted human-readable summary string.
+        prev_ownership: Optional ownership dict from the previous turn,
+            used for territory-change hatching in the order-view image.
 
     Returns:
         Path to the turn sub-directory.
@@ -190,12 +193,17 @@ def write_turn_data(
         from order_viewer import render_order_view
         resolved = turn_result.get("resolved_orders", [])
         if resolved:
+            # Build an effective ownership dict that reflects SC captures.
+            current_ownership = dict(state.ownership)
+            current_ownership.update(state.sc_control)
             render_order_view(
                 map_data=game_manager.map_data,
                 orders=resolved,
                 turn_label=turn_result.get("turn", ""),
                 output_path=str(turn_dir / "orders_view.png"),
                 dpi=150,
+                ownership=current_ownership,
+                prev_ownership=prev_ownership,
             )
     except (ImportError, OSError, ValueError, KeyError, TypeError):
         pass  # Order-view export is best-effort
@@ -247,11 +255,14 @@ def build_turn_callback(
     # Import here to avoid circular imports at module level
     from llm.moderator import format_turn_summary
 
+    _prev_ownership: dict[str, str] = {}
+
     def _callback(
         turn_result: dict,
         moderator,
         step_number: int,
     ) -> None:
+        nonlocal _prev_ownership
         gm = moderator.game_manager
         state = gm.state
         summary_text = format_turn_summary(turn_result, state, gm)
@@ -266,7 +277,13 @@ def build_turn_callback(
             state=state,
             game_manager=gm,
             summary_text=summary_text,
+            prev_ownership=_prev_ownership if _prev_ownership else None,
         )
+
+        # Snapshot current ownership for comparison in the next callback.
+        new_ownership = dict(state.ownership)
+        new_ownership.update(state.sc_control)
+        _prev_ownership = new_ownership
 
     return _callback
 

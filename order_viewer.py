@@ -257,6 +257,8 @@ def render_order_view(
     turn_label: str = "",
     output_path: Optional[str] = None,
     dpi: int = 150,
+    ownership: Optional[dict[str, str]] = None,
+    prev_ownership: Optional[dict[str, str]] = None,
 ) -> str:
     """Render the base map with order overlays and save to *output_path*.
 
@@ -266,6 +268,12 @@ def render_order_view(
         turn_label: Turn identifier string for the title.
         output_path: Destination PNG path.  Defaults to ``orders_view.png``.
         dpi: Output resolution.
+        ownership: Optional mapping of ``face_id → power`` reflecting
+            current territory control.  When provided, overrides the
+            static ``face_data["owner"]`` used for polygon colouring.
+        prev_ownership: Optional mapping of ``face_id → power`` from the
+            previous turn.  Used together with *ownership* to render
+            hatching on territories that changed hands.
 
     Returns:
         The path where the image was saved.
@@ -305,7 +313,10 @@ def render_order_view(
         poly_arr = np.array(polygon)
 
         face_type = face_data.get("type", "land")
-        owner = face_data.get("owner")
+        if ownership is not None:
+            owner = ownership.get(face_id, face_data.get("owner"))
+        else:
+            owner = face_data.get("owner")
         is_sc = face_data.get("is_supply_center", False)
 
         if owner and owner in power_colors:
@@ -320,6 +331,34 @@ def render_order_view(
 
         ax.fill(poly_arr[:, 0], poly_arr[:, 1],
                 color=color, alpha=alpha, edgecolor="black", linewidth=0.4)
+
+        # -- Hatching for gained / lost territories --
+        if prev_ownership is not None:
+            prev_owner = prev_ownership.get(face_id, face_data.get("owner"))
+            if owner != prev_owner:
+                gained = owner is not None and owner in power_colors
+                lost = prev_owner is not None and prev_owner in power_colors
+
+                if gained:
+                    hatch_patch = mpatches.Polygon(
+                        poly_arr, closed=True,
+                        facecolor="none",
+                        edgecolor=power_colors[owner],
+                        hatch="//",
+                        linewidth=0.5,
+                        zorder=3,
+                    )
+                    ax.add_patch(hatch_patch)
+                elif lost:
+                    hatch_patch = mpatches.Polygon(
+                        poly_arr, closed=True,
+                        facecolor="none",
+                        edgecolor=power_colors[prev_owner],
+                        hatch="xx",
+                        linewidth=0.5,
+                        zorder=3,
+                    )
+                    ax.add_patch(hatch_patch)
 
     # --- Supply center markers ---
     for face_id, face_data in faces.items():
