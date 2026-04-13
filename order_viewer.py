@@ -498,7 +498,8 @@ def _draw_orders(
 
         # Draw the unit marker at its starting territory for all
         # non-winter order types so the unit is always visible.
-        if otype in ("move", "hold", "support", "convoy", "retreat"):
+        # Also draw it for disband so the disbanded unit is shown under the ✕.
+        if otype in ("move", "hold", "support", "convoy", "retreat", "disband"):
             _draw_unit_marker(ax, src, unit_type, power, power_colors)
 
         if otype == "move":
