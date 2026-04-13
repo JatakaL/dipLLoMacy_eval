@@ -295,35 +295,34 @@ class GameViewer:
     def _update_map(self, turn: dict) -> None:
         """Render the map with order overlays for this turn.
 
-        Prefers the pre-rendered ``orders_view.png`` if present; falls
-        back to ``board.jpeg``; finally falls back to live rendering.
+        Always uses live rendering so that territory colors update
+        dynamically and ownership-change hatching is visible.
         """
         self.ax.clear()
-
-        # 1. Try pre-rendered order-overlay image (best experience)
-        orders_view_path = turn.get("orders_view_path")
-        if orders_view_path and Path(orders_view_path).exists():
-            img = mpimg.imread(orders_view_path)
-            self.ax.imshow(img)
-            self.ax.set_axis_off()
-            self.fig.tight_layout(pad=0.5)
-            self.canvas.draw()
-            return
-
-        # 2. Try board.jpeg fallback
-        board_path = turn.get("board_image_path")
-        if board_path and Path(board_path).exists():
-            img = mpimg.imread(board_path)
-            self.ax.imshow(img)
-            self.ax.set_axis_off()
-            self.fig.tight_layout(pad=0.5)
-            self.canvas.draw()
-            return
-
-        # 3. Live render if no images available
         self._render_map_live(turn)
         self.fig.tight_layout(pad=0.5)
         self.canvas.draw()
+
+    @staticmethod
+    def _effective_ownership(state_data: dict) -> dict[str, str]:
+        """Build an ownership dict that reflects SC captures.
+
+        ``state.ownership`` only contains the initial map assignments.
+        ``state.sc_control`` is updated whenever a unit captures a supply
+        center.  Merging the two gives the up-to-date picture.
+        """
+        own = dict(state_data.get("ownership", {}))
+        own.update(state_data.get("sc_control", {}))
+        return own
+
+    def _get_previous_ownership(self) -> dict[str, str]:
+        """Return the effective ownership dict from the previous turn."""
+        idx = self.current_turn_idx
+        if idx <= 0:
+            return {}
+        prev_turn = self.turns[idx - 1]
+        prev_state = prev_turn.get("state") or {}
+        return self._effective_ownership(prev_state)
 
     def _render_map_live(self, turn: dict) -> None:
         """Render the map + orders directly onto self.ax using topology data."""
@@ -342,7 +341,8 @@ class GameViewer:
 
         # -- Province polygons --
         state_data = turn.get("state") or {}
-        ownership = state_data.get("ownership", {})
+        ownership = self._effective_ownership(state_data)
+        prev_ownership = self._get_previous_ownership()
 
         for face_id, face_data in faces.items():
             polygon = self._get_face_polygon(face_id)
@@ -352,6 +352,7 @@ class GameViewer:
 
             face_type = face_data.get("type", "land")
             owner = ownership.get(face_id, face_data.get("owner"))
+            prev_owner = prev_ownership.get(face_id, face_data.get("owner"))
             is_sc = face_data.get("is_supply_center", False)
 
             if owner and owner in power_colors:
@@ -368,6 +369,27 @@ class GameViewer:
                 poly_arr[:, 0], poly_arr[:, 1],
                 color=color, alpha=alpha, edgecolor="black", linewidth=0.4,
             )
+
+            # -- Hatching for gained territories --
+            # Territory fill already uses the new owner's color.
+            # Overlay hatching in the *previous* owner's color so the
+            # viewer can see who held it before.  Neutral colour is used
+            # when the territory was previously unowned.
+            if prev_ownership and owner != prev_owner:
+                if owner is not None and owner in power_colors:
+                    if prev_owner and prev_owner in power_colors:
+                        hatch_color = power_colors[prev_owner]
+                    else:
+                        hatch_color = "#C5E0B4"  # neutral land colour
+                    hatch_patch = mpatches.Polygon(
+                        poly_arr, closed=True,
+                        facecolor="none",
+                        edgecolor=hatch_color,
+                        hatch="//",
+                        linewidth=0.5,
+                        zorder=3,
+                    )
+                    ax.add_patch(hatch_patch)
 
         # -- SC markers --
         for face_id, face_data in faces.items():
@@ -410,31 +432,7 @@ class GameViewer:
                     zorder=5,
                 )
 
-        # -- Draw units from state --
-        units = state_data.get("units", {})
-        for loc, unit_data in units.items():
-            face_data = faces.get(loc, {})
-            lp = face_data.get("label_positions", {})
-            pos = lp.get("unit_position", face_data.get("center"))
-            if not pos:
-                continue
-            ut = unit_data.get("type", unit_data.get("unit_type", "army"))
-            ut_char = "A" if ut == "army" else "F"
-            power = unit_data.get("power")
-            uc = power_colors.get(power, "#555555")
-            marker = "o" if ut_char == "A" else "^"
-            ax.plot(
-                pos[0], pos[1], marker,
-                markersize=11, color=uc,
-                markeredgecolor="black", markeredgewidth=1.8, zorder=15,
-            )
-            ax.text(
-                pos[0], pos[1] - (0.001 if ut_char == "F" else 0),
-                ut_char, ha="center", va="center",
-                fontsize=6, fontweight="bold", color="white", zorder=16,
-            )
-
-        # -- Draw order overlays --
+        # -- Draw units and order overlays --
         orders_data = turn.get("orders") or {}
         resolved = orders_data.get("resolved_orders", [])
         if resolved:
@@ -476,6 +474,30 @@ class GameViewer:
                 draw_legend(ax, resolved, self._power_list, power_colors)
             except ImportError:
                 pass  # order_viewer not available
+        else:
+            # No orders to render — draw units from game state directly.
+            units = state_data.get("units", {})
+            for loc, unit_data in units.items():
+                fd = faces.get(loc, {})
+                lp = fd.get("label_positions", {})
+                pos = lp.get("unit_position", fd.get("center"))
+                if not pos:
+                    continue
+                ut = unit_data.get("type", unit_data.get("unit_type", "army"))
+                ut_char = "A" if ut == "army" else "F"
+                power = unit_data.get("power")
+                uc = power_colors.get(power, "#555555")
+                marker = "o" if ut_char == "A" else "^"
+                ax.plot(
+                    pos[0], pos[1], marker,
+                    markersize=11, color=uc,
+                    markeredgecolor="black", markeredgewidth=1.8, zorder=15,
+                )
+                ax.text(
+                    pos[0], pos[1] - (0.001 if ut_char == "F" else 0),
+                    ut_char, ha="center", va="center",
+                    fontsize=6, fontweight="bold", color="white", zorder=16,
+                )
 
         # -- Title --
         turn_label = orders_data.get("turn", turn.get("label", ""))

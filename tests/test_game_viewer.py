@@ -142,3 +142,24 @@ class TestGameViewerImport:
         assert hasattr(game_viewer, "load_game_output")
         assert hasattr(game_viewer, "print_game_summary")
         assert hasattr(game_viewer, "main")
+
+
+class TestWinterOrdersExport:
+    """Verify exported game data includes winter build/disband orders."""
+
+    def test_winter_orders_exported(self, tmp_path):
+        """Exported winter turns should contain resolved_orders with build/disband."""
+        from game.game_export import load_game_output
+
+        out_dir = _setup_and_export(tmp_path, max_turns=3)
+        data = load_game_output(out_dir)
+        winter_turns = [
+            t for t in data["turns"] if "Winter" in t.get("label", "")
+        ]
+        # At least one winter turn should exist after 3 order turns
+        assert len(winter_turns) >= 1
+        orders_data = winter_turns[0].get("orders") or {}
+        resolved = orders_data.get("resolved_orders", [])
+        # If any orders exist, they must be build or disband
+        for od in resolved:
+            assert od["order_type"] in ("build", "disband")

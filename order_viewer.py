@@ -257,6 +257,8 @@ def render_order_view(
     turn_label: str = "",
     output_path: Optional[str] = None,
     dpi: int = 150,
+    ownership: Optional[dict[str, str]] = None,
+    prev_ownership: Optional[dict[str, str]] = None,
 ) -> str:
     """Render the base map with order overlays and save to *output_path*.
 
@@ -266,6 +268,12 @@ def render_order_view(
         turn_label: Turn identifier string for the title.
         output_path: Destination PNG path.  Defaults to ``orders_view.png``.
         dpi: Output resolution.
+        ownership: Optional mapping of ``face_id → power`` reflecting
+            current territory control.  When provided, overrides the
+            static ``face_data["owner"]`` used for polygon colouring.
+        prev_ownership: Optional mapping of ``face_id → power`` from the
+            previous turn.  Used together with *ownership* to render
+            hatching on territories that changed hands.
 
     Returns:
         The path where the image was saved.
@@ -305,7 +313,10 @@ def render_order_view(
         poly_arr = np.array(polygon)
 
         face_type = face_data.get("type", "land")
-        owner = face_data.get("owner")
+        if ownership is not None:
+            owner = ownership.get(face_id, face_data.get("owner"))
+        else:
+            owner = face_data.get("owner")
         is_sc = face_data.get("is_supply_center", False)
 
         if owner and owner in power_colors:
@@ -320,6 +331,28 @@ def render_order_view(
 
         ax.fill(poly_arr[:, 0], poly_arr[:, 1],
                 color=color, alpha=alpha, edgecolor="black", linewidth=0.4)
+
+        # -- Hatching for gained territories --
+        # Territory fill already uses the new owner's colour.
+        # Overlay hatching in the *previous* owner's colour so the
+        # viewer can see who held it before.
+        if prev_ownership is not None:
+            prev_owner = prev_ownership.get(face_id, face_data.get("owner"))
+            if owner != prev_owner:
+                if owner is not None and owner in power_colors:
+                    if prev_owner and prev_owner in power_colors:
+                        hatch_color = power_colors[prev_owner]
+                    else:
+                        hatch_color = "#C5E0B4"  # neutral land colour
+                    hatch_patch = mpatches.Polygon(
+                        poly_arr, closed=True,
+                        facecolor="none",
+                        edgecolor=hatch_color,
+                        hatch="//",
+                        linewidth=0.5,
+                        zorder=3,
+                    )
+                    ax.add_patch(hatch_patch)
 
     # --- Supply center markers ---
     for face_id, face_data in faces.items():
@@ -479,7 +512,7 @@ def _draw_orders(
         elif otype == "build":
             _draw_build(ax, od, unit_pos_fn, center_fn, power, power_colors)
         elif otype == "disband":
-            _draw_disband(ax, od, src, color)
+            _draw_disband(ax, od, src, color, power, power_colors)
         elif otype == "retreat":
             _draw_move(ax, od, src, center_fn, color, result,
                        linestyle="dashed")
@@ -660,17 +693,29 @@ def _draw_disband(
     od: dict,
     pos: Optional[tuple[float, float]],
     color: str,
+    power: Optional[str],
+    power_colors: dict[str, str],
 ) -> None:
-    """Draw a disband marker — an ✕ at the unit location."""
+    """Draw a disband marker — an ✕ filled with the power color and
+    the unit-type letter (A/F) centered inside so both the owning power
+    and the disbanded unit type are visible."""
     if pos is None:
         return
 
+    unit_color = power_colors.get(power, "#555555") if power else "#555555"
+    unit_type = od.get("unit_type", "?")
+
+    # Large X: power colour fill, result colour (green/red) outline
     ax.plot(pos[0], pos[1], "X",
-            markersize=14, markeredgewidth=2.5,
-            color=color, zorder=20)
+            markersize=16, markeredgewidth=2.0,
+            color=unit_color, markeredgecolor=color, zorder=20)
+    # Unit-type letter centred inside the X
+    ax.text(pos[0], pos[1], unit_type,
+            ha="center", va="center",
+            fontsize=6, fontweight="bold", color="white", zorder=21)
     ax.text(pos[0], pos[1] + 0.012, "DISBAND",
             ha="center", va="bottom", fontsize=5, fontweight="bold",
-            color=color, zorder=21)
+            color=color, zorder=22)
 
 
 # ---------------------------------------------------------------------------

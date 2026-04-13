@@ -263,10 +263,17 @@ class GameModerator:
                 winter_log = self.game_manager.process_winter_adjustments(
                     winter_orders
                 )
+                # Flatten all winter orders into a serializable list
+                # so the game viewer can render build/disband markers.
+                resolved_winter = [
+                    o.to_dict()
+                    for power_orders in winter_orders.values()
+                    for o in power_orders
+                ]
                 winter_result = {
                     "turn": f"Winter {state.year}",
                     "winter_log": winter_log,
-                    "resolved_orders": [],
+                    "resolved_orders": resolved_winter,
                     "dislodged": {},
                     "log": winter_log,
                 }
