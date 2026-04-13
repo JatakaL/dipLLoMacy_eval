@@ -498,8 +498,7 @@ def _draw_orders(
 
         # Draw the unit marker at its starting territory for all
         # non-winter order types so the unit is always visible.
-        # Also draw it for disband so the disbanded unit is shown under the ✕.
-        if otype in ("move", "hold", "support", "convoy", "retreat", "disband"):
+        if otype in ("move", "hold", "support", "convoy", "retreat"):
             _draw_unit_marker(ax, src, unit_type, power, power_colors)
 
         if otype == "move":
@@ -513,7 +512,7 @@ def _draw_orders(
         elif otype == "build":
             _draw_build(ax, od, unit_pos_fn, center_fn, power, power_colors)
         elif otype == "disband":
-            _draw_disband(ax, od, src, color)
+            _draw_disband(ax, od, src, color, power, power_colors)
         elif otype == "retreat":
             _draw_move(ax, od, src, center_fn, color, result,
                        linestyle="dashed")
@@ -694,17 +693,29 @@ def _draw_disband(
     od: dict,
     pos: Optional[tuple[float, float]],
     color: str,
+    power: Optional[str],
+    power_colors: dict[str, str],
 ) -> None:
-    """Draw a disband marker — an ✕ at the unit location."""
+    """Draw a disband marker — an ✕ filled with the power colour and
+    the unit-type letter (A/F) centred inside so both the owning power
+    and the disbanded unit type are visible."""
     if pos is None:
         return
 
+    unit_color = power_colors.get(power, "#555555") if power else "#555555"
+    unit_type = od.get("unit_type", "?")
+
+    # Large X: power colour fill, result colour (green/red) outline
     ax.plot(pos[0], pos[1], "X",
-            markersize=14, markeredgewidth=2.5,
-            color=color, zorder=20)
+            markersize=16, markeredgewidth=2.0,
+            color=unit_color, markeredgecolor=color, zorder=20)
+    # Unit-type letter centred inside the X
+    ax.text(pos[0], pos[1], unit_type,
+            ha="center", va="center",
+            fontsize=6, fontweight="bold", color="white", zorder=21)
     ax.text(pos[0], pos[1] + 0.012, "DISBAND",
             ha="center", va="bottom", fontsize=5, fontweight="bold",
-            color=color, zorder=21)
+            color=color, zorder=22)
 
 
 # ---------------------------------------------------------------------------
