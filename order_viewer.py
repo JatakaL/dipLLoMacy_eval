@@ -696,8 +696,8 @@ def _draw_disband(
     power: Optional[str],
     power_colors: dict[str, str],
 ) -> None:
-    """Draw a disband marker — an ✕ filled with the power colour and
-    the unit-type letter (A/F) centred inside so both the owning power
+    """Draw a disband marker — an ✕ filled with the power color and
+    the unit-type letter (A/F) centered inside so both the owning power
     and the disbanded unit type are visible."""
     if pos is None:
         return
