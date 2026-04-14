@@ -174,6 +174,16 @@ class OrderValidator:
         """Validate a hold order (always valid if unit exists)."""
         return order
     
+    def _is_impassable(self, territory_id: str) -> bool:
+        """
+        Check if a territory is impassable.
+        
+        Looks up the territory's type in territory_info. Returns False if the
+        territory_id is not found (unknown territories are not impassable).
+        """
+        info = self.territory_info.get(territory_id, {})
+        return info.get('type') == 'impassable'
+
     def _validate_move(self, order: Order, unit: Unit) -> Order:
         """Validate a move order."""
         if not order.target:
@@ -189,6 +199,12 @@ class OrderValidator:
             return order
         
         order.target = target_id
+        
+        # Reject moves into impassable territories
+        if self._is_impassable(target_id):
+            order.result = OrderResult.INVALID_TARGET
+            order.error_message = f"Cannot move to impassable territory: {order.target}"
+            return order
         
         # Check adjacency
         if not self.are_adjacent(order.location, target_id):
@@ -255,6 +271,12 @@ class OrderValidator:
                 return order
             
             order.support_to = support_to_id
+            
+            # Reject support into impassable territories
+            if self._is_impassable(support_to_id):
+                order.result = OrderResult.INVALID_TARGET
+                order.error_message = f"Cannot support move to impassable territory: {order.support_to}"
+                return order
             
             # Supporting unit must be able to reach the target (if it could move there)
             if not self.are_adjacent(order.location, support_to_id):
@@ -345,6 +367,12 @@ class OrderValidator:
         
         order.target = target_id
         
+        # Reject retreats into impassable territories
+        if self._is_impassable(target_id):
+            order.result = OrderResult.INVALID_TARGET
+            order.error_message = f"Cannot retreat to impassable territory: {order.target}"
+            return order
+        
         # Check adjacency
         if not self.are_adjacent(order.location, target_id):
             order.result = OrderResult.INVALID_ADJACENT
@@ -399,16 +427,36 @@ def build_adjacency_from_map(map_data: dict) -> Dict[str, List[str]]:
     if 'adjacency' in map_data:
         raw_adjacency = map_data['adjacency']
         
-        # Convert from names to IDs if needed
+        # Build set of impassable territory names and IDs for filtering
+        impassable_ids = set()
+        for face_id, face_data in faces.items():
+            if face_data.get('type') == 'impassable':
+                impassable_ids.add(face_id)
+                name = face_data.get('name', '')
+                if name:
+                    impassable_ids.add(name)
+        
+        # Convert from names to IDs if needed, filtering out impassable
         for key, neighbors in raw_adjacency.items():
+            # Skip impassable territories
+            if key in impassable_ids:
+                continue
+            
             # Convert key to ID
             key_id = name_to_id.get(key, key)
             
-            # Convert neighbors to IDs
+            # Skip if the resolved ID is impassable
+            if key_id in impassable_ids:
+                continue
+            
+            # Convert neighbors to IDs, filtering out impassable
             neighbor_ids = []
             for n in neighbors:
+                if n in impassable_ids:
+                    continue
                 n_id = name_to_id.get(n, n)
-                neighbor_ids.append(n_id)
+                if n_id not in impassable_ids:
+                    neighbor_ids.append(n_id)
             
             adjacency[key_id] = neighbor_ids
         
