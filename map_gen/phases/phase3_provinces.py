@@ -5,7 +5,7 @@ Phase 3: Province Definition
 This phase defines the mechanical properties of regions:
 1. Identify coastlines (land cells touching water)
 2. Identify and group oceans (contiguous water cells)
-3. Create impassable zones (Switzerland-style neutral zones)
+3. Create impassable zones (impassable peak-style neutral zones)
 
 Input: terrain_output.json from Phase 2
 Output: provinces_output.json with province classifications
@@ -108,7 +108,7 @@ def group_oceans(cells):
 
 def create_impassable_zones(cells, num_zones=1):
     """
-    Create impassable zones (like Switzerland) in central inland locations.
+    Create impassable zones in central inland locations.
     
     Args:
         cells: Dictionary of cell data

@@ -102,7 +102,7 @@ class RegionNamer:
     def generate_impassable_name(self):
         """Generate a name for an impassable zone."""
         neutrals = [
-            "Switzerland", "Highlands", "Mountains", "Peaks",
+            "Impassable Peaks", "Highlands", "Mountains", "Peaks",
             "Wastes", "Marshes", "Badlands", "Wilderness"
         ]
         
@@ -182,6 +182,9 @@ def create_adjacency_list(faces, edges, borders=None):
     """
     Create a simple adjacency list representation of the graph using topology.
     
+    Impassable territories are excluded from the adjacency list since units
+    cannot move into or through them.
+    
     Args:
         faces: Dictionary of face data from topology
         edges: Dictionary of edge data from topology
@@ -192,16 +195,24 @@ def create_adjacency_list(faces, edges, borders=None):
     """
     adjacency = {}
     
+    # Build set of impassable face IDs
+    impassable_ids = {
+        face_id for face_id, face in faces.items()
+        if face.get("type") == "impassable"
+    }
+    
     # Get adjacency by face ID from topology using borders (proper abstraction layer)
     face_adjacency = get_adjacency_from_topology(edges, borders)
     
-    # Convert to name-based adjacency
+    # Convert to name-based adjacency, excluding impassable territories
     for face_id, face in faces.items():
+        if face_id in impassable_ids:
+            continue
         face_name = face.get("name", face_id)
         neighbor_names = [
             faces[n].get("name", n)
             for n in face_adjacency.get(face_id, [])
-            if n in faces
+            if n in faces and n not in impassable_ids
         ]
         adjacency[face_name] = neighbor_names
     

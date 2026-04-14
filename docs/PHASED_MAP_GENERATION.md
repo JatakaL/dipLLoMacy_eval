@@ -109,7 +109,7 @@ Classifies provinces and identifies special features.
 **Algorithm:**
 1. Identify coastlines (land touching water)
 2. Group contiguous water into ocean regions
-3. Create impassable zones (Switzerland-style neutrals)
+3. Create impassable zones (impassable peak-style neutrals)
 
 **Key Parameters:**
 - `--num-impassable-zones`: Number of impassable regions (default: 1)
