@@ -667,7 +667,9 @@ def _draw_build(
     power: Optional[str],
     power_colors: dict[str, str],
 ) -> None:
-    """Draw a build marker — a star at the build location."""
+    """Draw a build marker — a star at the build location with the
+    unit-type letter (A/F) centered inside so both the owning power
+    and the built unit type are visible."""
     location = od.get("location", "")
     pos = unit_pos_fn(location) or center_fn(location)
     if pos is None:
@@ -676,16 +678,20 @@ def _draw_build(
     result = od.get("result", "pending")
     color = _result_color(result)
     unit_color = power_colors.get(power, "#555555") if power else "#555555"
+    unit_type = od.get("unit_type", "?")
 
-    # Star marker for build
+    # Star marker for build: power colour fill, result colour outline
     ax.plot(pos[0], pos[1], "*",
             markersize=16, color=unit_color,
             markeredgecolor=color, markeredgewidth=1.5,
             zorder=20)
-    # "B" label
+    # Unit-type letter centred inside the star
+    ax.text(pos[0], pos[1], unit_type,
+            ha="center", va="center",
+            fontsize=6, fontweight="bold", color="white", zorder=21)
     ax.text(pos[0], pos[1] + 0.012, "BUILD",
             ha="center", va="bottom", fontsize=5, fontweight="bold",
-            color=color, zorder=21)
+            color=color, zorder=22)
 
 
 def _draw_disband(
