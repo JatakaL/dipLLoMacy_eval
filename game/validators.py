@@ -175,7 +175,12 @@ class OrderValidator:
         return order
     
     def _is_impassable(self, territory_id: str) -> bool:
-        """Check if a territory is impassable."""
+        """
+        Check if a territory is impassable.
+        
+        Looks up the territory's type in territory_info. Returns False if the
+        territory_id is not found (unknown territories are not impassable).
+        """
         info = self.territory_info.get(territory_id, {})
         return info.get('type') == 'impassable'
 

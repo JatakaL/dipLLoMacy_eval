@@ -10,6 +10,7 @@ from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "map_gen" / "phases"))
 
 from game.game_state import GameState, Season, Phase
 from game.units import Unit, UnitType
@@ -232,7 +233,6 @@ class TestNamingNoSwitzerland:
 
     def test_impassable_name_not_switzerland(self):
         """The first impassable name should be 'Impassable Peaks', not 'Switzerland'."""
-        sys.path.insert(0, str(Path(__file__).parent.parent / "map_gen" / "phases"))
         from phase7_naming import RegionNamer
 
         namer = RegionNamer(seed=0)
