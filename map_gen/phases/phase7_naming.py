@@ -102,7 +102,7 @@ class RegionNamer:
     def generate_impassable_name(self):
         """Generate a name for an impassable zone."""
         neutrals = [
-            "Impassable Peaks", "Highlands", "Mountains", "Peaks",
+            "Highlands", "Mountains", "Peaks",
             "Wastes", "Marshes", "Badlands", "Wilderness"
         ]
         

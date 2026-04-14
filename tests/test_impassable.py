@@ -229,16 +229,24 @@ class TestIsImpassableHelper:
 
 
 class TestNamingNoSwitzerland:
-    """Ensure 'Switzerland' no longer appears in impassable name generation."""
+    """Ensure 'Switzerland' is not in the impassable name generation list."""
 
     def test_impassable_name_not_switzerland(self):
-        """The first impassable name should be 'Impassable Peaks', not 'Switzerland'."""
+        """The first impassable name should not be 'Switzerland'."""
         from phase7_naming import RegionNamer
 
         namer = RegionNamer(seed=0)
         name = namer.generate_impassable_name()
-        assert name == "Impassable Peaks"
+        assert name == "Highlands"
         assert name != "Switzerland"
+
+    def test_no_generated_name_is_switzerland(self):
+        """No impassable name from the list should be 'Switzerland'."""
+        from phase7_naming import RegionNamer
+
+        namer = RegionNamer(seed=0)
+        names = [namer.generate_impassable_name() for _ in range(7)]
+        assert "Switzerland" not in names
 
 
 def run_tests():

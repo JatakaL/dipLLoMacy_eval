@@ -114,7 +114,7 @@ Defines mechanical properties of provinces.
 **Techniques:**
 - Coastal vs. inland classification
 - Ocean grouping (contiguous sea regions)
-- Impassable zone creation (e.g. impassable peaks)
+- Impassable zone creation (Switzerland-style neutrals)
 
 **Key Parameters:**
 - `--num-impassable-zones`: Number of impassable zones (default: 1)
