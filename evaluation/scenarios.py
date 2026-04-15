@@ -45,9 +45,6 @@ class ScenarioRunner:
     those integrations are complete.
     """
 
-    def __init__(self) -> None:
-        self.results: list[dict] = []
-
     def run_scenario(self, scenario: EvaluationScenario) -> dict:
         """Execute a scenario and return collected results.
 

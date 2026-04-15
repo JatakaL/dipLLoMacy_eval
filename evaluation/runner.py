@@ -10,6 +10,7 @@ campaigns once LLM provider adapters are implemented.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from .metrics import DiplomaticMetrics, PerformanceMetrics, StrategicMetrics
@@ -35,6 +36,7 @@ class BenchmarkRunner:
         self.strategic = StrategicMetrics()
         self.diplomatic = DiplomaticMetrics()
         self._scenario_runner = ScenarioRunner()
+        self._last_report: dict | None = None
 
     def add_scenario(self, scenario: EvaluationScenario) -> None:
         """Queue a scenario for the next benchmark run.
@@ -56,27 +58,35 @@ class BenchmarkRunner:
             result = self._scenario_runner.run_scenario(scenario)
             scenario_results.append(result)
 
-        return {
+        self._last_report = {
             "scenarios_run": len(scenario_results),
             "scenario_results": scenario_results,
             "aggregate_performance": self.performance.compute_summary(),
             "aggregate_strategic": self.strategic.compute_summary(),
             "aggregate_diplomatic": self.diplomatic.compute_summary(),
         }
+        return self._last_report
 
-    def export_results(self, output_dir: Path) -> Path:
+    def export_results(self, output_dir: Path, report: dict | None = None) -> Path:
         """Export benchmark results to a JSON file.
+
+        Uses the provided *report* if given, otherwise falls back to
+        the cached report from the most recent ``run_all()`` call.
+        If neither is available, executes ``run_all()`` first.
 
         Args:
             output_dir: Directory to write results into.
+            report: Optional precomputed report dictionary.  When
+                supplied, it is written directly without re-running
+                any scenarios.
 
         Returns:
             Path to the written results file.
         """
-        import json
+        if report is None:
+            report = self._last_report if self._last_report is not None else self.run_all()
 
         output_dir.mkdir(parents=True, exist_ok=True)
         results_path = output_dir / "benchmark_results.json"
-        report = self.run_all()
-        results_path.write_text(json.dumps(report, indent=2))
+        results_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
         return results_path

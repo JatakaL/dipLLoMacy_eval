@@ -233,3 +233,20 @@ class TestBenchmarkRunner:
         assert output_path.exists()
         data = json.loads(output_path.read_text())
         assert data["scenarios_run"] == 1
+
+    def test_export_results_uses_cached_report(self, tmp_path):
+        """export_results reuses the last run_all() report without re-running."""
+        br = BenchmarkRunner()
+        br.add_scenario(EvaluationScenario(name="cached"))
+        report = br.run_all()
+        output_path = br.export_results(tmp_path / "results")
+        data = json.loads(output_path.read_text())
+        assert data == report
+
+    def test_export_results_accepts_precomputed_report(self, tmp_path):
+        """export_results writes a provided report dict directly."""
+        br = BenchmarkRunner()
+        custom_report = {"custom": True, "scenarios_run": 99}
+        output_path = br.export_results(tmp_path / "results", report=custom_report)
+        data = json.loads(output_path.read_text())
+        assert data == custom_report
