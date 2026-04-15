@@ -23,6 +23,89 @@ python examples/run_random_game.py --output both
 python game_viewer.py outputs/game_YYYYMMDD_HHMMSS
 ```
 
+## LLM Agent Framework
+
+The `llm/` module provides a modular adapter system for connecting any LLM (or non-LLM baseline) to the Diplomacy game engine. The design follows a plugin pattern: implement a small interface, register your adapter with the game moderator, and the framework handles the rest.
+
+### Architecture overview
+
+```
+┌─────────────────────────┐
+│     GameModerator        │  Drives the game loop: collects orders,
+│  (llm/moderator.py)      │  feeds them to the engine, handles
+└────────┬────────────────┘  retreats & winter adjustments.
+         │ calls generate_orders() / generate_diplomacy_message()
+         ▼
+┌─────────────────────────┐
+│   BaseLLMAdapter (ABC)   │  Abstract interface every adapter implements.
+│  (llm/adapters/base.py)  │
+└────────┬────────────────┘
+         │ concrete implementations
+    ┌────┴──────────┐
+    ▼               ▼
+MockLLMAdapter  RandomLLMAdapter   (future: OpenAI, Anthropic, local …)
+```
+
+### Key components
+
+| File | Role |
+|------|------|
+| [`llm/adapters/base.py`](llm/adapters/base.py) | `BaseLLMAdapter` — abstract base class defining `generate_orders()` and `generate_diplomacy_message()` |
+| [`llm/adapters/mock_adapter.py`](llm/adapters/mock_adapter.py) | `MockLLMAdapter` — deterministic hold-all adapter for unit tests (no API calls) |
+| [`llm/adapters/random_adapter.py`](llm/adapters/random_adapter.py) | `RandomLLMAdapter` — random valid-move baseline for evaluation benchmarks |
+| [`llm/moderator.py`](llm/moderator.py) | `GameModerator` — orchestrator that pairs adapters with powers and runs the game loop |
+
+### Implementing a new adapter
+
+1. Create a new file under `llm/adapters/` (e.g. `openai_adapter.py`).
+2. Subclass `BaseLLMAdapter` and implement the two abstract methods:
+
+```python
+from llm.adapters.base import BaseLLMAdapter
+
+class OpenAIAdapter(BaseLLMAdapter):
+    def generate_orders(self, game_state_dict, power, board_image_path=None):
+        # Call your LLM with the game state and return order strings
+        # e.g. ["A {Paris} M {Burgundy}", "F {Brest} H"]
+        ...
+
+    def generate_diplomacy_message(self, game_state_dict, sender, recipient):
+        # Return a natural-language message string
+        ...
+```
+
+3. Register the adapter with the `GameModerator`:
+
+```python
+from game import GameManager
+from llm import GameModerator
+
+gm = GameManager(map_data=map_data)
+gm.initialize_game()
+agents = {power: OpenAIAdapter() for power in gm.state.powers}
+moderator = GameModerator(gm, agents)
+moderator.run_game(max_turns=20)
+```
+
+### How the moderator uses adapters
+
+Each turn, `GameModerator.run_turn()`:
+
+1. Calls `adapter.generate_orders(game_state_dict, power)` on every agent.
+2. Parses returned order strings via `OrderParser`.
+3. Submits all orders to `GameManager.process_turn()` for resolution.
+4. Auto-disbands dislodged units with no retreat options.
+5. Advances the game phase.
+
+The higher-level `GameModerator.run_game()` repeats this cycle through ORDER → RETREAT → BUILD phases until a winner emerges or `max_turns` is reached.
+
+### What's implemented vs. planned
+
+- **Implemented:** `BaseLLMAdapter`, `MockLLMAdapter`, `RandomLLMAdapter`, `GameModerator`
+- **Planned:** Provider-specific adapters (OpenAI, Anthropic, local models), diplomacy negotiation phase in the moderator, evaluation metrics and benchmarking (`evaluation/` module)
+
+For the full integration roadmap see [docs/PLAN_LLM_INTEGRATION.md](docs/PLAN_LLM_INTEGRATION.md).
+
 ## Project Status
 
 | Component | Status |
