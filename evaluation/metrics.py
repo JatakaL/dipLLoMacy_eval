@@ -62,9 +62,9 @@ class PerformanceMetrics:
             "games_played": self.games_played,
             "win_rate": self.wins / self.games_played,
             "survival_rate": self.survivals / self.games_played,
-            "avg_sc_count": sum(self.sc_counts) / len(self.sc_counts),
+            "avg_sc_count": sum(self.sc_counts) / self.games_played,
             "avg_turns_survived": (
-                sum(self.turns_survived) / len(self.turns_survived)
+                sum(self.turns_survived) / self.games_played
             ),
         }
 
