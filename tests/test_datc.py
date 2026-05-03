@@ -14,7 +14,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from game import GameManager, GameState, OrderResolver, OrderValidator, Unit, UnitType
-from game.orders import OrderParser, OrderResult
+from game.orders import Order, OrderParser, OrderResult, OrderType
 from game.validators import build_adjacency_from_map
 
 
@@ -409,3 +409,177 @@ def test_datc_three_coast_topology_uses_the_requested_coast():
     _, orders, _, _ = adjudicate(faces, adjacency, units, orders_in)
 
     assert orders["F {WEST} M {TRI/east}"].result == OrderResult.INVALID_ADJACENT
+
+
+def test_datc_convoy_path_requires_matching_destination_coast():
+    """DATC: convoy paths must match the move's named destination coast."""
+    faces = {
+        "A": land(coastal=True),
+        "SSEA": sea(),
+        "NSEA": sea(),
+        "CAPE": land(
+            coasts={
+                "north": {"adjacent": ["NSEA"]},
+                "south": {"adjacent": ["SSEA"]},
+            }
+        ),
+    }
+    adjacency = {
+        "A": ["SSEA"],
+        "SSEA": ["A", "CAPE", "NSEA"],
+        "NSEA": ["SSEA", "CAPE"],
+        "CAPE": ["SSEA", "NSEA"],
+    }
+    units = {"A": army("P1"), "SSEA": fleet("P1")}
+    orders_in = ["A {A} M {CAPE/north}", "F {SSEA} C A {A} M {CAPE/south}"]
+
+    _, orders, _, _ = adjudicate(faces, adjacency, units, orders_in)
+
+    assert orders["A {A} M {CAPE/north}"].result == OrderResult.FAILED_NO_PATH
+
+
+def test_datc_support_move_requires_matching_supported_fleet_coast():
+    """DATC: support does not apply when the named source coast doesn't match the moving fleet."""
+    faces = {
+        "CAPE": land(
+            coasts={
+                "north": {"adjacent": ["NSEA"]},
+                "south": {"adjacent": ["SSEA"]},
+            }
+        ),
+        "NSEA": sea(),
+        "SSEA": sea(),
+    }
+    adjacency = {
+        "CAPE": ["NSEA", "SSEA"],
+        "NSEA": ["CAPE", "SSEA"],
+        "SSEA": ["CAPE", "NSEA"],
+    }
+    units = {
+        "CAPE": fleet("P1", coast="north"),
+        "NSEA": fleet("P2"),
+        "SSEA": fleet("P1"),
+    }
+    orders_in = [
+        "F {CAPE} M {NSEA}",
+        "F {SSEA} S F {CAPE/south} M {NSEA}",
+        "F {NSEA} H",
+    ]
+
+    _, orders, _, _ = adjudicate(faces, adjacency, units, orders_in)
+
+    assert orders["F {CAPE} M {NSEA}"].result == OrderResult.FAILED_BOUNCE
+
+
+def test_datc_split_coast_retreat_options_are_coast_qualified():
+    """DATC: retreat options expose only the reachable split coast."""
+    map_data = make_map(
+        {
+            "SEA": sea(),
+            "BLOCK": sea(),
+            "CAPE": land(
+                coasts={
+                    "north": {"adjacent": ["SEA"]},
+                    "south": {"adjacent": ["BLOCK"]},
+                }
+            ),
+        },
+        {
+            "SEA": ["BLOCK", "CAPE"],
+            "BLOCK": ["SEA", "CAPE"],
+            "CAPE": ["SEA", "BLOCK"],
+        },
+    )
+    manager = GameManager(map_data=map_data)
+    manager.state = GameState(map_data=map_data, powers={"P1"})
+    dislodged = Unit(UnitType.FLEET, "P1", "SEA", dislodged=True)
+    manager.state.dislodged_units["SEA"] = dislodged
+    manager.state.dislodged_from["SEA"] = "BLOCK"
+
+    assert manager.get_retreat_options("SEA") == ["CAPE/north"]
+    assert manager.process_retreat("SEA", "CAPE/north") is True
+    assert manager.state.units["CAPE"].coast == "north"
+
+
+def test_datc_initial_split_coast_fleet_gets_default_coast():
+    """DATC: initial fleet placement in a split-coast home center records a coast."""
+    map_data = {
+        "powers": {"P1": {"name": "P1", "home_centers": ["CAPE"]}},
+        "supply_centers": {"home": [{"cell_id": "CAPE", "owner": "P1", "coastal": True}]},
+        "topology": {
+            "vertices": {},
+            "edges": {},
+            "borders": {},
+            "faces": {
+                "CAPE": {
+                    "name": "CAPE",
+                    "type": "land",
+                    "coastal": True,
+                    "coasts": {
+                        "north": {"adjacent": ["NSEA"]},
+                        "south": {"adjacent": ["SSEA"]},
+                    },
+                    "center": [0.0, 0.0],
+                    "borders": [],
+                    "owner": "P1",
+                    "is_supply_center": True,
+                },
+                "NSEA": {"name": "NSEA", "type": "sea", "coastal": False, "center": [0.0, 0.0], "borders": []},
+                "SSEA": {"name": "SSEA", "type": "sea", "coastal": False, "center": [0.0, 0.0], "borders": []},
+            },
+        },
+        "adjacency": {"CAPE": ["NSEA", "SSEA"], "NSEA": ["CAPE"], "SSEA": ["CAPE"]},
+    }
+
+    manager = GameManager(map_data=map_data)
+    state = manager.initialize_game()
+
+    assert state.units["CAPE"].unit_type == UnitType.FLEET
+    assert state.units["CAPE"].coast in {"north", "south"}
+
+
+def test_datc_split_coast_fleet_build_records_coast():
+    """DATC: winter fleet builds in split-coast provinces keep coast information."""
+    map_data = {
+        "powers": {"P1": {"name": "P1", "home_centers": ["CAPE"]}},
+        "supply_centers": {"home": [{"cell_id": "CAPE", "owner": "P1", "coastal": True}]},
+        "topology": {
+            "vertices": {},
+            "edges": {},
+            "borders": {},
+            "faces": {
+                "CAPE": {
+                    "name": "CAPE",
+                    "type": "land",
+                    "coastal": True,
+                    "coasts": {
+                        "north": {"adjacent": ["NSEA"]},
+                        "south": {"adjacent": ["SSEA"]},
+                    },
+                    "center": [0.0, 0.0],
+                    "borders": [],
+                    "owner": "P1",
+                    "is_supply_center": True,
+                },
+                "NSEA": {"name": "NSEA", "type": "sea", "coastal": False, "center": [0.0, 0.0], "borders": []},
+                "SSEA": {"name": "SSEA", "type": "sea", "coastal": False, "center": [0.0, 0.0], "borders": []},
+            },
+        },
+        "adjacency": {"CAPE": ["NSEA", "SSEA"], "NSEA": ["CAPE"], "SSEA": ["CAPE"]},
+    }
+
+    manager = GameManager(map_data=map_data)
+    manager.state = GameState(map_data=map_data, powers={"P1"})
+    manager.state.sc_control["CAPE"] = "P1"
+
+    build_order = Order(
+        unit_type="F",
+        location="CAPE",
+        location_coast="south",
+        order_type=OrderType.BUILD,
+        power="P1",
+    )
+
+    manager.process_winter_adjustments({"P1": [build_order]})
+
+    assert manager.state.units["CAPE"].coast == "south"
