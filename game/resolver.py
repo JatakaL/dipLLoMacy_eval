@@ -136,7 +136,7 @@ class OrderResolver:
                     order.result = OrderResult.FAILED_NO_PATH
                     order.error_message = "No valid convoy path"
     
-    def _has_convoy_path(self, start: str, end: str, active_convoys: Optional[Set[str]] = None) -> bool:
+    def _has_convoy_path(self, start: str, end: str, valid_convoy_locations: Optional[Set[str]] = None) -> bool:
         """
         Check if there's a convoy chain from start to end.
         
@@ -152,7 +152,7 @@ class OrderResolver:
         # Find all fleets convoying this army
         convoying_fleets = set()
         for convoy in self.convoy_orders:
-            if active_convoys is not None and convoy.location not in active_convoys:
+            if valid_convoy_locations is not None and convoy.location not in valid_convoy_locations:
                 continue
             if convoy.support_from == start and convoy.target == end:
                 convoying_fleets.add(convoy.location)
@@ -195,7 +195,7 @@ class OrderResolver:
 
     def _invalidate_disrupted_convoys(self) -> None:
         """Fail convoyed moves whose surviving convoy chain no longer exists."""
-        active_convoys = {
+        valid_convoy_locations = {
             convoy.location
             for convoy in self.convoy_orders
             if convoy.result == OrderResult.PENDING
@@ -208,7 +208,7 @@ class OrderResolver:
             if order.target in self.adjacency.get(order.location, []):
                 continue
 
-            if self._has_convoy_path(order.location, order.target, active_convoys):
+            if self._has_convoy_path(order.location, order.target, valid_convoy_locations):
                 continue
 
             order.result = OrderResult.FAILED_NO_PATH
@@ -413,6 +413,8 @@ class OrderResolver:
                         
                         if defender and not defender_leaving and defender_order and defender_order.result == OrderResult.PENDING:
                             if defender_order.order_type != OrderType.MOVE:
+                                # Any non-moving unit that loses its province is dislodged,
+                                # including hold, support, and convoy orders.
                                 defender_order.result = OrderResult.FAILED_DISLODGED
                                 self.dislodged_units[target] = attacker.location
                     elif strength == defender_strength and not defender:

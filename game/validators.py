@@ -26,6 +26,7 @@ class OrderValidator:
     - Unit types match (armies on land, fleets on water/coast)
     - Convoy chains are valid
     """
+    # Accept either "Territory/coast" or "Territory (coast)" in order strings.
     COAST_REFERENCE_PATTERN = re.compile(
         r"^(?P<territory>.+?)\s*(?:/\s*(?P<slash>[^/()]+)|\((?P<paren>[^)]+)\))\s*$"
     )
@@ -102,7 +103,11 @@ class OrderValidator:
 
     @staticmethod
     def _normalize_coast_label(label: Optional[str]) -> Optional[str]:
-        """Normalize a coast label for case-insensitive matching."""
+        """Normalize a coast label for case-insensitive matching.
+
+        This intentionally strips separators so aliases like ``north coast``,
+        ``north-coast``, and ``North Coast`` resolve to the same named coast.
+        """
         if label is None:
             return None
         normalized = re.sub(r'[^a-z0-9]+', '', label.lower())
@@ -416,7 +421,12 @@ class OrderValidator:
 
             if not self._fleet_can_reach(order.location, target_id, source_coast, order.target_coast):
                 order.result = OrderResult.INVALID_ADJACENT
-                order.error_message = f"{order.location} is not adjacent to {order.target}"
+                if order.target_coast:
+                    order.error_message = (
+                        f"Fleet at {order.location} cannot reach {order.target}/{order.target_coast}"
+                    )
+                else:
+                    order.error_message = f"{order.location} is not adjacent to {order.target}"
                 return order
         
         return order
