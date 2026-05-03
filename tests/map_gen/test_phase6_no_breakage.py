@@ -13,7 +13,7 @@ import os
 try:
     from map_gen.phases.phase6_optimization import run_phase6
 except ImportError:
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen', 'phases'))
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'map_gen', 'phases'))
     from phase6_optimization import run_phase6
 
 

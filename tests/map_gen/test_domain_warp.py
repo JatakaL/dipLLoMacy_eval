@@ -10,7 +10,7 @@ import sys
 import os
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen', 'phases'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'map_gen', 'phases'))
 from phase1_mesh import (
     generate_perlin_noise_2d,
     sample_noise_at_point,

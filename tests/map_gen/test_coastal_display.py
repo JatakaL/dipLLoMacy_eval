@@ -13,8 +13,8 @@ import os
 from pathlib import Path
 
 # Add map_gen to path
-sys.path.insert(0, str(Path(__file__).parent / 'map_gen'))
-sys.path.insert(0, str(Path(__file__).parent / 'map_gen' / 'phases'))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'map_gen'))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'map_gen' / 'phases'))
 
 from topology import convert_cells_to_topology, reconstruct_cells_from_topology
 from phase3_provinces import identify_coastlines
@@ -122,7 +122,7 @@ def test_map_viewer_cli_reconstruction():
     matplotlib.use('Agg')
     
     # Import after setting backend
-    sys.path.insert(0, str(Path(__file__).parent))
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
     from map_viewer_cli import MapData
     
     # Create a temporary JSON file with topology

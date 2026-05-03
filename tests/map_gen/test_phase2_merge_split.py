@@ -11,8 +11,8 @@ import os
 import traceback
 
 # Add the map_gen directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen', 'phases'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'map_gen'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'map_gen', 'phases'))
 
 from topology import convert_cells_to_topology
 from phase2_terrain import run_phase2

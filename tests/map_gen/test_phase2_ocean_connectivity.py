@@ -12,7 +12,7 @@ import os
 try:
     from map_gen.phases.phase2_terrain import check_sea_connectivity, connect_sea_components
 except ImportError:
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen', 'phases'))
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'map_gen', 'phases'))
     from phase2_terrain import check_sea_connectivity, connect_sea_components
 
 

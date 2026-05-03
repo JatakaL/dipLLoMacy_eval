@@ -10,7 +10,7 @@ import sys
 import os
 
 # Add the map_gen/phases directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen', 'phases'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'map_gen', 'phases'))
 
 from orchestrator import run_full_pipeline
 
