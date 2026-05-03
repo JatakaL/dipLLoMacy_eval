@@ -112,10 +112,11 @@ For the full integration roadmap see [docs/PLAN_LLM_INTEGRATION.md](docs/PLAN_LL
 |-----------|--------|
 | Map generation pipeline | ✅ Complete |
 | Topology data model | ✅ Complete |
-| Game engine (orders, resolution, retreats, builds) | ✅ Complete |
+| Game engine (orders, resolution, retreats, builds) | ⚠️ Core functional — edge cases under review |
 | LLM agent framework (moderator, adapter interface) | ✅ Core complete |
 | Random & mock baseline agents | ✅ Complete |
 | Visualization (map viewer, game viewer, order viewer) | ✅ Complete |
+| Design decisions & architecture | ✅ See docs/DESIGN_DECISIONS.md |
 | LLM provider adapters (OpenAI, Anthropic, local) | 🔲 Planned |
 | Evaluation metrics & benchmarking | 🔲 Planned |
 

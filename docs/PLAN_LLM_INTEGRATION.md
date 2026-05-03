@@ -4,6 +4,8 @@
 
 This document outlines the plan for integrating Large Language Models (LLMs) into the Diplomacy game framework for evaluation purposes. The goal is to create a system that can assess LLM capabilities in strategic reasoning, negotiation, and gameplay.
 
+> **Note:** `docs/DESIGN_DECISIONS.md` contains refined architectural decisions that supersede portions of this document, particularly around agent prompting, correspondence structure, and evaluation philosophy.
+
 ## Objectives
 
 1. **Strategic Reasoning**: Evaluate LLMs' ability to make sound tactical decisions
@@ -77,8 +79,8 @@ class BaseLLMAdapter(ABC):
 
 #### 1.2 Provider-Specific Adapters
 
-- [ ] **OpenAI Adapter**: GPT-4, GPT-4-turbo, GPT-3.5
-- [ ] **Anthropic Adapter**: Claude 3, Claude 2
+- [ ] **OpenAI Adapter**: GPT-4.1, latest GPT model
+- [ ] **Anthropic Adapter**: Claude Opus 4.6, Claude Sonnet 4.6
 - [ ] **Local Model Adapter**: LLaMA, Mistral via API
 - [x] **Mock Adapter**: For testing without API calls
 - [x] **Random Adapter**: Baseline random valid-order generation
@@ -86,7 +88,7 @@ class BaseLLMAdapter(ABC):
 ```python
 # Proposed structure (llm_adapters/openai_adapter.py)
 class OpenAIAdapter(BaseLLMAdapter):
-    def __init__(self, model="gpt-4", api_key=None):
+    def __init__(self, model="gpt-4.1", api_key=None):
         self.model = model
         self.client = OpenAI(api_key=api_key)
     
@@ -198,7 +200,7 @@ class GameModerator:
 #### 4.2 Strategic Quality Metrics
 
 - [ ] **Order Validity**: % of valid orders submitted
-- [ ] **Tactical Soundness**: % of orders that match expert moves
+- [ ] **Tactical Soundness**: % of orders that match expert moves *(N/A on procedural maps — no expert reference exists)*
 - [ ] **Support Utilization**: How often support orders are used effectively
 - [ ] **Defense Quality**: How well units protect supply centers
 - [ ] **Attack Efficiency**: Success rate of offensive moves
@@ -250,7 +252,7 @@ class EvaluationMetrics:
 
 #### 5.3 Benchmark Scenarios
 
-- [ ] **Opening Theory**: Evaluate first 3 moves
+- [ ] **Opening Theory**: Evaluate first 3 moves *(N/A on procedural maps — no fixed opening theory exists)*
 - [ ] **Mid-Game Tactics**: Complex tactical situations
 - [ ] **End-Game**: 2-3 powers remaining
 - [ ] **Defense Scenarios**: Respond to coordinated attack
@@ -291,6 +293,8 @@ dipLLoMacy_eval/
 ```
 
 ## Implementation Order
+
+> **Note:** The week-by-week timeline below is aspirational and does not reflect the pace of this side project. It is retained for reference only.
 
 1. **Week 1**: LLM Interface Layer
    - Base adapter interface
@@ -346,17 +350,16 @@ providers:
   openai:
     api_key: ${OPENAI_API_KEY}
     models:
-      - gpt-4-turbo-preview
-      - gpt-4
-      - gpt-3.5-turbo
-    default_model: gpt-4-turbo-preview
+      - gpt-4.1
+      - latest GPT model
+    default_model: gpt-4.1
     
   anthropic:
     api_key: ${ANTHROPIC_API_KEY}
     models:
-      - claude-3-opus
-      - claude-3-sonnet
-    default_model: claude-3-opus
+      - claude-opus-4-6
+      - claude-sonnet-4-6
+    default_model: claude-opus-4-6
 ```
 
 ### Evaluation Configuration
