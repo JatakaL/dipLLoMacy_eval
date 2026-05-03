@@ -35,6 +35,11 @@ POWER_NAMES = [
 
 # Pattern for parsing BUILD orders in winter order files: B A/F {Territory}
 _BUILD_ORDER_PATTERN = re.compile(r'^B\s+(A|F)\s+\{([^}]+)\}\s*$')
+# Pattern for parsing optional split-coast territory references such as
+# "Spain/north" or "Spain (north)".
+_TERRITORY_REFERENCE_PATTERN = re.compile(
+    r"^(?P<territory>.+?)\s*(?:/\s*(?P<slash>[^/()]+)|\((?P<paren>[^)]+)\))\s*$"
+)
 
 
 class GameManager:
@@ -612,10 +617,7 @@ class GameManager:
 
     def _split_territory_reference(self, name_or_id: str) -> Tuple[str, Optional[str]]:
         """Split a territory reference into territory and optional coast."""
-        match = re.match(
-            r"^(?P<territory>.+?)\s*(?:/\s*(?P<slash>[^/()]+)|\((?P<paren>[^)]+)\))\s*$",
-            name_or_id.strip(),
-        )
+        match = _TERRITORY_REFERENCE_PATTERN.match(name_or_id.strip())
         if not match:
             return name_or_id, None
 
@@ -676,9 +678,8 @@ class GameManager:
         target_coast: Optional[str] = None,
     ) -> bool:
         """Check whether a fleet can reach a target from its current coast."""
-        source_coasts = [unit.coast] if unit.coast else [None]
-        if unit.coast is None and self._get_named_coasts(source_id):
-            source_coasts = list(self._get_named_coasts(source_id))
+        named_source_coasts = self._get_named_coasts(source_id)
+        source_coasts = [unit.coast] if unit.coast else list(named_source_coasts) or [None]
 
         for source_coast in source_coasts:
             if target_id not in self._reachable_neighbors(source_id, source_coast):

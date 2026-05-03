@@ -63,7 +63,8 @@ class OrderResolver:
             Tuple of (all orders with results, dislodged units mapping)
         """
         blocked_convoy_ids: Set[int] = set()
-        max_passes = max(1, len([o for o in orders if o.via_convoy])) + 1
+        convoy_move_count = sum(1 for order in orders if order.via_convoy)
+        max_passes = max(1, convoy_move_count) + 1
 
         for _ in range(max_passes):
             self._reset_tracking()
@@ -174,8 +175,9 @@ class OrderResolver:
 
     def _move_key(self, order: Order) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
         """Build a movement identity that distinguishes split-coast fleet moves."""
-        source_coast = order.location_coast if order.unit_type == 'F' else None
-        target_coast = order.target_coast if order.unit_type == 'F' else None
+        is_fleet_order = order.unit_type == UnitType.FLEET.value[0].upper()
+        source_coast = order.location_coast if is_fleet_order else None
+        target_coast = order.target_coast if is_fleet_order else None
         return (order.location, order.target, source_coast, target_coast)
 
     def _support_matches_move(self, support: Order) -> bool:
