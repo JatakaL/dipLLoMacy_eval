@@ -27,11 +27,13 @@ class Unit:
         unit_type: Type of unit (ARMY or FLEET)
         power: The power (player) that controls this unit
         location: Province ID where the unit is located
+        coast: Coast identifier for fleets in split-coast provinces
         dislodged: Whether the unit has been dislodged and needs to retreat
     """
     unit_type: UnitType
     power: str
     location: str
+    coast: Optional[str] = None
     dislodged: bool = False
     
     def __post_init__(self):
@@ -45,6 +47,7 @@ class Unit:
             "type": self.unit_type.value,
             "power": self.power,
             "location": self.location,
+            "coast": self.coast,
             "dislodged": self.dislodged
         }
     
@@ -55,13 +58,15 @@ class Unit:
             unit_type=UnitType(data["type"]),
             power=data["power"],
             location=data["location"],
+            coast=data.get("coast"),
             dislodged=data.get("dislodged", False)
         )
     
     def __str__(self) -> str:
         """String representation of the unit."""
         type_abbrev = "A" if self.unit_type == UnitType.ARMY else "F"
-        return f"{type_abbrev} {self.location} ({self.power})"
+        coast_suffix = f"/{self.coast}" if self.coast else ""
+        return f"{type_abbrev} {self.location}{coast_suffix} ({self.power})"
     
     def __repr__(self) -> str:
         return f"Unit({self.unit_type.value}, {self.power!r}, {self.location!r})"

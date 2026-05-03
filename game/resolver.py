@@ -92,6 +92,9 @@ class OrderResolver:
         
         # Step 5: Resolve remaining moves
         self._resolve_moves(strengths)
+
+        # Step 5b: Invalidate convoyed moves whose convoy chain was dislodged
+        self._invalidate_disrupted_convoys()
         
         # Step 6: Mark dislodged units
         self._mark_dislodged()
@@ -133,7 +136,7 @@ class OrderResolver:
                     order.result = OrderResult.FAILED_NO_PATH
                     order.error_message = "No valid convoy path"
     
-    def _has_convoy_path(self, start: str, end: str) -> bool:
+    def _has_convoy_path(self, start: str, end: str, active_convoys: Optional[Set[str]] = None) -> bool:
         """
         Check if there's a convoy chain from start to end.
         
@@ -149,6 +152,8 @@ class OrderResolver:
         # Find all fleets convoying this army
         convoying_fleets = set()
         for convoy in self.convoy_orders:
+            if active_convoys is not None and convoy.location not in active_convoys:
+                continue
             if convoy.support_from == start and convoy.target == end:
                 convoying_fleets.add(convoy.location)
         
@@ -187,6 +192,34 @@ class OrderResolver:
                     queue.append(adj)
         
         return False
+
+    def _invalidate_disrupted_convoys(self) -> None:
+        """Fail convoyed moves whose surviving convoy chain no longer exists."""
+        active_convoys = {
+            convoy.location
+            for convoy in self.convoy_orders
+            if convoy.result == OrderResult.PENDING
+        }
+
+        for order in list(self.successful_moves):
+            if order.order_type != OrderType.MOVE or not order.via_convoy:
+                continue
+
+            if order.target in self.adjacency.get(order.location, []):
+                continue
+
+            if self._has_convoy_path(order.location, order.target, active_convoys):
+                continue
+
+            order.result = OrderResult.FAILED_NO_PATH
+            order.error_message = "Convoy disrupted"
+            self.successful_moves.remove(order)
+
+            if self.dislodged_units.get(order.target) == order.location:
+                del self.dislodged_units[order.target]
+                defender_order = self.orders_by_location.get(order.target)
+                if defender_order and defender_order.result == OrderResult.FAILED_DISLODGED:
+                    defender_order.result = OrderResult.PENDING
     
     def _calculate_initial_strengths(self) -> Dict[str, int]:
         """
@@ -379,7 +412,7 @@ class OrderResolver:
                         changes_made = True
                         
                         if defender and not defender_leaving and defender_order and defender_order.result == OrderResult.PENDING:
-                            if defender_order.order_type == OrderType.HOLD:
+                            if defender_order.order_type != OrderType.MOVE:
                                 defender_order.result = OrderResult.FAILED_DISLODGED
                                 self.dislodged_units[target] = attacker.location
                     elif strength == defender_strength and not defender:
@@ -467,7 +500,10 @@ class OrderResolver:
         for from_loc, to_loc in moves_to_apply:
             if from_loc in self.state.units:
                 unit = self.state.units.pop(from_loc)
+                move_order = self.orders_by_location.get(from_loc)
                 unit.location = to_loc
+                if move_order and move_order.order_type == OrderType.MOVE:
+                    unit.coast = move_order.target_coast
                 self.state.units[to_loc] = unit
     
     def get_resolution_log(self, orders: List[Order]) -> str:

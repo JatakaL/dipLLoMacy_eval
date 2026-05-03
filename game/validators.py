@@ -8,6 +8,7 @@ This module provides validation utilities for:
 - Validating order legality
 """
 
+import re
 from typing import Dict, List, Optional, Set, Tuple
 from .orders import Order, OrderType, OrderResult
 from .units import Unit, UnitType
@@ -25,6 +26,9 @@ class OrderValidator:
     - Unit types match (armies on land, fleets on water/coast)
     - Convoy chains are valid
     """
+    COAST_REFERENCE_PATTERN = re.compile(
+        r"^(?P<territory>.+?)\s*(?:/\s*(?P<slash>[^/()]+)|\((?P<paren>[^)]+)\))\s*$"
+    )
     
     def __init__(self, game_state: GameState, adjacency: Dict[str, List[str]]):
         """
@@ -73,13 +77,164 @@ class OrderValidator:
         faces = topology.get('faces', {})
         
         for face_id, face_data in faces.items():
+            coast_entries = {}
+            raw_coasts = face_data.get('coasts', {})
+            for coast_id, coast_data in raw_coasts.items():
+                coast_name = coast_data.get('name', coast_id)
+                aliases = {self._normalize_coast_label(coast_id), self._normalize_coast_label(coast_name)}
+                for alias in coast_data.get('aliases', []):
+                    aliases.add(self._normalize_coast_label(alias))
+
+                coast_entries[coast_id] = {
+                    'name': coast_name,
+                    'adjacent': list(coast_data.get('adjacent', coast_data.get('adjacent_to', []))),
+                    'aliases': {alias for alias in aliases if alias},
+                }
+
             info[face_id] = {
                 'type': face_data.get('type', 'land'),
-                'coastal': face_data.get('coastal', False),
-                'name': face_data.get('name', face_id)
+                'coastal': face_data.get('coastal', False) or bool(coast_entries),
+                'name': face_data.get('name', face_id),
+                'coasts': coast_entries,
             }
         
         return info
+
+    @staticmethod
+    def _normalize_coast_label(label: Optional[str]) -> Optional[str]:
+        """Normalize a coast label for case-insensitive matching."""
+        if label is None:
+            return None
+        normalized = re.sub(r'[^a-z0-9]+', '', label.lower())
+        return normalized or None
+
+    def _split_territory_reference(self, reference: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+        """Split a territory reference into territory name and optional coast."""
+        if reference is None:
+            return None, None
+
+        reference = reference.strip()
+        match = self.COAST_REFERENCE_PATTERN.match(reference)
+        if not match:
+            return reference, None
+
+        territory = match.group('territory').strip()
+        coast = (match.group('slash') or match.group('paren') or '').strip()
+        if not territory or not coast:
+            return reference, None
+
+        if territory in self.name_to_id or territory.lower() in self.name_to_id:
+            return territory, coast
+
+        return reference, None
+
+    def _resolve_coast_name(self, territory_id: str, coast_name: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+        """Resolve a coast label to a canonical coast identifier."""
+        if coast_name is None:
+            return None, None
+
+        territory_info = self.territory_info.get(territory_id, {})
+        coasts = territory_info.get('coasts', {})
+        if not coasts:
+            territory_name = territory_info.get('name', territory_id)
+            return None, f"{territory_name} does not have named coasts"
+
+        normalized = self._normalize_coast_label(coast_name)
+        for coast_id, coast_info in coasts.items():
+            if normalized in coast_info.get('aliases', set()):
+                return coast_id, None
+
+        territory_name = territory_info.get('name', territory_id)
+        return None, f"Unknown coast '{coast_name}' for {territory_name}"
+
+    def _resolve_territory_reference(self, reference: Optional[str]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """Resolve a territory reference with an optional coast."""
+        territory_name, coast_name = self._split_territory_reference(reference)
+        territory_id = self.resolve_territory_name(territory_name) if territory_name else None
+        if not territory_id:
+            return None, None, f"Unknown territory: {reference}"
+
+        coast_id, coast_error = self._resolve_coast_name(territory_id, coast_name)
+        if coast_error:
+            return None, None, coast_error
+
+        return territory_id, coast_id, None
+
+    def _get_coast_data(self, territory_id: str) -> Dict[str, dict]:
+        """Get named coast data for a territory."""
+        return self.territory_info.get(territory_id, {}).get('coasts', {})
+
+    def _requires_coast_specification(self, territory_id: str) -> bool:
+        """Return True when a territory has multiple non-contiguous coasts."""
+        return len(self._get_coast_data(territory_id)) > 1
+
+    def _default_coast(self, territory_id: str) -> Optional[str]:
+        """Return the only named coast for a territory, if one exists."""
+        coasts = self._get_coast_data(territory_id)
+        if len(coasts) == 1:
+            return next(iter(coasts))
+        return None
+
+    def _get_reachable_neighbors(self, territory_id: str, coast_id: Optional[str] = None) -> Set[str]:
+        """Get reachable neighboring territories, optionally constrained to a coast."""
+        coasts = self._get_coast_data(territory_id)
+        if coast_id and coast_id in coasts:
+            return set(coasts[coast_id].get('adjacent', []))
+        if len(coasts) == 1:
+            return set(next(iter(coasts.values())).get('adjacent', []))
+        return set(self.get_adjacent_territories(territory_id))
+
+    def _resolve_source_coast(self, unit: Unit, order: Order) -> Tuple[Optional[str], Optional[str]]:
+        """Resolve the current coast for a fleet in a split-coast province."""
+        territory_id = order.location
+        coasts = self._get_coast_data(territory_id)
+        if not coasts:
+            return None, None
+
+        requested_coast = order.location_coast
+        unit_coast = unit.coast
+
+        if requested_coast and unit_coast and requested_coast != unit_coast:
+            territory_name = self.territory_info.get(territory_id, {}).get('name', territory_id)
+            return None, f"Fleet at {territory_name} is on coast {unit_coast}, not {requested_coast}"
+
+        coast_id = unit_coast or requested_coast or self._default_coast(territory_id)
+        if coast_id:
+            return coast_id, None
+
+        territory_name = self.territory_info.get(territory_id, {}).get('name', territory_id)
+        return None, f"Fleet at {territory_name} must specify which coast it occupies"
+
+    def _resolve_target_coast(self, territory_id: str, requested_coast: Optional[str], *, required: bool) -> Tuple[Optional[str], Optional[str]]:
+        """Resolve the coast for a target territory when needed."""
+        coasts = self._get_coast_data(territory_id)
+        if not coasts:
+            return None, None
+
+        if requested_coast:
+            return requested_coast, None
+
+        default_coast = self._default_coast(territory_id)
+        if default_coast:
+            return default_coast, None
+
+        if required:
+            territory_name = self.territory_info.get(territory_id, {}).get('name', territory_id)
+            return None, f"Fleet moves to {territory_name} must specify a coast"
+
+        return None, None
+
+    def _fleet_can_reach(self, source_id: str, target_id: str, source_coast: Optional[str], target_coast: Optional[str]) -> bool:
+        """Check whether a fleet can move between two territories with coast constraints."""
+        source_neighbors = self._get_reachable_neighbors(source_id, source_coast)
+        if target_id not in source_neighbors:
+            return False
+
+        target_neighbors = self._get_reachable_neighbors(target_id, target_coast)
+        if source_coast or target_coast or self._get_coast_data(source_id) or self._get_coast_data(target_id):
+            return source_id in target_neighbors
+
+        return source_id in target_neighbors or self.are_adjacent(source_id, target_id)
     
     def resolve_territory_name(self, name: str) -> Optional[str]:
         """
@@ -91,13 +246,17 @@ class OrderValidator:
         Returns:
             Territory ID if found, None otherwise
         """
+        territory_name, _ = self._split_territory_reference(name)
+        if territory_name is None:
+            return None
+
         # Try exact match first
-        if name in self.name_to_id:
-            return self.name_to_id[name]
+        if territory_name in self.name_to_id:
+            return self.name_to_id[territory_name]
         
         # Try case-insensitive match
-        if name.lower() in self.name_to_id:
-            return self.name_to_id[name.lower()]
+        if territory_name.lower() in self.name_to_id:
+            return self.name_to_id[territory_name.lower()]
         
         return None
     
@@ -130,14 +289,15 @@ class OrderValidator:
             return order
         
         # Resolve location to ID
-        location_id = self.resolve_territory_name(order.location)
-        if not location_id:
+        location_id, location_coast, location_error = self._resolve_territory_reference(order.location)
+        if location_error or not location_id:
             order.result = OrderResult.INVALID_TARGET
-            order.error_message = f"Unknown territory: {order.location}"
+            order.error_message = location_error or f"Unknown territory: {order.location}"
             return order
         
         # Update location to resolved ID
         order.location = location_id
+        order.location_coast = location_coast
         
         # Check if unit exists at location
         unit = self.state.get_unit_at(location_id)
@@ -192,33 +352,19 @@ class OrderValidator:
             return order
         
         # Resolve target
-        target_id = self.resolve_territory_name(order.target)
-        if not target_id:
+        target_id, target_coast, target_error = self._resolve_territory_reference(order.target)
+        if target_error or not target_id:
             order.result = OrderResult.INVALID_TARGET
-            order.error_message = f"Unknown territory: {order.target}"
+            order.error_message = target_error or f"Unknown territory: {order.target}"
             return order
         
         order.target = target_id
+        order.target_coast = target_coast
         
         # Reject moves into impassable territories
         if self._is_impassable(target_id):
             order.result = OrderResult.INVALID_TARGET
             order.error_message = f"Cannot move to impassable territory: {order.target}"
-            return order
-        
-        # Check adjacency
-        if not self.are_adjacent(order.location, target_id):
-            # Check if this could be a convoyed move (army moving to non-adjacent coast)
-            if unit.unit_type == UnitType.ARMY:
-                # Convoys are validated separately during resolution
-                # For now, mark as potentially valid if target is coastal
-                target_info = self.territory_info.get(target_id, {})
-                if target_info.get('coastal', False) or target_info.get('type') == 'sea':
-                    order.error_message = "Requires convoy"
-                    return order
-            
-            order.result = OrderResult.INVALID_ADJACENT
-            order.error_message = f"{order.location} is not adjacent to {order.target}"
             return order
         
         # Validate terrain compatibility
@@ -227,14 +373,50 @@ class OrderValidator:
         target_coastal = target_info.get('coastal', False)
         
         if unit.unit_type == UnitType.ARMY:
+            # Check adjacency
+            if not self.are_adjacent(order.location, target_id):
+                # Check if this could be a convoyed move (army moving to non-adjacent coast)
+                if target_info.get('coastal', False) or target_info.get('type') == 'sea':
+                    order.via_convoy = True
+                    order.error_message = "Requires convoy"
+                    return order
+
+                order.result = OrderResult.INVALID_ADJACENT
+                order.error_message = f"{order.location} is not adjacent to {order.target}"
+                return order
+
             if target_type == 'sea':
                 order.result = OrderResult.INVALID_TARGET
                 order.error_message = "Armies cannot move to sea territories"
                 return order
         else:  # Fleet
+            source_coast, source_error = self._resolve_source_coast(unit, order)
+            if source_error:
+                order.result = OrderResult.INVALID_TARGET
+                order.error_message = source_error
+                return order
+            order.location_coast = source_coast
+
             if target_type == 'land' and not target_coastal:
                 order.result = OrderResult.INVALID_TARGET
                 order.error_message = "Fleets can only move to sea or coastal territories"
+                return order
+
+            required_target_coast = target_type == 'land' and self._requires_coast_specification(target_id)
+            resolved_target_coast, target_coast_error = self._resolve_target_coast(
+                target_id,
+                order.target_coast,
+                required=required_target_coast,
+            )
+            if target_coast_error:
+                order.result = OrderResult.INVALID_TARGET
+                order.error_message = target_coast_error
+                return order
+            order.target_coast = resolved_target_coast
+
+            if not self._fleet_can_reach(order.location, target_id, source_coast, order.target_coast):
+                order.result = OrderResult.INVALID_ADJACENT
+                order.error_message = f"{order.location} is not adjacent to {order.target}"
                 return order
         
         return order
@@ -247,13 +429,14 @@ class OrderValidator:
             order.error_message = "Support order requires supported unit location"
             return order
         
-        support_from_id = self.resolve_territory_name(order.support_from)
-        if not support_from_id:
+        support_from_id, support_from_coast, support_from_error = self._resolve_territory_reference(order.support_from)
+        if support_from_error or not support_from_id:
             order.result = OrderResult.INVALID_TARGET
-            order.error_message = f"Unknown territory: {order.support_from}"
+            order.error_message = support_from_error or f"Unknown territory: {order.support_from}"
             return order
         
         order.support_from = support_from_id
+        order.support_from_coast = support_from_coast
         
         # Check if supported unit exists
         supported_unit = self.state.get_unit_at(support_from_id)
@@ -264,13 +447,14 @@ class OrderValidator:
         
         if order.support_to:
             # Support move - validate target
-            support_to_id = self.resolve_territory_name(order.support_to)
-            if not support_to_id:
+            support_to_id, support_to_coast, support_to_error = self._resolve_territory_reference(order.support_to)
+            if support_to_error or not support_to_id:
                 order.result = OrderResult.INVALID_TARGET
-                order.error_message = f"Unknown territory: {order.support_to}"
+                order.error_message = support_to_error or f"Unknown territory: {order.support_to}"
                 return order
             
             order.support_to = support_to_id
+            order.support_to_coast = support_to_coast
             
             # Reject support into impassable territories
             if self._is_impassable(support_to_id):
@@ -279,16 +463,61 @@ class OrderValidator:
                 return order
             
             # Supporting unit must be able to reach the target (if it could move there)
-            if not self.are_adjacent(order.location, support_to_id):
-                order.result = OrderResult.INVALID_ADJACENT
-                order.error_message = f"Cannot support move to {order.support_to} - not adjacent"
-                return order
+            if unit.unit_type == UnitType.FLEET:
+                source_coast, source_error = self._resolve_source_coast(unit, order)
+                if source_error:
+                    order.result = OrderResult.INVALID_TARGET
+                    order.error_message = source_error
+                    return order
+                order.location_coast = source_coast
+
+                required_target_coast = (
+                    self.territory_info.get(support_to_id, {}).get('type') == 'land'
+                    and self._requires_coast_specification(support_to_id)
+                )
+                resolved_support_to_coast, target_coast_error = self._resolve_target_coast(
+                    support_to_id,
+                    order.support_to_coast,
+                    required=required_target_coast,
+                )
+                if target_coast_error:
+                    order.result = OrderResult.INVALID_TARGET
+                    order.error_message = target_coast_error
+                    return order
+                order.support_to_coast = resolved_support_to_coast
+
+                if not self._fleet_can_reach(order.location, support_to_id, source_coast, order.support_to_coast):
+                    order.result = OrderResult.INVALID_ADJACENT
+                    order.error_message = f"Cannot support move to {order.support_to} - not adjacent"
+                    return order
+            else:
+                if not self.are_adjacent(order.location, support_to_id):
+                    order.result = OrderResult.INVALID_ADJACENT
+                    order.error_message = f"Cannot support move to {order.support_to} - not adjacent"
+                    return order
         else:
             # Support hold - must be adjacent to supported unit
-            if not self.are_adjacent(order.location, support_from_id):
-                order.result = OrderResult.INVALID_ADJACENT
-                order.error_message = f"Cannot support hold at {order.support_from} - not adjacent"
-                return order
+            if unit.unit_type == UnitType.FLEET:
+                source_coast, source_error = self._resolve_source_coast(unit, order)
+                if source_error:
+                    order.result = OrderResult.INVALID_TARGET
+                    order.error_message = source_error
+                    return order
+                order.location_coast = source_coast
+
+                target_coast = order.support_from_coast
+                if supported_unit.unit_type == UnitType.FLEET and supported_unit.coast:
+                    target_coast = supported_unit.coast
+
+                if not self._fleet_can_reach(order.location, support_from_id, source_coast, target_coast):
+                    order.result = OrderResult.INVALID_ADJACENT
+                    order.error_message = f"Cannot support hold at {order.support_from} - not adjacent"
+                    return order
+            else:
+                if not self.are_adjacent(order.location, support_from_id):
+                    order.result = OrderResult.INVALID_ADJACENT
+                    order.error_message = f"Cannot support hold at {order.support_from} - not adjacent"
+                    return order
         
         return order
     
@@ -312,26 +541,28 @@ class OrderValidator:
             order.error_message = "Convoy order requires army location"
             return order
         
-        convoy_from_id = self.resolve_territory_name(order.support_from)
-        if not convoy_from_id:
+        convoy_from_id, convoy_from_coast, convoy_from_error = self._resolve_territory_reference(order.support_from)
+        if convoy_from_error or not convoy_from_id:
             order.result = OrderResult.INVALID_TARGET
-            order.error_message = f"Unknown territory: {order.support_from}"
+            order.error_message = convoy_from_error or f"Unknown territory: {order.support_from}"
             return order
         
         order.support_from = convoy_from_id
+        order.support_from_coast = convoy_from_coast
         
         if not order.target:
             order.result = OrderResult.INVALID_FORMAT
             order.error_message = "Convoy order requires destination"
             return order
         
-        convoy_to_id = self.resolve_territory_name(order.target)
-        if not convoy_to_id:
+        convoy_to_id, convoy_to_coast, convoy_to_error = self._resolve_territory_reference(order.target)
+        if convoy_to_error or not convoy_to_id:
             order.result = OrderResult.INVALID_TARGET
-            order.error_message = f"Unknown territory: {order.target}"
+            order.error_message = convoy_to_error or f"Unknown territory: {order.target}"
             return order
         
         order.target = convoy_to_id
+        order.target_coast = convoy_to_coast
         
         # Check that convoyed unit is an army
         convoyed_unit = self.state.get_unit_at(convoy_from_id)
@@ -359,13 +590,14 @@ class OrderValidator:
             order.error_message = "Retreat order requires target"
             return order
         
-        target_id = self.resolve_territory_name(order.target)
-        if not target_id:
+        target_id, target_coast, target_error = self._resolve_territory_reference(order.target)
+        if target_error or not target_id:
             order.result = OrderResult.INVALID_TARGET
-            order.error_message = f"Unknown territory: {order.target}"
+            order.error_message = target_error or f"Unknown territory: {order.target}"
             return order
         
         order.target = target_id
+        order.target_coast = target_coast
         
         # Reject retreats into impassable territories
         if self._is_impassable(target_id):
@@ -374,10 +606,38 @@ class OrderValidator:
             return order
         
         # Check adjacency
-        if not self.are_adjacent(order.location, target_id):
-            order.result = OrderResult.INVALID_ADJACENT
-            order.error_message = f"{order.location} is not adjacent to {order.target}"
-            return order
+        if unit.unit_type == UnitType.FLEET:
+            source_coast, source_error = self._resolve_source_coast(unit, order)
+            if source_error:
+                order.result = OrderResult.INVALID_TARGET
+                order.error_message = source_error
+                return order
+            order.location_coast = source_coast
+
+            required_target_coast = (
+                self.territory_info.get(target_id, {}).get('type') == 'land'
+                and self._requires_coast_specification(target_id)
+            )
+            resolved_target_coast, target_coast_error = self._resolve_target_coast(
+                target_id,
+                order.target_coast,
+                required=required_target_coast,
+            )
+            if target_coast_error:
+                order.result = OrderResult.INVALID_TARGET
+                order.error_message = target_coast_error
+                return order
+            order.target_coast = resolved_target_coast
+
+            if not self._fleet_can_reach(order.location, target_id, source_coast, order.target_coast):
+                order.result = OrderResult.INVALID_ADJACENT
+                order.error_message = f"{order.location} is not adjacent to {order.target}"
+                return order
+        else:
+            if not self.are_adjacent(order.location, target_id):
+                order.result = OrderResult.INVALID_ADJACENT
+                order.error_message = f"{order.location} is not adjacent to {order.target}"
+                return order
         
         # Check that target is unoccupied
         if self.state.get_unit_at(target_id):
