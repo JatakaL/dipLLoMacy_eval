@@ -19,7 +19,7 @@ from pathlib import Path
 from datetime import datetime
 
 # Add the project root to the path
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def run_turn_processing_demo(seed: int = 42, output_dir: str = None):
@@ -31,7 +31,7 @@ def run_turn_processing_demo(seed: int = 42, output_dir: str = None):
         output_dir: Directory to save outputs
     """
     # Import the orchestrator for map generation
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen', 'phases'))
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'map_gen', 'phases'))
     from orchestrator import run_full_pipeline
     
     # Import game module
@@ -218,7 +218,7 @@ def run_automated_test(seed: int = 42):
     import tempfile
     
     # Import the orchestrator for map generation
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen', 'phases'))
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'map_gen', 'phases'))
     from orchestrator import run_full_pipeline
     
     # Import game module

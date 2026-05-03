@@ -18,7 +18,7 @@ import os
 from pathlib import Path
 
 # Add the project root to the path
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from datetime import datetime
 
@@ -35,7 +35,7 @@ def generate_and_initialize_game(seed: int = 42, output_dir: str = None):
         Tuple of (game_manager, json_path, jpeg_path)
     """
     # Import the orchestrator for map generation
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen', 'phases'))
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'map_gen', 'phases'))
     from orchestrator import run_full_pipeline
     
     # Import game module

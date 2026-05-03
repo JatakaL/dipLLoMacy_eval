@@ -14,8 +14,8 @@ import json
 import tempfile
 
 # Add the map_gen directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen', 'phases'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'map_gen', 'phases'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'map_gen'))
 
 from phase1_mesh import run_phase1
 from phase2_terrain import run_phase2

@@ -10,7 +10,7 @@ import sys
 import os
 
 # Add the map_gen directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'map_gen'))
 
 from topology import convert_cells_to_topology
 from topology_utils import (

@@ -26,7 +26,7 @@ try:
     )
 except ImportError:
     # Fallback for direct script execution
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'map_gen', 'phases'))
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'map_gen', 'phases'))
     from phase6_optimization import (
         merge_dead_end_node,
         split_highly_connected_node,
