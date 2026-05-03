@@ -135,6 +135,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+env-dipllm/
 
 # Spyder project settings
 .spyderproject
@@ -180,7 +181,11 @@ test_output/
 test_env/
 demo_map/
 game_output/
+test_phase4/
 *.json
+
+# Stray root-level PNG artifacts
+/coastal_provinces_demo.png
 
 # Generated visualizations (keep examples if explicitly added)
 # *.png
