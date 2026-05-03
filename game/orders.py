@@ -76,26 +76,60 @@ class Order:
     power: Optional[str] = None
     raw_order: Optional[str] = None
     error_message: Optional[str] = None
+    location_coast: Optional[str] = None
+    target_coast: Optional[str] = None
+    support_from_coast: Optional[str] = None
+    support_to_coast: Optional[str] = None
+    via_convoy: bool = False
+
+    @staticmethod
+    def _format_territory(territory: Optional[str], coast: Optional[str]) -> str:
+        """Format a territory with an optional coast suffix."""
+        if territory is None:
+            return ""
+        if coast:
+            return f"{territory}/{coast}"
+        return territory
     
     def __str__(self) -> str:
         """String representation of the order."""
         if self.order_type == OrderType.HOLD:
-            return f"{self.unit_type} {{{self.location}}} H"
+            return f"{self.unit_type} {{{self._format_territory(self.location, self.location_coast)}}} H"
         elif self.order_type == OrderType.MOVE:
-            return f"{self.unit_type} {{{self.location}}} M {{{self.target}}}"
+            return (
+                f"{self.unit_type} {{{self._format_territory(self.location, self.location_coast)}}} "
+                f"M {{{self._format_territory(self.target, self.target_coast)}}}"
+            )
         elif self.order_type == OrderType.SUPPORT:
             if self.support_to:
-                return f"{self.unit_type} {{{self.location}}} S {self.support_unit_type} {{{self.support_from}}} M {{{self.support_to}}}"
+                return (
+                    f"{self.unit_type} {{{self._format_territory(self.location, self.location_coast)}}} "
+                    f"S {self.support_unit_type} "
+                    f"{{{self._format_territory(self.support_from, self.support_from_coast)}}} "
+                    f"M {{{self._format_territory(self.support_to, self.support_to_coast)}}}"
+                )
             else:
-                return f"{self.unit_type} {{{self.location}}} S {self.support_unit_type} {{{self.support_from}}} H"
+                return (
+                    f"{self.unit_type} {{{self._format_territory(self.location, self.location_coast)}}} "
+                    f"S {self.support_unit_type} "
+                    f"{{{self._format_territory(self.support_from, self.support_from_coast)}}} H"
+                )
         elif self.order_type == OrderType.CONVOY:
-            return f"{self.unit_type} {{{self.location}}} C {self.support_unit_type} {{{self.support_from}}} M {{{self.target}}}"
+            return (
+                f"{self.unit_type} {{{self._format_territory(self.location, self.location_coast)}}} "
+                f"C {self.support_unit_type} "
+                f"{{{self._format_territory(self.support_from, self.support_from_coast)}}} "
+                f"M {{{self._format_territory(self.target, self.target_coast)}}}"
+            )
         elif self.order_type == OrderType.RETREAT:
-            return f"{self.unit_type} {{{self.location}}} R {{{self.target}}}"
+            return (
+                f"{self.unit_type} {{{self._format_territory(self.location, self.location_coast)}}} "
+                f"R {{{self._format_territory(self.target, self.target_coast)}}}"
+            )
         elif self.order_type == OrderType.DISBAND:
-            return f"{self.unit_type} {{{self.location}}} D"
+            return f"{self.unit_type} {{{self._format_territory(self.location, self.location_coast)}}} D"
         elif self.order_type == OrderType.BUILD:
-            return f"B {self.unit_type} {{{self.location}}}"
+            return f"B {self.unit_type} {{{self._format_territory(self.location, self.location_coast)}}}"
         return f"{self.unit_type} {self.location} ???"
     
     def to_dict(self) -> dict:
@@ -111,7 +145,12 @@ class Order:
             "result": self.result.value,
             "power": self.power,
             "raw_order": self.raw_order,
-            "error_message": self.error_message
+            "error_message": self.error_message,
+            "location_coast": self.location_coast,
+            "target_coast": self.target_coast,
+            "support_from_coast": self.support_from_coast,
+            "support_to_coast": self.support_to_coast,
+            "via_convoy": self.via_convoy,
         }
 
 

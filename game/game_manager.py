@@ -35,6 +35,11 @@ POWER_NAMES = [
 
 # Pattern for parsing BUILD orders in winter order files: B A/F {Territory}
 _BUILD_ORDER_PATTERN = re.compile(r'^B\s+(A|F)\s+\{([^}]+)\}\s*$')
+# Pattern for parsing optional split-coast territory references such as
+# "Spain/north" or "Spain (north)".
+_TERRITORY_REFERENCE_PATTERN = re.compile(
+    r"^(?P<territory>.+?)\s*(?:/\s*(?P<slash>[^/()]+)|\((?P<paren>[^)]+)\))\s*$"
+)
 
 
 class GameManager:
@@ -177,7 +182,8 @@ class GameManager:
             unit = Unit(
                 unit_type=unit_type,
                 power=power,
-                location=cell_id
+                location=cell_id,
+                coast=self._resolve_fleet_coast(cell_id) if unit_type == UnitType.FLEET else None,
             )
             self.state.units[cell_id] = unit
     
@@ -608,6 +614,79 @@ class GameManager:
         """
         from .validators import build_adjacency_from_map
         return build_adjacency_from_map(self.map_data)
+
+    def _split_territory_reference(self, name_or_id: str) -> Tuple[str, Optional[str]]:
+        """Split a territory reference into territory and optional coast."""
+        match = _TERRITORY_REFERENCE_PATTERN.match(name_or_id.strip())
+        if not match:
+            return name_or_id, None
+
+        territory = match.group("territory").strip()
+        coast = (match.group("slash") or match.group("paren") or "").strip() or None
+        topology = self.map_data.get('topology', {})
+        faces = topology.get('faces', {})
+        if territory in faces or any(face.get('name', '') == territory for face in faces.values()):
+            return territory, coast
+
+        return name_or_id, None
+
+    def _resolve_territory_reference(self, name_or_id: str) -> Tuple[str, Optional[str]]:
+        """Resolve a territory reference and preserve any coast qualifier."""
+        territory_name, coast = self._split_territory_reference(name_or_id)
+        return self._resolve_territory(territory_name), coast
+
+    def _get_named_coasts(self, territory_id: str) -> Dict[str, dict]:
+        """Return named coast metadata for a territory."""
+        topology = self.map_data.get('topology', {})
+        faces = topology.get('faces', {})
+        return faces.get(territory_id, {}).get('coasts', {})
+
+    def _default_coast_for_territory(self, territory_id: str) -> Optional[str]:
+        """Choose a deterministic default coast for a split-coast province."""
+        coasts = self._get_named_coasts(territory_id)
+        if not coasts:
+            return None
+        if len(coasts) == 1:
+            return next(iter(coasts))
+        return sorted(coasts)[0]
+
+    def _resolve_fleet_coast(self, territory_id: str, requested_coast: Optional[str] = None) -> Optional[str]:
+        """Resolve or choose a coast for a fleet placed directly in a coastal province."""
+        coasts = self._get_named_coasts(territory_id)
+        if not coasts:
+            return None
+        if requested_coast and requested_coast in coasts:
+            return requested_coast
+        return self._default_coast_for_territory(territory_id)
+
+    def _reachable_neighbors(self, territory_id: str, coast_id: Optional[str] = None) -> List[str]:
+        """Get reachable neighbors for a territory, optionally constrained to one coast."""
+        coasts = self._get_named_coasts(territory_id)
+        if coast_id and coast_id in coasts:
+            coast_data = coasts[coast_id]
+            return list(coast_data.get('adjacent', coast_data.get('adjacent_to', [])))
+        if len(coasts) == 1:
+            only_coast = next(iter(coasts.values()))
+            return list(only_coast.get('adjacent', only_coast.get('adjacent_to', [])))
+        return self.get_adjacency().get(territory_id, [])
+
+    def _fleet_can_reach_from_current_coast(
+        self,
+        unit: Unit,
+        source_id: str,
+        target_id: str,
+        target_coast: Optional[str] = None,
+    ) -> bool:
+        """Check whether a fleet can reach a target from its current coast."""
+        named_source_coasts = self._get_named_coasts(source_id)
+        source_coasts = [unit.coast] if unit.coast else list(named_source_coasts) or [None]
+
+        for source_coast in source_coasts:
+            if target_id not in self._reachable_neighbors(source_id, source_coast):
+                continue
+            if source_id in self._reachable_neighbors(target_id, target_coast):
+                return True
+        return False
     
     def get_territory_name(self, territory_id: str) -> str:
         """Get the name of a territory by its ID."""
@@ -749,8 +828,6 @@ class GameManager:
         if not self.state:
             return []
         
-        adjacency = self.get_adjacency()
-        
         # Look for the unit in dislodged_units dictionary
         unit = self.state.dislodged_units.get(dislodged_location)
         
@@ -764,7 +841,7 @@ class GameManager:
         topology = self.map_data.get('topology', {})
         faces = topology.get('faces', {})
         
-        for adj in adjacency.get(dislodged_location, []):
+        for adj in self.get_adjacency().get(dislodged_location, []):
             # Cannot retreat to the territory the attack came from
             if adj == attack_from:
                 continue
@@ -785,11 +862,24 @@ class GameManager:
             if unit.unit_type == UnitType.ARMY:
                 if face_type == 'sea':
                     continue
+                valid_retreats.append(adj)
             else:  # Fleet
                 if face_type == 'land' and not is_coastal:
                     continue
-            
-            valid_retreats.append(adj)
+
+                named_coasts = self._get_named_coasts(adj)
+                if not named_coasts:
+                    valid_retreats.append(adj)
+                    continue
+
+                for coast_id in named_coasts:
+                    if self._fleet_can_reach_from_current_coast(
+                        unit,
+                        dislodged_location,
+                        adj,
+                        coast_id,
+                    ):
+                        valid_retreats.append(f"{adj}/{coast_id}")
         
         return valid_retreats
     
@@ -816,13 +906,16 @@ class GameManager:
         if destination not in valid_retreats:
             return False
         
+        destination_id, destination_coast = self._resolve_territory_reference(destination)
+
         # Move unit from dislodged_units to units
         del self.state.dislodged_units[location]
         if location in self.state.dislodged_from:
             del self.state.dislodged_from[location]
-        unit.location = destination
+        unit.location = destination_id
+        unit.coast = destination_coast
         unit.dislodged = False
-        self.state.units[destination] = unit
+        self.state.units[destination_id] = unit
         
         return True
     
@@ -979,6 +1072,11 @@ class GameManager:
                         unit_type=new_unit_type,
                         power=power,
                         location=order.location,
+                        coast=(
+                            self._resolve_fleet_coast(order.location, order.location_coast)
+                            if new_unit_type == UnitType.FLEET
+                            else None
+                        ),
                     )
                     self.state.units[order.location] = new_unit
                     order.result = OrderResult.SUCCESS
@@ -1187,14 +1285,14 @@ class GameManager:
                     if build_match:
                         unit_type = build_match.group(1)
                         location = build_match.group(2)
-                        # Resolve territory name to ID
-                        territory_id = self._resolve_territory(location)
+                        territory_id, territory_coast = self._resolve_territory_reference(location)
                         order = Order(
                             unit_type=unit_type,
                             location=territory_id,
                             order_type=OrderType.BUILD,
                             power=power,
                             raw_order=line,
+                            location_coast=territory_coast,
                         )
                         orders.append(order)
                         continue
@@ -1233,16 +1331,18 @@ class GameManager:
         Returns:
             The territory ID (falls back to the input if not found)
         """
+        territory_name, _ = self._split_territory_reference(name_or_id)
+
         topology = self.map_data.get('topology', {})
         faces = topology.get('faces', {})
 
         # Direct ID match
-        if name_or_id in faces:
-            return name_or_id
+        if territory_name in faces:
+            return territory_name
 
         # Search by name
         for face_id, face_data in faces.items():
-            if face_data.get('name', '') == name_or_id:
+            if face_data.get('name', '') == territory_name:
                 return face_id
 
-        return name_or_id
+        return territory_name
